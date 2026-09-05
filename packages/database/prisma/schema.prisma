@@ -1,0 +1,216 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// -----------------------------------------------------------------------------
+// ENUMS
+// -----------------------------------------------------------------------------
+
+enum CompanyStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+enum MembershipStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum BranchStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum AuditEventType {
+  CREATE
+  UPDATE
+  DELETE
+  SECURITY // e.g. login, permission change
+}
+
+// -----------------------------------------------------------------------------
+// GLOBAL ENTITIES
+// -----------------------------------------------------------------------------
+
+model User {
+  id            String   @id @default(uuid()) @db.Uuid
+  email         String   @unique
+  password_hash String
+  first_name    String?
+  last_name     String?
+  is_superadmin Boolean  @default(false)
+  created_at    DateTime @default(now()) @db.Timestamptz(3)
+  updated_at    DateTime @updatedAt @db.Timestamptz(3)
+
+  // Relationships
+  memberships  CompanyMembership[]
+  branch_roles UserBranchRole[]
+  audit_logs   AuditLog[]
+
+  @@map("users")
+}
+
+// -----------------------------------------------------------------------------
+// TENANT ENTITIES
+// -----------------------------------------------------------------------------
+
+model Company {
+  id         String        @id @default(uuid()) @db.Uuid
+  name       String
+  status     CompanyStatus @default(ACTIVE)
+  created_at DateTime      @default(now()) @db.Timestamptz(3)
+  updated_at DateTime      @updatedAt @db.Timestamptz(3)
+
+  // Relationships
+  branches    Branch[]
+  memberships CompanyMembership[]
+  roles       Role[]
+  audit_logs  AuditLog[]
+
+  @@map("companies")
+}
+
+model CompanyMembership {
+  id         String           @id @default(uuid()) @db.Uuid
+  user_id    String           @db.Uuid
+  company_id String           @db.Uuid
+  status     MembershipStatus @default(ACTIVE)
+  created_at DateTime         @default(now()) @db.Timestamptz(3)
+  updated_at DateTime         @updatedAt @db.Timestamptz(3)
+
+  // Relationships
+  user    User    @relation(fields: [user_id], references: [id], onDelete: Restrict)
+  company Company @relation(fields: [company_id], references: [id], onDelete: Restrict)
+
+  @@unique([user_id, company_id])
+  @@index([user_id])
+  @@index([company_id])
+  @@map("company_memberships")
+}
+
+model Branch {
+  id         String       @id @default(uuid()) @db.Uuid
+  company_id String       @db.Uuid
+  name       String
+  timezone   String // e.g., 'Asia/Kolkata', 'America/New_York'
+  status     BranchStatus @default(ACTIVE)
+  created_at DateTime     @default(now()) @db.Timestamptz(3)
+  updated_at DateTime     @updatedAt @db.Timestamptz(3)
+
+  // Relationships
+  company    Company          @relation(fields: [company_id], references: [id], onDelete: Restrict)
+  user_roles UserBranchRole[]
+  audit_logs AuditLog[]
+
+  @@index([company_id])
+  @@map("branches")
+}
+
+// -----------------------------------------------------------------------------
+// AUTHORIZATION ENTITIES (RBAC)
+// -----------------------------------------------------------------------------
+
+model Role {
+  id          String   @id @default(uuid()) @db.Uuid
+  company_id  String   @db.Uuid
+  name        String
+  description String?
+  created_at  DateTime @default(now()) @db.Timestamptz(3)
+  updated_at  DateTime @updatedAt @db.Timestamptz(3)
+
+  // Relationships
+  company     Company          @relation(fields: [company_id], references: [id], onDelete: Restrict)
+  permissions RolePermission[]
+  user_roles  UserBranchRole[]
+
+  @@unique([company_id, name])
+  @@index([company_id])
+  @@map("roles")
+}
+
+model Permission {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String   @unique // e.g., 'pos.order.create'
+  module      String // e.g., 'pos', 'inventory'
+  description String?
+  created_at  DateTime @default(now()) @db.Timestamptz(3)
+  updated_at  DateTime @updatedAt @db.Timestamptz(3)
+
+  // Relationships
+  roles RolePermission[]
+
+  @@map("permissions")
+}
+
+model RolePermission {
+  role_id       String @db.Uuid
+  permission_id String @db.Uuid
+
+  // Relationships
+  role       Role       @relation(fields: [role_id], references: [id], onDelete: Restrict)
+  permission Permission @relation(fields: [permission_id], references: [id], onDelete: Restrict)
+
+  @@id([role_id, permission_id])
+  @@index([role_id])
+  @@index([permission_id])
+  @@map("role_permissions")
+}
+
+model UserBranchRole {
+  id         String   @id @default(uuid()) @db.Uuid
+  user_id    String   @db.Uuid
+  branch_id  String   @db.Uuid
+  role_id    String   @db.Uuid
+  created_at DateTime @default(now()) @db.Timestamptz(3)
+  updated_at DateTime @updatedAt @db.Timestamptz(3)
+
+  // Relationships
+  user   User   @relation(fields: [user_id], references: [id], onDelete: Restrict)
+  branch Branch @relation(fields: [branch_id], references: [id], onDelete: Restrict)
+  role   Role   @relation(fields: [role_id], references: [id], onDelete: Restrict)
+
+  // Constraints
+  // A user can only hold a specific role once at a specific branch
+  @@unique([user_id, branch_id, role_id])
+  @@index([user_id])
+  @@index([branch_id])
+  @@index([role_id])
+  @@map("user_branch_roles")
+}
+
+// -----------------------------------------------------------------------------
+// AUDIT ENTITIES
+// -----------------------------------------------------------------------------
+
+model AuditLog {
+  id          String         @id @default(uuid()) @db.Uuid
+  company_id  String         @db.Uuid
+  branch_id   String?        @db.Uuid
+  user_id     String         @db.Uuid
+  event_type  AuditEventType
+  entity_type String // e.g., 'Order', 'User'
+  entity_id   String
+  payload     Json // JSONB via PostgreSQL
+  created_at  DateTime       @default(now()) @db.Timestamptz(3)
+
+  // Relationships
+  company Company @relation(fields: [company_id], references: [id], onDelete: Restrict)
+  branch  Branch? @relation(fields: [branch_id], references: [id], onDelete: Restrict)
+  user    User    @relation(fields: [user_id], references: [id], onDelete: Restrict)
+
+  // Indexes optimized for time-series and scoping queries
+  @@index([company_id, created_at])
+  @@index([branch_id, created_at])
+  @@index([event_type, created_at])
+  @@index([entity_type, entity_id])
+  @@map("audit_logs")
+}
