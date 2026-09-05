@@ -7,5 +7,8 @@ export default defineConfig({
     globals: true,
     root: './',
     include: ['**/*.e2e-spec.ts'],
+    // E2E tests share a real database — must run sequentially to avoid teardown races
+    fileParallelism: false,
+    pool: 'forks',
   },
 });

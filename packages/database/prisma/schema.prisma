@@ -52,6 +52,7 @@ model User {
   updated_at    DateTime @updatedAt @db.Timestamptz(3)
 
   // Relationships
+  sessions     UserSession[]
   memberships  CompanyMembership[]
   branch_roles UserBranchRole[]
   audit_logs   AuditLog[]
@@ -193,9 +194,9 @@ model UserBranchRole {
 
 model AuditLog {
   id          String         @id @default(uuid()) @db.Uuid
-  company_id  String         @db.Uuid
+  company_id  String?        @db.Uuid
   branch_id   String?        @db.Uuid
-  user_id     String         @db.Uuid
+  user_id     String?        @db.Uuid
   event_type  AuditEventType
   entity_type String // e.g., 'Order', 'User'
   entity_id   String
@@ -203,9 +204,9 @@ model AuditLog {
   created_at  DateTime       @default(now()) @db.Timestamptz(3)
 
   // Relationships
-  company Company @relation(fields: [company_id], references: [id], onDelete: Restrict)
-  branch  Branch? @relation(fields: [branch_id], references: [id], onDelete: Restrict)
-  user    User    @relation(fields: [user_id], references: [id], onDelete: Restrict)
+  company Company? @relation(fields: [company_id], references: [id], onDelete: Restrict)
+  branch  Branch?  @relation(fields: [branch_id], references: [id], onDelete: Restrict)
+  user    User?    @relation(fields: [user_id], references: [id], onDelete: Restrict)
 
   // Indexes optimized for time-series and scoping queries
   @@index([company_id, created_at])
@@ -213,4 +214,26 @@ model AuditLog {
   @@index([event_type, created_at])
   @@index([entity_type, entity_id])
   @@map("audit_logs")
+}
+
+// -----------------------------------------------------------------------------
+// AUTHENTICATION & SESSIONS
+// -----------------------------------------------------------------------------
+
+model UserSession {
+  id         String    @id @default(uuid()) @db.Uuid
+  user_id    String    @db.Uuid
+  token_hash String
+  expires_at DateTime  @db.Timestamptz(3)
+  revoked_at DateTime? @db.Timestamptz(3)
+  created_at DateTime  @default(now()) @db.Timestamptz(3)
+  updated_at DateTime  @updatedAt @db.Timestamptz(3)
+
+  // Relationships
+  user User @relation(fields: [user_id], references: [id], onDelete: Restrict)
+
+  @@index([user_id])
+  @@index([expires_at])
+  @@index([revoked_at])
+  @@map("user_sessions")
 }
