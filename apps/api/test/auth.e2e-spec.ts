@@ -26,7 +26,9 @@ describe('AuthController (e2e)', () => {
     prisma = app.get(PrismaService);
 
     // Clean up before tests
+    await prisma.auditLog.deleteMany();
     await prisma.userSession.deleteMany();
+    await prisma.companyMembership.deleteMany();
     await prisma.user.deleteMany();
 
     // Create a test user

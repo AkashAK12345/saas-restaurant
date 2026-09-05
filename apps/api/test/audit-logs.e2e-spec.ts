@@ -111,6 +111,26 @@ describe('AuditLogsModule (e2e)', () => {
     await prisma.userBranchRole.create({
       data: { user_id: adminUser.id, branch_id: defaultBranch.id, role_id: adminRole.id },
     });
+
+    // --- Add minimal fixtures for normalUser in Beta (companyB) so manual tests can pass ---
+    const betaBranch = await prisma.branch.create({
+      data: { company_id: companyB.id, name: 'Beta HQ', timezone: 'America/New_York' },
+    });
+    const betaRole = await prisma.role.create({
+      data: { company_id: companyB.id, name: 'Beta Manager' },
+    });
+    // assign branches.view and companies.view to betaRole
+    const betaPerms = ['branches.view', 'companies.view'];
+    for (const name of betaPerms) {
+      let p = await prisma.permission.findUnique({ where: { name } });
+      if (!p) p = await prisma.permission.create({ data: { name, description: name, module: 'Test' } });
+      await prisma.rolePermission.create({
+        data: { role_id: betaRole.id, permission_id: p.id },
+      });
+    }
+    await prisma.userBranchRole.create({
+      data: { user_id: normalUser.id, branch_id: betaBranch.id, role_id: betaRole.id },
+    });
   });
 
   describe('Security Events', () => {

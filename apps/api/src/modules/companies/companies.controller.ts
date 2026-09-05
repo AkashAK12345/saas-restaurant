@@ -48,8 +48,14 @@ export class CompaniesController {
   @Get(':id')
   async getCompany(
     @Param('id', ParseUUIDPipe) companyId: string,
+    @Headers('x-company-id') headerCompanyId: string | undefined,
     @Req() req: AuthenticatedRequest,
   ) {
+    if (headerCompanyId && companyId !== headerCompanyId) {
+      throw new ForbiddenException(
+        'Company ID in URL does not match provided company context (X-Company-ID)',
+      );
+    }
     return this.companiesService.getCompany(companyId, req.user.id);
   }
 

@@ -2,8 +2,8 @@
   "name": "@samco/database",
   "version": "0.1.0",
   "private": true,
-  "main": "index.ts",
-  "types": "index.ts",
+  "main": "index.js",
+  "types": "index.d.ts",
   "dependencies": {
     "@prisma/client": "^5.0.0"
   },

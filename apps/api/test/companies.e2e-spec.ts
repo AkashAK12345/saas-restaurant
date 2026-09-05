@@ -367,6 +367,34 @@ describe('Company & Branch (e2e)', () => {
       expect(res.status).toBe(404);
     });
 
+    it('5b. URL company ID mismatch with X-Company-ID is rejected for GET /companies/:id', async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/api/v1/companies/${companyB.id}`)
+        .set('Authorization', `Bearer ${adminTokenA}`)
+        .set('X-Company-ID', companyA.id);
+
+      expect(res.status).toBe(403);
+    });
+
+    it('5c. user with no access sends X-Company-ID matching URL -> rejected', async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/api/v1/companies/${companyB.id}`)
+        .set('Authorization', `Bearer ${adminTokenA}`)
+        .set('X-Company-ID', companyB.id);
+
+      expect(res.status).toBe(404);
+    });
+
+    it('5d. user sends correct X-Company-ID for valid URL -> allowed', async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/api/v1/companies/${companyB.id}`)
+        .set('Authorization', `Bearer ${adminTokenB}`)
+        .set('X-Company-ID', companyB.id);
+
+      expect(res.status).toBe(200);
+      expect(res.body.id).toBe(companyB.id);
+    });
+
     it('6. authorized company administrator can update their company', async () => {
       const res = await request(app.getHttpServer())
         .patch(`/api/v1/companies/${companyA.id}`)
@@ -505,6 +533,47 @@ describe('Company & Branch (e2e)', () => {
       const ids = res.body.map((b: any) => b.id);
       expect(ids).toContain(branchA.id);
       expect(ids).not.toContain(branchB.id); // branchB belongs to companyB
+    });
+
+    it('10b. authorized user can list branches in their company via nested route', async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/api/v1/companies/${companyA.id}/branches`)
+        .set('Authorization', `Bearer ${adminTokenA}`)
+        .set('X-Company-ID', companyA.id);
+
+      expect(res.status).toBe(200);
+      expect(Array.isArray(res.body)).toBe(true);
+      const ids = res.body.map((b: any) => b.id);
+      expect(ids).toContain(branchA.id);
+      expect(ids).not.toContain(branchB.id);
+      for (const branch of res.body) {
+        expect(branch.company_id).toBe(companyA.id);
+      }
+    });
+
+    it('10c. nested branch list rejects missing authentication', async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/api/v1/companies/${companyA.id}/branches`);
+
+      expect(res.status).toBe(401);
+    });
+
+    it('10d. nested branch list rejects cross-company access', async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/api/v1/companies/${companyB.id}/branches`)
+        .set('Authorization', `Bearer ${adminTokenA}`)
+        .set('X-Company-ID', companyB.id);
+
+      expect(res.status).toBe(403);
+    });
+
+    it('10e. nested branch list rejects mismatched X-Company-ID context', async () => {
+      const res = await request(app.getHttpServer())
+        .get(`/api/v1/companies/${companyB.id}/branches`)
+        .set('Authorization', `Bearer ${adminTokenA}`)
+        .set('X-Company-ID', companyA.id);
+
+      expect(res.status).toBe(403);
     });
 
     it('11. user cannot list branches from another company', async () => {
