@@ -83,6 +83,17 @@ export class PermissionGuard implements CanActivate {
       );
 
       if (!allowed) throw new ForbiddenException();
+    } else if (meta.scope === 'company_status') {
+      // Lifecycle transitions only. Same membership + permission proof as
+      // 'company' scope, without the company-must-be-ACTIVE precondition, so a
+      // disabled company remains recoverable by its own administrators.
+      const allowed = await this.authorizationService.hasCompanyStatusPermission(
+        user.id,
+        companyId,
+        meta.permission,
+      );
+
+      if (!allowed) throw new ForbiddenException();
     } else {
       const allowed = await this.authorizationService.hasCompanyPermission(
         user.id,

@@ -28,6 +28,12 @@ import { INestApplication, ValidationPipe } from '@nestjs/common';
 import request from 'supertest';
 import { AppModule } from '../src/app.module.js';
 import { PrismaService } from '../src/core/database/prisma.service.js';
+import {
+  resetDatabase,
+  purgeAuditLogs,
+  assertPermissionsSeeded,
+  deleteUserCascade,
+} from './utils/db.js';
 import * as bcrypt from 'bcrypt';
 import { AllExceptionsFilter } from '../src/core/filters/all-exceptions.filter.js';
 import { MembershipStatus, CompanyStatus, BranchStatus } from '@samco/database';
@@ -62,13 +68,11 @@ describe('RBAC (e2e)', () => {
   let cashierUser: any;
   let multiRoleUser: any;
   let noMemberUser: any;
-  let superadminUser: any;
   let companyBUser: any;
 
   // Tokens
   let adminToken: string;
   let cashierToken: string;
-  let noMemberToken: string;
   let superadminToken: string;
   let companyBToken: string;
 
@@ -88,15 +92,8 @@ describe('RBAC (e2e)', () => {
     prisma = app.get(PrismaService);
 
     // ── Clean up (order matters due to FK constraints) ──────────────────────
-    await prisma.auditLog.deleteMany();
-    await prisma.userBranchRole.deleteMany();
-    await prisma.rolePermission.deleteMany();
-    await prisma.userSession.deleteMany();
-    await prisma.companyMembership.deleteMany();
-    await prisma.role.deleteMany();
-    await prisma.branch.deleteMany();
-    await prisma.user.deleteMany();
-    await prisma.company.deleteMany();
+    await assertPermissionsSeeded(prisma);
+    await resetDatabase(prisma);
     // Note: permissions are NOT deleted — they were seeded and are system-defined
 
     // ── Companies ───────────────────────────────────────────────────────────
@@ -152,14 +149,20 @@ describe('RBAC (e2e)', () => {
           in: [
             'users.view', 'users.create', 'users.update',
             'roles.view', 'roles.create', 'roles.update',
-            'pos.order.create',
+            'pos.order.create', 'pos.order.cancel',
           ],
         },
       },
     });
     const permMap = new Map(perms.map((p) => [p.name, p]));
 
-    // adminRoleA gets all user+role management permissions
+    // adminRoleA gets all user+role management permissions, plus the two POS
+    // permissions it hands out in the role-permission tests below.
+    //
+    // An actor may only grant permissions they themselves hold, so adminUser
+    // must hold everything the tests assign through the API. adminRoleA still
+    // deliberately excludes high-value permissions (pos.refund, audit_logs.view,
+    // companies.update, memberships.*) so escalation attempts remain testable.
     await prisma.rolePermission.createMany({
       data: [
         { role_id: adminRoleA.id, permission_id: permMap.get('users.view')!.id },
@@ -168,6 +171,8 @@ describe('RBAC (e2e)', () => {
         { role_id: adminRoleA.id, permission_id: permMap.get('roles.view')!.id },
         { role_id: adminRoleA.id, permission_id: permMap.get('roles.create')!.id },
         { role_id: adminRoleA.id, permission_id: permMap.get('roles.update')!.id },
+        { role_id: adminRoleA.id, permission_id: permMap.get('pos.order.create')!.id },
+        { role_id: adminRoleA.id, permission_id: permMap.get('pos.order.cancel')!.id },
       ],
     });
 
@@ -201,7 +206,7 @@ describe('RBAC (e2e)', () => {
     noMemberUser = await prisma.user.create({
       data: { email: 'nomember@test.com', password_hash: pwdHash, first_name: 'No', last_name: 'Member' },
     });
-    superadminUser = await prisma.user.create({
+    await prisma.user.create({
       data: {
         email: 'superadmin@samco.com', password_hash: pwdHash,
         first_name: 'Super', last_name: 'Admin', is_superadmin: true,
@@ -242,21 +247,12 @@ describe('RBAC (e2e)', () => {
 
     adminToken = await loginAndGetToken('admin@alpha.com');
     cashierToken = await loginAndGetToken('cashier@alpha.com');
-    noMemberToken = await loginAndGetToken('nomember@test.com');
     superadminToken = await loginAndGetToken('superadmin@samco.com');
     companyBToken = await loginAndGetToken('admin@beta.com');
   });
 
   afterAll(async () => {
-    await prisma.auditLog.deleteMany();
-    await prisma.userBranchRole.deleteMany();
-    await prisma.rolePermission.deleteMany();
-    await prisma.userSession.deleteMany();
-    await prisma.companyMembership.deleteMany();
-    await prisma.role.deleteMany();
-    await prisma.branch.deleteMany();
-    await prisma.user.deleteMany();
-    await prisma.company.deleteMany();
+    await resetDatabase(prisma);
     await app.close();
   });
 
@@ -401,8 +397,8 @@ describe('RBAC (e2e)', () => {
       const isHashed = await bcrypt.compare('Password123!', dbUser!.password_hash);
       expect(isHashed).toBe(true);
 
-      // Clean up
-      await prisma.user.delete({ where: { id: dbUser!.id } });
+      // Clean up (the created user now also owns a CompanyMembership)
+      await deleteUserCascade(prisma, dbUser!.id);
     });
 
     it('6. password_hash is never returned in API response', async () => {
@@ -415,7 +411,8 @@ describe('RBAC (e2e)', () => {
       expect(res.status).toBe(201);
       expect(res.body).not.toHaveProperty('password_hash');
 
-      await prisma.user.deleteMany({ where: { email: 'newuser2@test.com' } });
+      const created2 = await prisma.user.findUnique({ where: { email: 'newuser2@test.com' } });
+      if (created2) await deleteUserCascade(prisma, created2.id);
     });
 
     it('7. client cannot set is_superadmin through user creation', async () => {
@@ -432,7 +429,7 @@ describe('RBAC (e2e)', () => {
       if (res.status === 201) {
         const dbUser = await prisma.user.findUnique({ where: { email: 'newuser3@test.com' } });
         expect(dbUser!.is_superadmin).toBe(false);
-        await prisma.user.delete({ where: { id: dbUser!.id } });
+        await deleteUserCascade(prisma, dbUser!.id);
       } else {
         // 400 is also acceptable — the field is rejected outright
         expect(res.status).toBe(400);
@@ -479,7 +476,7 @@ describe('RBAC (e2e)', () => {
       if (res.status === 201) {
         const dbUser = await prisma.user.findUnique({ where: { email: 'badactor@test.com' } });
         expect(dbUser!.password_hash).not.toBe('my_evil_hash');
-        await prisma.user.delete({ where: { id: dbUser!.id } });
+        await deleteUserCascade(prisma, dbUser!.id);
       } else {
         expect(res.status).toBe(400);
       }
@@ -669,6 +666,161 @@ describe('RBAC (e2e)', () => {
 
       expect(res.status).toBe(403);
     });
+
+    // ═════════════════════════════════════════════════════════════════════════
+    // C1 REGRESSION — roles.update must not permit privilege self-escalation
+    //
+    // adminUser holds: users.*, roles.*, pos.order.create, pos.order.cancel
+    // adminUser does NOT hold: pos.refund, audit_logs.view, companies.update
+    // ═════════════════════════════════════════════════════════════════════════
+
+    it('C1-a. cannot grant a permission the actor does not hold', async () => {
+      const res = await request(app.getHttpServer())
+        .put(`/api/v1/roles/${testRole.id}/permissions`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Company-ID', companyA.id)
+        .send({ permissions: ['pos.refund'] });
+
+      expect(res.status).toBe(403);
+
+      // Nothing was persisted
+      const rows = await prisma.rolePermission.findMany({
+        where: { role_id: testRole.id, permission: { name: 'pos.refund' } },
+      });
+      expect(rows).toHaveLength(0);
+    });
+
+    it('C1-b. cannot self-escalate by writing a new permission onto own role', async () => {
+      // adminUser holds adminRoleA. They lack audit_logs.view.
+      const before = await request(app.getHttpServer())
+        .get('/api/v1/audit-logs')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Company-ID', companyA.id);
+      expect(before.status).toBe(403);
+
+      const escalate = await request(app.getHttpServer())
+        .put(`/api/v1/roles/${adminRoleA.id}/permissions`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Company-ID', companyA.id)
+        .send({
+          permissions: [
+            'users.view', 'users.create', 'users.update',
+            'roles.view', 'roles.create', 'roles.update',
+            'pos.order.create', 'pos.order.cancel',
+            'audit_logs.view', // ← the escalation attempt
+          ],
+        });
+      expect(escalate.status).toBe(403);
+
+      // Effective privilege is unchanged
+      const after = await request(app.getHttpServer())
+        .get('/api/v1/audit-logs')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Company-ID', companyA.id);
+      expect(after.status).toBe(403);
+    });
+
+    it('C1-c. a partially-disallowed batch is rejected atomically', async () => {
+      const res = await request(app.getHttpServer())
+        .put(`/api/v1/roles/${testRole.id}/permissions`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Company-ID', companyA.id)
+        // users.view is held; companies.update is not
+        .send({ permissions: ['users.view', 'companies.update'] });
+
+      expect(res.status).toBe(403);
+
+      // Neither permission was written
+      const rows = await prisma.rolePermission.findMany({
+        where: { role_id: testRole.id },
+      });
+      expect(rows).toHaveLength(0);
+    });
+
+    it('C1-d. legitimate assignment of held permissions still succeeds', async () => {
+      const res = await request(app.getHttpServer())
+        .put(`/api/v1/roles/${testRole.id}/permissions`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Company-ID', companyA.id)
+        .send({ permissions: ['users.view', 'pos.order.create'] });
+
+      expect(res.status).toBe(200);
+      const names = res.body.permissions.map((rp: any) => rp.permission.name);
+      expect(names).toContain('users.view');
+      expect(names).toContain('pos.order.create');
+
+      // Reset for later tests in this block
+      await request(app.getHttpServer())
+        .put(`/api/v1/roles/${testRole.id}/permissions`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Company-ID', companyA.id)
+        .send({ permissions: [] });
+    });
+
+    it('C1-e. permission-name validation still runs (unknown name → 400)', async () => {
+      const res = await request(app.getHttpServer())
+        .put(`/api/v1/roles/${testRole.id}/permissions`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Company-ID', companyA.id)
+        .send({ permissions: ['users.view', 'not.a.real.permission'] });
+
+      expect(res.status).toBe(400);
+    });
+
+    it('C1-f. an existing permission the actor lacks may be RETAINED (not an escalation)', async () => {
+      // Seed a role that already outranks adminUser.
+      const outrankingRole = await prisma.role.create({
+        data: { company_id: companyA.id, name: 'OutrankingRole' },
+      });
+      const refund = await prisma.permission.findUnique({ where: { name: 'pos.refund' } });
+      await prisma.rolePermission.create({
+        data: { role_id: outrankingRole.id, permission_id: refund!.id },
+      });
+
+      // Keeping pos.refund while adding a held permission is allowed:
+      // the actor introduces nothing they do not already have.
+      const res = await request(app.getHttpServer())
+        .put(`/api/v1/roles/${outrankingRole.id}/permissions`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Company-ID', companyA.id)
+        .send({ permissions: ['pos.refund', 'users.view'] });
+
+      expect(res.status).toBe(200);
+      const names = res.body.permissions.map((rp: any) => rp.permission.name);
+      expect(names).toContain('pos.refund');
+      expect(names).toContain('users.view');
+
+      // Removing it is also allowed — that is a privilege reduction.
+      const removed = await request(app.getHttpServer())
+        .put(`/api/v1/roles/${outrankingRole.id}/permissions`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Company-ID', companyA.id)
+        .send({ permissions: ['users.view'] });
+      expect(removed.status).toBe(200);
+
+      // ...but it can never be re-added, since the actor still does not hold it.
+      const reAdd = await request(app.getHttpServer())
+        .put(`/api/v1/roles/${outrankingRole.id}/permissions`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Company-ID', companyA.id)
+        .send({ permissions: ['users.view', 'pos.refund'] });
+      expect(reAdd.status).toBe(403);
+
+      await prisma.rolePermission.deleteMany({ where: { role_id: outrankingRole.id } });
+      await purgeAuditLogs(prisma);
+      await prisma.role.delete({ where: { id: outrankingRole.id } });
+    });
+
+    it('C1-g. is_superadmin does not bypass the permission-grant restriction', async () => {
+      const res = await request(app.getHttpServer())
+        .put(`/api/v1/roles/${testRole.id}/permissions`)
+        .set('Authorization', `Bearer ${superadminToken}`)
+        .set('X-Company-ID', companyA.id)
+        .send({ permissions: ['pos.refund'] });
+
+      // Rejected at the guard — superadmin has no membership and no permissions
+      expect(res.status).toBe(403);
+    });
   });
 
   // ═══════════════════════════════════════════════════════════════════════════
@@ -742,7 +894,10 @@ describe('RBAC (e2e)', () => {
     });
 
     // ── Test 19: Branch from another company cannot be assigned ─────────────
-    it('19. branch from another company in body is rejected (422)', async () => {
+    // The body branch_id must equal the authorized X-Branch-ID, so a foreign
+    // branch in the body is now rejected as a branch-context mismatch (403)
+    // before the cross-company ownership check (422) is ever reached.
+    it('19. branch from another company in body is rejected (403 context mismatch)', async () => {
       const res = await request(app.getHttpServer())
         .post(`/api/v1/users/${targetUser.id}/branch-roles`)
         .set('Authorization', `Bearer ${adminToken}`)
@@ -750,7 +905,7 @@ describe('RBAC (e2e)', () => {
         .set('X-Branch-ID', branchA.id)
         .send({ branch_id: branchB.id, role_id: targetRole.id }); // branchB is companyB's
 
-      expect(res.status).toBe(422);
+      expect(res.status).toBe(403);
     });
 
     // ── Test 20: Role from another company cannot be assigned ────────────────
@@ -804,6 +959,212 @@ describe('RBAC (e2e)', () => {
         where: { id: createdAssignment.id },
       });
       expect(check).toBeNull();
+    });
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // C2 / C3 REGRESSION — branch-role assignment and removal must stay inside
+  // the branch the PermissionGuard actually authorized.
+  //
+  // adminUser holds adminRoleA (incl. users.update) at branchA ONLY.
+  // They have no role, and therefore no authority, at branchA2 — even though
+  // branchA2 belongs to the same company.
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  describe('Branch-context isolation (C2/C3)', () => {
+    let isolationRole: any;
+    let isolationUser: any;
+
+    beforeAll(async () => {
+      isolationRole = await prisma.role.create({
+        data: { company_id: companyA.id, name: 'BranchIsolationRole' },
+      });
+      isolationUser = await prisma.user.create({
+        data: { email: 'branchisolation@test.com', password_hash: await hashPwd(PASSWORD) },
+      });
+      await prisma.companyMembership.create({
+        data: {
+          user_id: isolationUser.id,
+          company_id: companyA.id,
+          status: MembershipStatus.ACTIVE,
+        },
+      });
+    });
+
+    afterAll(async () => {
+      await prisma.userBranchRole.deleteMany({ where: { user_id: isolationUser.id } });
+      await purgeAuditLogs(prisma);
+      await prisma.companyMembership.deleteMany({ where: { user_id: isolationUser.id } });
+      await prisma.user.delete({ where: { id: isolationUser.id } });
+      await prisma.rolePermission.deleteMany({ where: { role_id: isolationRole.id } });
+      await prisma.role.delete({ where: { id: isolationRole.id } });
+    });
+
+    // ── C2: assignment ───────────────────────────────────────────────────────
+
+    it('C2-a. branchA manager CAN assign a role at branchA', async () => {
+      const res = await request(app.getHttpServer())
+        .post(`/api/v1/users/${isolationUser.id}/branch-roles`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Company-ID', companyA.id)
+        .set('X-Branch-ID', branchA.id)
+        .send({ branch_id: branchA.id, role_id: isolationRole.id });
+
+      expect(res.status).toBe(201);
+      expect(res.body.branch_id).toBe(branchA.id);
+
+      await prisma.userBranchRole.delete({ where: { id: res.body.id } });
+    });
+
+    it('C2-b. branchA manager CANNOT assign a role at branchA2 via body branch_id', async () => {
+      // Authorized at branchA, attempting to write at branchA2 (same company).
+      const res = await request(app.getHttpServer())
+        .post(`/api/v1/users/${isolationUser.id}/branch-roles`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Company-ID', companyA.id)
+        .set('X-Branch-ID', branchA.id)
+        .send({ branch_id: branchA2.id, role_id: isolationRole.id });
+
+      expect(res.status).toBe(403);
+
+      // Critically: nothing was written at branchA2
+      const leaked = await prisma.userBranchRole.findFirst({
+        where: { user_id: isolationUser.id, branch_id: branchA2.id },
+      });
+      expect(leaked).toBeNull();
+    });
+
+    it('C2-c. branchA manager cannot simply switch X-Branch-ID to branchA2', async () => {
+      // Making the body match branchA2 requires authorization AT branchA2,
+      // which adminUser does not have — the guard rejects it.
+      const res = await request(app.getHttpServer())
+        .post(`/api/v1/users/${isolationUser.id}/branch-roles`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Company-ID', companyA.id)
+        .set('X-Branch-ID', branchA2.id)
+        .send({ branch_id: branchA2.id, role_id: isolationRole.id });
+
+      expect(res.status).toBe(403);
+
+      const leaked = await prisma.userBranchRole.findFirst({
+        where: { user_id: isolationUser.id, branch_id: branchA2.id },
+      });
+      expect(leaked).toBeNull();
+    });
+
+    it('C2-d. company mismatch in branch context is rejected', async () => {
+      const res = await request(app.getHttpServer())
+        .post(`/api/v1/users/${isolationUser.id}/branch-roles`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Company-ID', companyA.id)
+        .set('X-Branch-ID', branchB.id) // branchB belongs to companyB
+        .send({ branch_id: branchB.id, role_id: isolationRole.id });
+
+      expect(res.status).toBe(403);
+    });
+
+    it('C2-e. missing branch context is rejected', async () => {
+      const res = await request(app.getHttpServer())
+        .post(`/api/v1/users/${isolationUser.id}/branch-roles`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Company-ID', companyA.id)
+        .send({ branch_id: branchA.id, role_id: isolationRole.id });
+
+      expect(res.status).toBe(403);
+    });
+
+    // ── C3: removal ──────────────────────────────────────────────────────────
+
+    it('C3-a. branchA manager CAN remove a branchA assignment', async () => {
+      const assignment = await prisma.userBranchRole.create({
+        data: {
+          user_id: isolationUser.id,
+          branch_id: branchA.id,
+          role_id: isolationRole.id,
+        },
+      });
+
+      const res = await request(app.getHttpServer())
+        .delete(`/api/v1/users/${isolationUser.id}/branch-roles/${assignment.id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Company-ID', companyA.id)
+        .set('X-Branch-ID', branchA.id);
+
+      expect(res.status).toBe(204);
+      const gone = await prisma.userBranchRole.findUnique({ where: { id: assignment.id } });
+      expect(gone).toBeNull();
+    });
+
+    it('C3-b. branchA manager CANNOT remove a branchA2 assignment', async () => {
+      const foreign = await prisma.userBranchRole.create({
+        data: {
+          user_id: isolationUser.id,
+          branch_id: branchA2.id,
+          role_id: isolationRole.id,
+        },
+      });
+
+      const res = await request(app.getHttpServer())
+        .delete(`/api/v1/users/${isolationUser.id}/branch-roles/${foreign.id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Company-ID', companyA.id)
+        .set('X-Branch-ID', branchA.id); // authority at branchA only
+
+      // 404 rather than 403 — do not disclose assignments at branches the
+      // actor has no authority over.
+      expect(res.status).toBe(404);
+
+      // The assignment survives
+      const survived = await prisma.userBranchRole.findUnique({ where: { id: foreign.id } });
+      expect(survived).not.toBeNull();
+
+      await prisma.userBranchRole.delete({ where: { id: foreign.id } });
+    });
+
+    it('C3-c. company mismatch on removal is rejected', async () => {
+      const assignment = await prisma.userBranchRole.create({
+        data: {
+          user_id: isolationUser.id,
+          branch_id: branchA.id,
+          role_id: isolationRole.id,
+        },
+      });
+
+      // companyBUser attempting to reach into companyA's assignment
+      const res = await request(app.getHttpServer())
+        .delete(`/api/v1/users/${isolationUser.id}/branch-roles/${assignment.id}`)
+        .set('Authorization', `Bearer ${companyBToken}`)
+        .set('X-Company-ID', companyA.id)
+        .set('X-Branch-ID', branchA.id);
+
+      expect(res.status).toBe(403);
+
+      const survived = await prisma.userBranchRole.findUnique({ where: { id: assignment.id } });
+      expect(survived).not.toBeNull();
+
+      await prisma.userBranchRole.delete({ where: { id: assignment.id } });
+    });
+
+    it('C3-d. missing branch context on removal is rejected', async () => {
+      const assignment = await prisma.userBranchRole.create({
+        data: {
+          user_id: isolationUser.id,
+          branch_id: branchA.id,
+          role_id: isolationRole.id,
+        },
+      });
+
+      const res = await request(app.getHttpServer())
+        .delete(`/api/v1/users/${isolationUser.id}/branch-roles/${assignment.id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Company-ID', companyA.id);
+
+      expect(res.status).toBe(403);
+
+      const survived = await prisma.userBranchRole.findUnique({ where: { id: assignment.id } });
+      expect(survived).not.toBeNull();
+
+      await prisma.userBranchRole.delete({ where: { id: assignment.id } });
     });
   });
 
@@ -879,7 +1240,7 @@ describe('RBAC (e2e)', () => {
       expect(after.status).toBe(403);
 
       // Cleanup
-      await prisma.auditLog.deleteMany({ where: { user_id: tempUser.id } });
+      await purgeAuditLogs(prisma);
       await prisma.userSession.deleteMany({ where: { user_id: tempUser.id } });
       await prisma.companyMembership.deleteMany({ where: { user_id: tempUser.id } });
       await prisma.user.delete({ where: { id: tempUser.id } });
@@ -930,7 +1291,7 @@ describe('RBAC (e2e)', () => {
       expect(after.status).toBe(403);
 
       // Cleanup
-      await prisma.auditLog.deleteMany({ where: { user_id: tempUser.id } });
+      await purgeAuditLogs(prisma);
       await prisma.userSession.deleteMany({ where: { user_id: tempUser.id } });
       await prisma.userBranchRole.deleteMany({ where: { user_id: tempUser.id } });
       await prisma.companyMembership.deleteMany({ where: { user_id: tempUser.id } });

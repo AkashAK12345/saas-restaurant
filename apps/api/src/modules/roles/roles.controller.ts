@@ -11,6 +11,7 @@ import {
   HttpCode,
   HttpStatus,
   Req,
+  ParseUUIDPipe,
 } from '@nestjs/common';
 import { RolesService } from './roles.service.js';
 import {
@@ -46,7 +47,7 @@ export class RolesController {
   @UseGuards(PermissionGuard)
   @RequireCompanyPermission(PERMISSION_KEYS.ROLES_VIEW)
   async getRole(
-    @Param('id') roleId: string,
+    @Param('id', ParseUUIDPipe) roleId: string,
     @Headers('x-company-id') companyId: string,
   ) {
     return this.rolesService.getRole(roleId, companyId);
@@ -68,7 +69,7 @@ export class RolesController {
   @UseGuards(PermissionGuard)
   @RequireCompanyPermission(PERMISSION_KEYS.ROLES_UPDATE)
   async updateRole(
-    @Param('id') roleId: string,
+    @Param('id', ParseUUIDPipe) roleId: string,
     @Headers('x-company-id') companyId: string,
     @Body() dto: UpdateRoleDto,
     @Req() req: AuthenticatedRequest,
@@ -80,7 +81,7 @@ export class RolesController {
   @UseGuards(PermissionGuard)
   @RequireCompanyPermission(PERMISSION_KEYS.ROLES_UPDATE)
   async setRolePermissions(
-    @Param('id') roleId: string,
+    @Param('id', ParseUUIDPipe) roleId: string,
     @Headers('x-company-id') companyId: string,
     @Body() dto: SetRolePermissionsDto,
     @Req() req: AuthenticatedRequest,

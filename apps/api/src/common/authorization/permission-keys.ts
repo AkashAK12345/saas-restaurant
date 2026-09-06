@@ -74,7 +74,9 @@ export const SYSTEM_PERMISSIONS: Array<{
   {
     name: PERMISSION_KEYS.COMPANIES_DISABLE,
     module: 'companies',
-    description: 'Disable or suspend a company',
+    description:
+      'Manage company lifecycle status (disable and re-enable). The same ' +
+      'permission covers both directions so disabling is always recoverable.',
   },
   {
     name: PERMISSION_KEYS.BRANCHES_VIEW,
@@ -144,7 +146,9 @@ export const SYSTEM_PERMISSIONS: Array<{
   {
     name: PERMISSION_KEYS.USERS_DISABLE,
     module: 'users',
-    description: 'Disable or re-enable user accounts',
+    description:
+      'Disable or re-enable a user account globally. Distinct from removing a ' +
+      'user from a company, which is a membership operation.',
   },
   {
     name: PERMISSION_KEYS.POS_ORDER_CREATE,

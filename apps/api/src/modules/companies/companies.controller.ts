@@ -14,10 +14,17 @@ import {
   ParseUUIDPipe,
 } from '@nestjs/common';
 import { CompaniesService } from './companies.service.js';
-import { CreateCompanyDto, UpdateCompanyDto } from './companies.dto.js';
+import {
+  CreateCompanyDto,
+  UpdateCompanyDto,
+  UpdateCompanyStatusDto,
+} from './companies.dto.js';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import { PermissionGuard } from '../../common/authorization/permission.guard.js';
-import { RequireCompanyPermission } from '../../common/authorization/require-permission.decorator.js';
+import {
+  RequireCompanyPermission,
+  RequireCompanyStatusPermission,
+} from '../../common/authorization/require-permission.decorator.js';
 import { PERMISSION_KEYS } from '../../common/authorization/permission-keys.js';
 
 interface AuthenticatedRequest {
@@ -96,5 +103,37 @@ export class CompaniesController {
       );
     }
     return this.companiesService.updateCompany(companyId, dto, req.user.id);
+  }
+
+  /**
+   * PATCH /companies/:id/status
+   *
+   * Company lifecycle transitions (disable / recover). Separate from PATCH
+   * /companies/:id because it carries a different permission and is the one
+   * route that does not require the company to already be ACTIVE — otherwise
+   * disabling a company would be an unrecoverable, self-inflicted lockout.
+   *
+   * The caller must still be an ACTIVE member of this exact company and hold
+   * companies.disable within it. X-Company-ID must match the URL :id, and it is
+   * the guard — not the header — that establishes authorization.
+   *
+   * Permitted transitions and the SUSPENDED policy are documented on
+   * CompaniesService.updateCompanyStatus.
+   */
+  @Patch(':id/status')
+  @UseGuards(PermissionGuard)
+  @RequireCompanyStatusPermission(PERMISSION_KEYS.COMPANIES_DISABLE)
+  async updateCompanyStatus(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Headers('x-company-id') companyId: string,
+    @Body() dto: UpdateCompanyStatusDto,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    if (id !== companyId) {
+      throw new ForbiddenException(
+        'Company ID in URL does not match authorized company context (X-Company-ID)',
+      );
+    }
+    return this.companiesService.updateCompanyStatus(companyId, dto.status, req.user.id);
   }
 }

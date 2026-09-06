@@ -1,6 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import { isUUID } from 'class-validator';
-import { MembershipStatus } from '@samco/database';
+import {
+  MembershipStatus,
+  CompanyStatus,
+  BranchStatus,
+} from '@samco/database';
 import { PrismaService } from '../../core/database/prisma.service.js';
 
 @Injectable()
@@ -10,6 +14,9 @@ export class AuthorizationService {
   /**
    * Returns true if the user has an ACTIVE CompanyMembership for the given company.
    * This is the foundational membership check for all company-scoped operations.
+   *
+   * Membership only — company lifecycle status is a separate concern, checked by
+   * isCompanyOperational() so the two failures stay distinguishable.
    */
   async hasActiveMembership(userId: string, companyId: string): Promise<boolean> {
     if (!isUUID(userId) || !isUUID(companyId)) return false;
@@ -20,6 +27,25 @@ export class AuthorizationService {
       },
     });
     return !!membership && membership.status === MembershipStatus.ACTIVE;
+  }
+
+  /**
+   * A company must be ACTIVE for any permission-protected operation to proceed.
+   * INACTIVE (customer-closed) and SUSPENDED (platform-imposed, e.g. billing)
+   * both deny access.
+   *
+   * Reactivation is deliberately NOT reachable through company-scoped RBAC —
+   * it is a platform-level operation, in the same category as company creation.
+   * See BACKLOG in the hardening report.
+   */
+  async isCompanyOperational(companyId: string): Promise<boolean> {
+    if (!isUUID(companyId)) return false;
+
+    const company = await this.prisma.company.findUnique({
+      where: { id: companyId },
+      select: { status: true },
+    });
+    return !!company && company.status === CompanyStatus.ACTIVE;
   }
 
   /**
@@ -92,10 +118,43 @@ export class AuthorizationService {
   /**
    * Company-scoped authorization check.
    * Verifies:
-   *   1. User has ACTIVE CompanyMembership for the company
-   *   2. User holds the required permission via any branch role in that company
+   *   1. The company is ACTIVE (not INACTIVE / SUSPENDED)
+   *   2. User has ACTIVE CompanyMembership for the company
+   *   3. User holds the required permission via any branch role in that company
    */
   async hasCompanyPermission(
+    userId: string,
+    companyId: string,
+    permission: string,
+  ): Promise<boolean> {
+    if (!(await this.isCompanyOperational(companyId))) return false;
+
+    const hasMembership = await this.hasActiveMembership(userId, companyId);
+    if (!hasMembership) return false;
+
+    const perms = await this.getEffectiveCompanyPermissions(userId, companyId);
+    return perms.has(permission);
+  }
+
+  /**
+   * Company LIFECYCLE-TRANSITION authorization check.
+   *
+   * Deliberately omits the isCompanyOperational() precondition that
+   * hasCompanyPermission() enforces — a company being reactivated is by
+   * definition not ACTIVE, so requiring ACTIVE here would make disabling a
+   * company an unrecoverable action.
+   *
+   * Everything else is unchanged and still proved server-side:
+   *   1. User has ACTIVE CompanyMembership for the company
+   *   2. User holds the required permission via a branch role in that company
+   *
+   * Membership and roles are company-scoped, so this can never authorize a
+   * transition on a company the caller is not an active member of.
+   *
+   * Used only by the company status endpoint. The permitted transitions
+   * themselves are additionally constrained in CompaniesService.
+   */
+  async hasCompanyStatusPermission(
     userId: string,
     companyId: string,
     permission: string,
@@ -110,9 +169,16 @@ export class AuthorizationService {
   /**
    * Branch-scoped authorization check.
    * Verifies:
-   *   1. User has ACTIVE CompanyMembership for the company
-   *   2. Branch belongs to the requested company (cross-company isolation)
-   *   3. User holds the required permission via their roles at that specific branch
+   *   1. The company is ACTIVE (not INACTIVE / SUSPENDED)
+   *   2. User has ACTIVE CompanyMembership for the company
+   *   3. Branch belongs to the requested company (cross-company isolation)
+   *   4. The branch itself is ACTIVE
+   *   5. User holds the required permission via their roles at that specific branch
+   *
+   * Note: branch status gates branch-scoped operations only. It deliberately does
+   * NOT filter getEffectiveCompanyPermissions — otherwise disabling a company's
+   * only branch would strip every company-scoped permission from its
+   * administrators, including the branches.update needed to re-enable it.
    */
   async hasBranchPermission(
     userId: string,
@@ -120,14 +186,19 @@ export class AuthorizationService {
     branchId: string,
     permission: string,
   ): Promise<boolean> {
+    if (!(await this.isCompanyOperational(companyId))) return false;
+
     const hasMembership = await this.hasActiveMembership(userId, companyId);
     if (!hasMembership) return false;
 
     // Verify branch belongs to the claimed company — prevents cross-company branch spoofing
     if (!isUUID(branchId)) return false;
-    
+
     const branch = await this.prisma.branch.findUnique({ where: { id: branchId } });
     if (!branch || branch.company_id !== companyId) return false;
+
+    // A disabled branch cannot be the target of branch-scoped operations
+    if (branch.status !== BranchStatus.ACTIVE) return false;
 
     const perms = await this.getEffectiveBranchPermissions(userId, branchId);
     return perms.has(permission);

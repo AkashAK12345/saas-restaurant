@@ -3,9 +3,11 @@ import {
   NotFoundException,
   ConflictException,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service.js';
 import { AuditLogService } from '../audit-logs/audit-logs.service.js';
+import { AuthorizationService } from '../../common/authorization/authorization.service.js';
 import { AuditEventType } from '@samco/database';
 import type {
   CreateRoleDto,
@@ -18,6 +20,7 @@ export class RolesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly auditLogService: AuditLogService,
+    private readonly authorizationService: AuthorizationService,
   ) {}
 
   // ── Role CRUD ──────────────────────────────────────────────────────────────
@@ -160,6 +163,7 @@ export class RolesService {
    *   - The role belongs to the requesting company
    *   - Every supplied permission name exists as a system-defined Permission record
    *   - Clients cannot create arbitrary permission definitions
+   *   - The actor does not introduce any permission they do not themselves hold
    *
    * Uses a transaction: deletes existing assignments, creates new ones.
    */
@@ -169,8 +173,12 @@ export class RolesService {
     dto: SetRolePermissionsDto,
     actorUserId: string,
   ) {
-    // Scope check
-    const role = await this.prisma.role.findUnique({ where: { id: roleId } });
+    // Scope check. Existing permissions are loaded here so we can determine
+    // which names this request is *adding* to the role.
+    const role = await this.prisma.role.findUnique({
+      where: { id: roleId },
+      include: { permissions: { include: { permission: true } } },
+    });
     if (!role || role.company_id !== companyId) throw new NotFoundException();
 
     // Validate every supplied permission name exists in the Permission table
@@ -188,6 +196,39 @@ export class RolesService {
       if (invalidNames.length > 0) {
         throw new BadRequestException(
           `Invalid or unknown permission names: ${invalidNames.join(', ')}`,
+        );
+      }
+    }
+
+    // ── Privilege-escalation containment ────────────────────────────────────
+    //
+    // `roles.update` must not be a universal permission-granting capability.
+    // An actor may only ADD permissions they themselves effectively hold in
+    // this company; without this, any holder of `roles.update` could write
+    // arbitrary permissions onto their own role and become a full company
+    // administrator (and could equally escalate a confederate's role).
+    //
+    // Only additions are constrained. Permissions already on the role may be
+    // retained or removed, so an actor editing a role that outranks them can
+    // still work without being forced to strip its existing capabilities.
+    //
+    // The actor's effective permission set is resolved server-side through the
+    // same AuthorizationService the PermissionGuard uses — never from client
+    // input — so the company/branch RBAC model stays the single source of
+    // truth. is_superadmin is deliberately not consulted.
+    const currentNames = new Set(role.permissions.map((rp) => rp.permission.name));
+    const addedNames = permissionNames.filter((n) => !currentNames.has(n));
+
+    if (addedNames.length > 0) {
+      const actorPermissions =
+        await this.authorizationService.getEffectiveCompanyPermissions(
+          actorUserId,
+          companyId,
+        );
+      const notHeld = addedNames.filter((n) => !actorPermissions.has(n));
+      if (notHeld.length > 0) {
+        throw new ForbiddenException(
+          `Cannot grant permissions you do not hold: ${notHeld.join(', ')}`,
         );
       }
     }

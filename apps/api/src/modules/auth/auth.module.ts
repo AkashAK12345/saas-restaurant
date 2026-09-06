@@ -6,6 +6,10 @@ import { AuthService } from './auth.service.js';
 import { AuthController } from './auth.controller.js';
 import { JwtStrategy } from './jwt.strategy.js';
 import { JwtAuthGuard } from './jwt-auth.guard.js';
+import {
+  LoginThrottleService,
+  LOGIN_ATTEMPT_STORE,
+} from './login-throttle.service.js';
 
 @Module({
   imports: [
@@ -22,8 +26,15 @@ import { JwtAuthGuard } from './jwt-auth.guard.js';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtStrategy, JwtAuthGuard],
-  exports: [AuthService, JwtAuthGuard, PassportModule],
+  providers: [
+    AuthService,
+    JwtStrategy,
+    JwtAuthGuard,
+    // Swap this useClass for a shared-store implementation to make throttling
+    // work across replicas — nothing else needs to change.
+    { provide: LOGIN_ATTEMPT_STORE, useClass: LoginThrottleService },
+  ],
+  exports: [AuthService, JwtAuthGuard, PassportModule, LOGIN_ATTEMPT_STORE],
 })
 export class AuthModule {}
 

@@ -23,6 +23,7 @@ import { INestApplication, ValidationPipe } from '@nestjs/common';
 import request from 'supertest';
 import { AppModule } from '../src/app.module.js';
 import { PrismaService } from '../src/core/database/prisma.service.js';
+import { resetDatabase, purgeAuditLogs, assertPermissionsSeeded } from './utils/db.js';
 import * as bcrypt from 'bcrypt';
 import { AllExceptionsFilter } from '../src/core/filters/all-exceptions.filter.js';
 import {
@@ -54,7 +55,6 @@ describe('Company & Branch (e2e)', () => {
   let adminUserB: any;
   let restrictedUser: any;
   let noMemberUser: any;
-  let superadminUser: any;
   let extraUser: any; // used for membership addition tests
 
   // Tokens
@@ -83,16 +83,8 @@ describe('Company & Branch (e2e)', () => {
     prisma = app.get(PrismaService);
 
     // ── Clean database ────────────────────────────────────────────────────────
-    await prisma.auditLog.deleteMany();
-    await prisma.userBranchRole.deleteMany();
-    await prisma.rolePermission.deleteMany();
-    await prisma.userSession.deleteMany();
-    await prisma.companyMembership.deleteMany();
-    await prisma.auditLog.deleteMany();
-    await prisma.role.deleteMany();
-    await prisma.branch.deleteMany();
-    await prisma.user.deleteMany();
-    await prisma.company.deleteMany();
+    await assertPermissionsSeeded(prisma);
+    await resetDatabase(prisma);
 
     const pwdHash = await bcrypt.hash(PASSWORD, SALT);
 
@@ -109,7 +101,7 @@ describe('Company & Branch (e2e)', () => {
     noMemberUser = await prisma.user.create({
       data: { email: 'nomember@test.com', password_hash: pwdHash },
     });
-    superadminUser = await prisma.user.create({
+    await prisma.user.create({
       data: {
         email: 'superadmin@samco.com', password_hash: pwdHash,
         is_superadmin: true,
@@ -226,16 +218,7 @@ describe('Company & Branch (e2e)', () => {
   });
 
   afterAll(async () => {
-    await prisma.auditLog.deleteMany();
-    await prisma.userBranchRole.deleteMany();
-    await prisma.rolePermission.deleteMany();
-    await prisma.userSession.deleteMany();
-    await prisma.companyMembership.deleteMany();
-    await prisma.auditLog.deleteMany();
-    await prisma.role.deleteMany();
-    await prisma.branch.deleteMany();
-    await prisma.user.deleteMany();
-    await prisma.company.deleteMany();
+    await resetDatabase(prisma);
     await app.close();
   });
 
@@ -449,7 +432,7 @@ describe('Company & Branch (e2e)', () => {
         data: { company_id: tempCompany.id, name: 'Admin' },
       });
       const perms = await prisma.permission.findMany({
-        where: { name: { in: ['companies.update'] } },
+        where: { name: { in: ['companies.update', 'companies.disable'] } },
       });
       await prisma.rolePermission.createMany({
         data: perms.map((p) => ({ role_id: tempRole.id, permission_id: p.id })),
@@ -458,8 +441,10 @@ describe('Company & Branch (e2e)', () => {
         data: { user_id: adminUserA.id, branch_id: tempBranch.id, role_id: tempRole.id },
       });
 
+      // Status transitions go through the dedicated lifecycle route, which
+      // carries companies.disable rather than companies.update.
       const res = await request(app.getHttpServer())
-        .patch(`/api/v1/companies/${tempCompany.id}`)
+        .patch(`/api/v1/companies/${tempCompany.id}/status`)
         .set('Authorization', `Bearer ${adminTokenA}`)
         .set('X-Company-ID', tempCompany.id)
         .send({ status: 'INACTIVE' });
@@ -472,7 +457,7 @@ describe('Company & Branch (e2e)', () => {
       await prisma.rolePermission.deleteMany({ where: { role_id: tempRole.id } });
       await prisma.role.delete({ where: { id: tempRole.id } });
       await prisma.branch.delete({ where: { id: tempBranch.id } });
-      await prisma.auditLog.deleteMany({ where: { company_id: tempCompany.id } });
+      await purgeAuditLogs(prisma);
       await prisma.companyMembership.delete({ where: { id: tempMembership.id } });
       await prisma.company.delete({ where: { id: tempCompany.id } });
     });
@@ -509,7 +494,7 @@ describe('Company & Branch (e2e)', () => {
       expect(membership!.status).toBe(MembershipStatus.ACTIVE);
 
       // Cleanup
-      await prisma.auditLog.deleteMany({ where: { company_id: res.body.id } });
+      await purgeAuditLogs(prisma);
       await prisma.companyMembership.delete({ where: { id: membership!.id } });
       await prisma.company.delete({ where: { id: res.body.id } });
     });
@@ -660,7 +645,7 @@ describe('Company & Branch (e2e)', () => {
           .send({ name: `Branch-${tz}`, timezone: tz });
 
         expect(res.status).toBe(201);
-        await prisma.auditLog.deleteMany({ where: { branch_id: res.body.id } });
+        await purgeAuditLogs(prisma);
         await prisma.branch.delete({ where: { id: res.body.id } });
       }
     });
@@ -702,7 +687,7 @@ describe('Company & Branch (e2e)', () => {
 
       // Cleanup created branch
       if (createdBranchId) {
-        await prisma.auditLog.deleteMany({ where: { branch_id: createdBranchId } });
+        await purgeAuditLogs(prisma);
         await prisma.branch.delete({ where: { id: createdBranchId } });
       }
     });

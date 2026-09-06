@@ -12,6 +12,7 @@ import {
   HttpCode,
   HttpStatus,
   Req,
+  ParseUUIDPipe,
 } from '@nestjs/common';
 import { UsersService } from './users.service.js';
 import {
@@ -19,6 +20,7 @@ import {
   UpdateUserDto,
   AssignBranchRoleDto,
   ListUsersQueryDto,
+  UpdateUserStatusDto,
 } from './users.dto.js';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import { PermissionGuard } from '../../common/authorization/permission.guard.js';
@@ -53,7 +55,7 @@ export class UsersController {
   @UseGuards(PermissionGuard)
   @RequireCompanyPermission(PERMISSION_KEYS.USERS_VIEW)
   async getUser(
-    @Param('id') userId: string,
+    @Param('id', ParseUUIDPipe) userId: string,
     @Headers('x-company-id') companyId: string,
   ) {
     return this.usersService.getUser(userId, companyId);
@@ -77,7 +79,7 @@ export class UsersController {
   @UseGuards(PermissionGuard)
   @RequireCompanyPermission(PERMISSION_KEYS.USERS_UPDATE)
   async updateUser(
-    @Param('id') userId: string,
+    @Param('id', ParseUUIDPipe) userId: string,
     @Headers('x-company-id') companyId: string,
     @Body() dto: UpdateUserDto,
     @Req() req: AuthenticatedRequest,
@@ -85,19 +87,57 @@ export class UsersController {
     return this.usersService.updateUser(userId, companyId, dto, req.user.id);
   }
 
+  /**
+   * PATCH /users/:id/status
+   *
+   * GLOBAL account enable/disable. Requires users.disable in the company.
+   *
+   * This is NOT the way to remove someone from a company — that is a membership
+   * operation. The service refuses to act on any user who belongs to more than
+   * one company, so a company-scoped permission can never silently revoke a
+   * user's access to a company the caller has no authority over.
+   */
+  @Patch(':id/status')
+  @UseGuards(PermissionGuard)
+  @RequireCompanyPermission(PERMISSION_KEYS.USERS_DISABLE)
+  async setUserStatus(
+    @Param('id', ParseUUIDPipe) targetUserId: string,
+    @Headers('x-company-id') companyId: string,
+    @Body() dto: UpdateUserStatusDto,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.usersService.setUserStatus(
+      targetUserId,
+      companyId,
+      dto.status,
+      req.user.id,
+    );
+  }
+
   // ── Branch-scoped: requires X-Company-ID + X-Branch-ID ──────────────────
+
+  // X-Branch-ID is the branch the PermissionGuard authorized this request
+  // against. It is forwarded to the service so the mutation target can be
+  // constrained to that same branch.
 
   @Post(':id/branch-roles')
   @HttpCode(HttpStatus.CREATED)
   @UseGuards(PermissionGuard)
   @RequireBranchPermission(PERMISSION_KEYS.USERS_UPDATE)
   async assignBranchRole(
-    @Param('id') targetUserId: string,
+    @Param('id', ParseUUIDPipe) targetUserId: string,
     @Headers('x-company-id') companyId: string,
+    @Headers('x-branch-id') branchContextId: string | undefined,
     @Body() dto: AssignBranchRoleDto,
     @Req() req: AuthenticatedRequest,
   ) {
-    return this.usersService.assignBranchRole(targetUserId, companyId, dto, req.user.id);
+    return this.usersService.assignBranchRole(
+      targetUserId,
+      companyId,
+      branchContextId,
+      dto,
+      req.user.id,
+    );
   }
 
   @Delete(':id/branch-roles/:assignmentId')
@@ -105,11 +145,18 @@ export class UsersController {
   @UseGuards(PermissionGuard)
   @RequireBranchPermission(PERMISSION_KEYS.USERS_UPDATE)
   async removeBranchRole(
-    @Param('id') targetUserId: string,
-    @Param('assignmentId') assignmentId: string,
+    @Param('id', ParseUUIDPipe) targetUserId: string,
+    @Param('assignmentId', ParseUUIDPipe) assignmentId: string,
     @Headers('x-company-id') companyId: string,
+    @Headers('x-branch-id') branchContextId: string | undefined,
     @Req() req: AuthenticatedRequest,
   ) {
-    await this.usersService.removeBranchRole(targetUserId, companyId, assignmentId, req.user.id);
+    await this.usersService.removeBranchRole(
+      targetUserId,
+      companyId,
+      branchContextId,
+      assignmentId,
+      req.user.id,
+    );
   }
 }

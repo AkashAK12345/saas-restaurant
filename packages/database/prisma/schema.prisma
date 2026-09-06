@@ -25,6 +25,18 @@ enum MembershipStatus {
   INACTIVE
 }
 
+// GLOBAL identity lifecycle — distinct from MembershipStatus.
+//
+// UserStatus governs whether the account may authenticate at all, anywhere on
+// the platform. MembershipStatus governs whether a user participates in ONE
+// company. Removing an employee from a company is a membership change; an
+// INACTIVE UserStatus means the person can no longer sign in to SAMCO at all.
+// The two are deliberately not collapsed.
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+}
+
 enum BranchStatus {
   ACTIVE
   INACTIVE
@@ -48,6 +60,8 @@ model User {
   first_name    String?
   last_name     String?
   is_superadmin Boolean  @default(false)
+  // Global sign-in capability. See UserStatus.
+  status        UserStatus @default(ACTIVE)
   created_at    DateTime @default(now()) @db.Timestamptz(3)
   updated_at    DateTime @updatedAt @db.Timestamptz(3)
 
@@ -224,7 +238,10 @@ model UserSession {
   id         String    @id @default(uuid()) @db.Uuid
   user_id    String    @db.Uuid
   token_hash String
+  // Sliding window — pushed forward on every successful refresh.
   expires_at DateTime  @db.Timestamptz(3)
+  // Hard ceiling — fixed at login, never extended by refresh.
+  absolute_expires_at DateTime @db.Timestamptz(3)
   revoked_at DateTime? @db.Timestamptz(3)
   created_at DateTime  @default(now()) @db.Timestamptz(3)
   updated_at DateTime  @updatedAt @db.Timestamptz(3)
@@ -235,5 +252,6 @@ model UserSession {
   @@index([user_id])
   @@index([expires_at])
   @@index([revoked_at])
+  @@index([absolute_expires_at])
   @@map("user_sessions")
 }
