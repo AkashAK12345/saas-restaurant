@@ -51,6 +51,31 @@ export const PERMISSION_KEYS = {
 
   // Audit Logs
   AUDIT_LOGS_VIEW: 'audit_logs.view',
+
+  // ── Operational foundations (T0-A, for Phases 7–10) ──────────────────────
+  // Only the keys consumed by endpoints that exist. Queue/banquet/task flow
+  // permissions are added with the flows themselves, not ahead of them.
+
+  // Customers (company-scoped)
+  CUSTOMERS_VIEW: 'customers.view',
+  CUSTOMERS_CREATE: 'customers.create',
+  CUSTOMERS_UPDATE: 'customers.update',
+
+  // Tables (branch-scoped)
+  TABLES_VIEW: 'tables.view',
+  TABLES_CREATE: 'tables.create',
+  TABLES_UPDATE: 'tables.update',
+
+  // Display devices (branch-scoped; staff-side management of screen credentials)
+  DISPLAY_DEVICES_VIEW: 'display_devices.view',
+  DISPLAY_DEVICES_CREATE: 'display_devices.create',
+  DISPLAY_DEVICES_REVOKE: 'display_devices.revoke',
+
+  // Real-time read access (T0-B). These gate the staff SSE ticket routes now
+  // and will gate the corresponding read endpoints when each domain lands.
+  QUEUE_VIEW: 'queue.view',
+  BANQUET_KDS_VIEW: 'banquet.kds.view',
+  TASKS_VIEW: 'tasks.view',
 } as const;
 
 export type PermissionKey = (typeof PERMISSION_KEYS)[keyof typeof PERMISSION_KEYS];
@@ -209,5 +234,65 @@ export const SYSTEM_PERMISSIONS: Array<{
     name: PERMISSION_KEYS.AUDIT_LOGS_VIEW,
     module: 'audit_logs',
     description: 'View company audit logs',
+  },
+  {
+    name: PERMISSION_KEYS.CUSTOMERS_VIEW,
+    module: 'customers',
+    description: 'View customers in company',
+  },
+  {
+    name: PERMISSION_KEYS.CUSTOMERS_CREATE,
+    module: 'customers',
+    description: 'Create customers in company',
+  },
+  {
+    name: PERMISSION_KEYS.CUSTOMERS_UPDATE,
+    module: 'customers',
+    description: 'Update customer details and status',
+  },
+  {
+    name: PERMISSION_KEYS.TABLES_VIEW,
+    module: 'tables',
+    description: 'View tables at a branch',
+  },
+  {
+    name: PERMISSION_KEYS.TABLES_CREATE,
+    module: 'tables',
+    description: 'Create tables at a branch',
+  },
+  {
+    name: PERMISSION_KEYS.TABLES_UPDATE,
+    module: 'tables',
+    description: 'Update table details and status',
+  },
+  {
+    name: PERMISSION_KEYS.DISPLAY_DEVICES_VIEW,
+    module: 'display_devices',
+    description: 'View display devices paired to a branch',
+  },
+  {
+    name: PERMISSION_KEYS.DISPLAY_DEVICES_CREATE,
+    module: 'display_devices',
+    description: 'Pair a new display device to a branch (issues its credential once)',
+  },
+  {
+    name: PERMISSION_KEYS.DISPLAY_DEVICES_REVOKE,
+    module: 'display_devices',
+    description: 'Revoke a display device credential',
+  },
+  {
+    name: PERMISSION_KEYS.QUEUE_VIEW,
+    module: 'queue',
+    description: 'View queue state and subscribe to queue updates at a branch',
+  },
+  {
+    name: PERMISSION_KEYS.BANQUET_KDS_VIEW,
+    module: 'banquet',
+    description: 'View the banquet kitchen display and subscribe to its updates at a branch',
+  },
+  {
+    name: PERMISSION_KEYS.TASKS_VIEW,
+    module: 'tasks',
+    description: 'View tasks and subscribe to task updates at a branch',
   },
 ];

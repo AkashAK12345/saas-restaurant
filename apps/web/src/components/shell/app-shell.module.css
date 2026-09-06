@@ -1,0 +1,116 @@
+.root {
+  min-height: 100dvh;
+  display: grid;
+  grid-template-rows: var(--topbar-height) 1fr var(--bottombar-height);
+  grid-template-columns: 1fr;
+  grid-template-areas:
+    "top"
+    "main"
+    "bottom";
+}
+
+.topbar {
+  grid-area: top;
+  display: flex;
+  align-items: center;
+  gap: var(--gap);
+  padding: 0 var(--gap);
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.brand {
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+
+.topContext {
+  display: none;
+  flex: 1;
+}
+
+.drawerToggle {
+  margin-left: auto;
+  padding: 0 14px;
+  background: var(--color-surface-muted);
+  border: 1px solid var(--color-border);
+}
+
+.drawer {
+  grid-area: main;
+  align-self: start;
+  padding: var(--gap);
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+  z-index: 5;
+}
+
+.user {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.userName {
+  display: none;
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+}
+.logout {
+  padding: 0 14px;
+  background: transparent;
+  border: 1px solid var(--color-border);
+}
+
+.sidenav {
+  display: none;
+  grid-area: side;
+  background: var(--color-surface);
+  border-right: 1px solid var(--color-border);
+}
+
+.content {
+  grid-area: main;
+  width: 100%;
+  max-width: var(--content-max);
+  margin: 0 auto;
+  padding: var(--gap-lg) var(--gap);
+}
+
+.bottomnav {
+  grid-area: bottom;
+  position: sticky;
+  bottom: 0;
+  background: var(--color-surface);
+  border-top: 1px solid var(--color-border);
+}
+
+.error {
+  padding: var(--gap);
+  margin-bottom: var(--gap);
+  background: var(--color-danger-bg);
+  color: var(--color-danger);
+  border-radius: var(--radius);
+}
+.loading {
+  color: var(--color-text-muted);
+}
+
+/* Desktop / landscape tablet: side nav, context in the top bar, no drawer. */
+@media (min-width: 1024px) {
+  .root {
+    grid-template-rows: var(--topbar-height) 1fr;
+    grid-template-columns: var(--nav-width) 1fr;
+    grid-template-areas:
+      "top top"
+      "side main";
+  }
+  .topContext { display: block; }
+  .drawerToggle { display: none; }
+  .drawer { display: none; }
+  .userName { display: inline; }
+  .sidenav { display: block; }
+  .bottomnav { display: none; }
+}

@@ -1,0 +1,10 @@
+.body {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  font-size: 1.5rem;
+  background: #0f1114;
+  color: #eceef1;
+  user-select: none;
+  -webkit-user-select: none;
+}

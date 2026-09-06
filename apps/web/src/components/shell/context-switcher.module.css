@@ -1,0 +1,31 @@
+.wrap {
+  display: flex;
+  gap: var(--gap);
+  flex-wrap: wrap;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 160px;
+  flex: 1 1 160px;
+}
+
+.label {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.select {
+  min-height: var(--tap-min);
+  padding: 0 12px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+}
+.select:disabled {
+  opacity: 0.6;
+}

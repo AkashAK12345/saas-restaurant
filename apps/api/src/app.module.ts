@@ -8,6 +8,12 @@ import { RolesModule } from './modules/roles/roles.module.js';
 import { CompaniesModule } from './modules/companies/companies.module.js';
 import { BranchesModule } from './modules/branches/branches.module.js';
 import { AuditLogsModule } from './modules/audit-logs/audit-logs.module.js';
+import { CustomersModule } from './modules/customers/customers.module.js';
+import { TablesModule } from './modules/tables/tables.module.js';
+import { DisplayDevicesModule } from './modules/display-devices/display-devices.module.js';
+import { DisplayModule } from './modules/display/display.module.js';
+import { RealtimeModule } from './modules/realtime/realtime.module.js';
+import { SchedulerModule } from './common/scheduler/scheduler.module.js';
 
 @Module({
   imports: [
@@ -23,6 +29,15 @@ import { AuditLogsModule } from './modules/audit-logs/audit-logs.module.js';
     CompaniesModule,
     BranchesModule,
     AuditLogsModule,
+    // T0-A operational foundations
+    CustomersModule,
+    TablesModule,
+    DisplayDevicesModule,
+    DisplayModule,
+    // T0-B real-time infrastructure
+    RealtimeModule,
+    // T0-C scheduler foundation (registers no jobs)
+    SchedulerModule,
   ],
 })
 export class AppModule {}

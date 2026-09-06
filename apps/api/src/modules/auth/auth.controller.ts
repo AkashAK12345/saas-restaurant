@@ -7,10 +7,12 @@ import {
   Get,
   Req,
   Ip,
+  Headers,
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
 import { AuthService } from './auth.service.js';
+import { AuthContextService } from './auth-context.service.js';
 import {
   LoginDto,
   RefreshDto,
@@ -25,7 +27,10 @@ interface AuthenticatedRequest {
 
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(
+    private readonly authService: AuthService,
+    private readonly authContext: AuthContextService,
+  ) {}
 
   @Post('login')
   @HttpCode(HttpStatus.OK)
@@ -51,6 +56,28 @@ export class AuthController {
   @Get('me')
   async getProfile(@Req() req: AuthenticatedRequest) {
     return this.authService.getProfile(req.user.id);
+  }
+
+  /**
+   * GET /auth/context
+   *
+   * Frontend shell data: identity, selectable companies, and — when
+   * X-Company-ID / X-Branch-ID are supplied — that company's branches and the
+   * caller's EFFECTIVE permissions there.
+   *
+   * The headers are requested context, exactly as everywhere else: a company
+   * the caller is not an active member of, or a branch outside that company,
+   * is a 404. Nothing in this response is trusted by the backend for
+   * authorization; PermissionGuard re-derives it on every protected request.
+   */
+  @UseGuards(JwtAuthGuard)
+  @Get('context')
+  async getContext(
+    @Req() req: AuthenticatedRequest,
+    @Headers('x-company-id') companyId: string | undefined,
+    @Headers('x-branch-id') branchId: string | undefined,
+  ) {
+    return this.authContext.getContext(req.user.id, companyId, branchId);
   }
 
   /**

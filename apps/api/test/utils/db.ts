@@ -42,6 +42,11 @@ export async function resetDatabase(prisma: PrismaService): Promise<void> {
   await prisma.userSession.deleteMany();
   await prisma.companyMembership.deleteMany();
   await prisma.role.deleteMany();
+  // T0-A foundations reference branches/companies with ON DELETE RESTRICT,
+  // so they go before their parents.
+  await prisma.displayDevice.deleteMany();
+  await prisma.table.deleteMany();
+  await prisma.customer.deleteMany();
   await prisma.branch.deleteMany();
   await prisma.user.deleteMany();
   await prisma.company.deleteMany();

@@ -42,6 +42,29 @@ enum BranchStatus {
   INACTIVE
 }
 
+enum CustomerStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum TableStatus {
+  ACTIVE
+  INACTIVE
+}
+
+// Physical display/kiosk screens. Distinct from users: a device authenticates
+// with its own credential and is never granted RBAC permissions.
+enum DisplayDeviceKind {
+  QUEUE_CUSTOMER
+  QUEUE_ADMIN
+  BANQUET_CHEF
+}
+
+enum DisplayDeviceStatus {
+  ACTIVE
+  REVOKED
+}
+
 enum AuditEventType {
   CREATE
   UPDATE
@@ -54,16 +77,16 @@ enum AuditEventType {
 // -----------------------------------------------------------------------------
 
 model User {
-  id            String   @id @default(uuid()) @db.Uuid
-  email         String   @unique
+  id            String     @id @default(uuid()) @db.Uuid
+  email         String     @unique
   password_hash String
   first_name    String?
   last_name     String?
-  is_superadmin Boolean  @default(false)
+  is_superadmin Boolean    @default(false)
   // Global sign-in capability. See UserStatus.
   status        UserStatus @default(ACTIVE)
-  created_at    DateTime @default(now()) @db.Timestamptz(3)
-  updated_at    DateTime @updatedAt @db.Timestamptz(3)
+  created_at    DateTime   @default(now()) @db.Timestamptz(3)
+  updated_at    DateTime   @updatedAt @db.Timestamptz(3)
 
   // Relationships
   sessions     UserSession[]
@@ -71,6 +94,9 @@ model User {
   branch_roles UserBranchRole[]
   audit_logs   AuditLog[]
 
+  // Declares the index created by migration 20260906130000_user_status so the
+  // schema matches the database; without this Prisma tries to DROP it.
+  @@index([status])
   @@map("users")
 }
 
@@ -90,6 +116,7 @@ model Company {
   memberships CompanyMembership[]
   roles       Role[]
   audit_logs  AuditLog[]
+  customers   Customer[]
 
   @@map("companies")
 }
@@ -122,12 +149,84 @@ model Branch {
   updated_at DateTime     @updatedAt @db.Timestamptz(3)
 
   // Relationships
-  company    Company          @relation(fields: [company_id], references: [id], onDelete: Restrict)
-  user_roles UserBranchRole[]
-  audit_logs AuditLog[]
+  company         Company          @relation(fields: [company_id], references: [id], onDelete: Restrict)
+  user_roles      UserBranchRole[]
+  audit_logs      AuditLog[]
+  tables          Table[]
+  display_devices DisplayDevice[]
 
   @@index([company_id])
   @@map("branches")
+}
+
+// -----------------------------------------------------------------------------
+// OPERATIONAL FOUNDATIONS (introduced for Phases 7–10)
+// -----------------------------------------------------------------------------
+
+// Company-scoped so one customer record is reusable across every branch of a
+// company. Deliberately minimal: Roadmap Phase 2 (Master Data) extends this
+// model; it must not be replaced.
+model Customer {
+  id         String         @id @default(uuid()) @db.Uuid
+  company_id String         @db.Uuid
+  name       String
+  // Stored NORMALIZED (see CustomersService). Optional because Queue
+  // Management must accept anonymous walk-ins.
+  phone      String?
+  status     CustomerStatus @default(ACTIVE)
+  created_at DateTime       @default(now()) @db.Timestamptz(3)
+  updated_at DateTime       @updatedAt @db.Timestamptz(3)
+
+  company Company @relation(fields: [company_id], references: [id], onDelete: Restrict)
+
+  // PostgreSQL unique indexes treat NULLs as distinct, so this enforces
+  // "one customer per normalized phone per company" while allowing any number
+  // of phoneless customers — no partial index or raw SQL needed.
+  @@unique([company_id, phone])
+  @@index([company_id])
+  @@map("customers")
+}
+
+// Branch-scoped seating unit. Roadmap Phase 2 may later insert a Floor between
+// Branch and Table by adding a nullable floor_id — the direct branch_id stays
+// as the authorization scope, so that change is purely additive.
+model Table {
+  id         String      @id @default(uuid()) @db.Uuid
+  branch_id  String      @db.Uuid
+  label      String
+  capacity   Int
+  // Free-text grouping hint only (e.g. "Terrace"). Not a Floor entity.
+  zone       String?
+  status     TableStatus @default(ACTIVE)
+  created_at DateTime    @default(now()) @db.Timestamptz(3)
+  updated_at DateTime    @updatedAt @db.Timestamptz(3)
+
+  branch Branch @relation(fields: [branch_id], references: [id], onDelete: Restrict)
+
+  @@unique([branch_id, label])
+  @@index([branch_id])
+  @@map("tables")
+}
+
+// A physical screen (queue board, chef board, ...). Authenticates with a
+// long-lived opaque credential whose SHA-256 hash is stored here — the raw
+// value is shown exactly once at pairing time. Never holds RBAC permissions.
+model DisplayDevice {
+  id              String              @id @default(uuid()) @db.Uuid
+  branch_id       String              @db.Uuid
+  name            String
+  kind            DisplayDeviceKind
+  credential_hash String
+  status          DisplayDeviceStatus @default(ACTIVE)
+  revoked_at      DateTime?           @db.Timestamptz(3)
+  created_at      DateTime            @default(now()) @db.Timestamptz(3)
+  updated_at      DateTime            @updatedAt @db.Timestamptz(3)
+
+  branch Branch @relation(fields: [branch_id], references: [id], onDelete: Restrict)
+
+  @@index([branch_id])
+  @@index([status])
+  @@map("display_devices")
 }
 
 // -----------------------------------------------------------------------------
@@ -235,16 +334,16 @@ model AuditLog {
 // -----------------------------------------------------------------------------
 
 model UserSession {
-  id         String    @id @default(uuid()) @db.Uuid
-  user_id    String    @db.Uuid
-  token_hash String
+  id                  String    @id @default(uuid()) @db.Uuid
+  user_id             String    @db.Uuid
+  token_hash          String
   // Sliding window — pushed forward on every successful refresh.
-  expires_at DateTime  @db.Timestamptz(3)
+  expires_at          DateTime  @db.Timestamptz(3)
   // Hard ceiling — fixed at login, never extended by refresh.
-  absolute_expires_at DateTime @db.Timestamptz(3)
-  revoked_at DateTime? @db.Timestamptz(3)
-  created_at DateTime  @default(now()) @db.Timestamptz(3)
-  updated_at DateTime  @updatedAt @db.Timestamptz(3)
+  absolute_expires_at DateTime  @db.Timestamptz(3)
+  revoked_at          DateTime? @db.Timestamptz(3)
+  created_at          DateTime  @default(now()) @db.Timestamptz(3)
+  updated_at          DateTime  @updatedAt @db.Timestamptz(3)
 
   // Relationships
   user User @relation(fields: [user_id], references: [id], onDelete: Restrict)

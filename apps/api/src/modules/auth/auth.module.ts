@@ -10,9 +10,14 @@ import {
   LoginThrottleService,
   LOGIN_ATTEMPT_STORE,
 } from './login-throttle.service.js';
+import { AuthContextService } from './auth-context.service.js';
+import { AuthorizationModule } from '../../common/authorization/authorization.module.js';
 
 @Module({
   imports: [
+    // AuthContextService resolves effective permissions through the SAME
+    // AuthorizationService the guard uses — no second permission resolver.
+    AuthorizationModule,
     PassportModule.register({ defaultStrategy: 'jwt' }),
     JwtModule.registerAsync({
       imports: [ConfigModule],
@@ -28,6 +33,7 @@ import {
   controllers: [AuthController],
   providers: [
     AuthService,
+    AuthContextService,
     JwtStrategy,
     JwtAuthGuard,
     // Swap this useClass for a shared-store implementation to make throttling
