@@ -26,6 +26,18 @@ export async function purgeAuditLogs(prisma: PrismaService): Promise<void> {
 }
 
 /**
+ * Phase 7 queue rows. `queue_token_events` carries the same append-only
+ * triggers as audit_logs (migration 20260907110000_phase7_queue_tokens), so
+ * it is TRUNCATEd for the same reasons; tokens and counters are ordinary rows
+ * that must go before the customers/tables/branches/users they reference.
+ */
+export async function purgeQueueHistory(prisma: PrismaService): Promise<void> {
+  await prisma.$executeRawUnsafe('TRUNCATE TABLE "queue_token_events"');
+  await prisma.queueToken.deleteMany();
+  await prisma.queueCounter.deleteMany();
+}
+
+/**
  * Full reset in foreign-key-safe order.
  *
  * Every FK into companies/branches/users is ON DELETE RESTRICT (correct for
@@ -37,6 +49,7 @@ export async function purgeAuditLogs(prisma: PrismaService): Promise<void> {
  */
 export async function resetDatabase(prisma: PrismaService): Promise<void> {
   await purgeAuditLogs(prisma);
+  await purgeQueueHistory(prisma);
   await prisma.userBranchRole.deleteMany();
   await prisma.rolePermission.deleteMany();
   await prisma.userSession.deleteMany();
@@ -70,6 +83,7 @@ export async function deleteUserCascade(
   userId: string,
 ): Promise<void> {
   await purgeAuditLogs(prisma);
+  await purgeQueueHistory(prisma);
   await prisma.userBranchRole.deleteMany({ where: { user_id: userId } });
   await prisma.userSession.deleteMany({ where: { user_id: userId } });
   await prisma.companyMembership.deleteMany({ where: { user_id: userId } });

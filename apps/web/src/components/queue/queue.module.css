@@ -1,0 +1,257 @@
+/*
+ * Shared queue presentation. Tablet-first: cards and buttons are sized for a
+ * finger at a podium, and every control clears --tap-min (44px).
+ */
+
+.columns {
+  display: grid;
+  gap: var(--gap-lg);
+  grid-template-columns: 1fr;
+}
+
+@media (min-width: 900px) {
+  .columns {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .columnsThree {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+.column {
+  min-width: 0;
+}
+
+.columnHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--gap);
+  margin-bottom: var(--gap);
+}
+
+.columnTitle {
+  margin: 0;
+  font-size: var(--text-lg);
+}
+
+.count {
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-muted);
+}
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--gap);
+}
+
+.empty {
+  margin: 0;
+  padding: var(--gap);
+  color: var(--color-text-muted);
+  background: var(--color-surface-muted);
+  border-radius: var(--radius);
+}
+
+/* ── token card ─────────────────────────────────────────────────────────── */
+
+.card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: var(--gap);
+  display: grid;
+  gap: 10px;
+}
+
+.cardHighlight {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 25%, transparent);
+}
+
+.cardTop {
+  display: flex;
+  align-items: center;
+  gap: var(--gap);
+  flex-wrap: wrap;
+}
+
+.number {
+  font-size: var(--text-2xl);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  min-width: 2.5ch;
+}
+
+.who {
+  min-width: 0;
+  flex: 1;
+}
+
+.name {
+  display: block;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.meta {
+  display: block;
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+}
+
+.badge {
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  white-space: nowrap;
+  background: var(--color-surface-muted);
+  color: var(--color-text-muted);
+}
+.badgeWaiting { background: var(--color-warning-bg); color: var(--color-text); }
+.badgeCalled { background: color-mix(in srgb, var(--color-primary) 18%, transparent); color: var(--color-primary); }
+.badgeSeated { background: color-mix(in srgb, var(--color-success) 18%, transparent); color: var(--color-success); }
+.badgeNoShow, .badgeCancelled { background: var(--color-danger-bg); color: var(--color-danger); }
+
+.table {
+  font-weight: 600;
+}
+
+/* ── actions ────────────────────────────────────────────────────────────── */
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.action {
+  flex: 1 1 auto;
+  min-width: 96px;
+  min-height: var(--tap-min);
+  padding: 0 14px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-muted);
+  cursor: pointer;
+}
+.action:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.primary {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: var(--color-primary-contrast);
+}
+
+.danger {
+  color: var(--color-danger);
+  border-color: color-mix(in srgb, var(--color-danger) 45%, var(--color-border));
+}
+
+.tableRow {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.select {
+  flex: 1 1 140px;
+  min-height: var(--tap-min);
+  padding: 0 10px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+}
+
+/* ── status strip ───────────────────────────────────────────────────────── */
+
+.bar {
+  display: flex;
+  align-items: center;
+  gap: var(--gap);
+  flex-wrap: wrap;
+  margin-bottom: var(--gap-lg);
+}
+
+.counts {
+  display: flex;
+  gap: var(--gap);
+  flex-wrap: wrap;
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.countItem strong {
+  color: var(--color-text);
+}
+
+.spacer { flex: 1 1 auto; }
+
+.stream {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.9rem;
+  color: var(--color-text-muted);
+}
+
+.dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--color-text-muted);
+}
+.dotOpen { background: var(--color-success); }
+.dotWaiting { background: var(--color-warning-bg); border: 1px solid var(--color-border); }
+.dotClosed { background: var(--color-danger); }
+
+.error {
+  padding: var(--gap);
+  margin-bottom: var(--gap);
+  background: var(--color-danger-bg);
+  color: var(--color-danger);
+  border-radius: var(--radius);
+}
+
+.notice {
+  padding: var(--gap);
+  margin-bottom: var(--gap);
+  background: var(--color-surface-muted);
+  border-radius: var(--radius);
+  color: var(--color-text-muted);
+}
+
+/* ── sub navigation ─────────────────────────────────────────────────────── */
+
+.subnav {
+  display: flex;
+  gap: 8px;
+  margin-bottom: var(--gap-lg);
+  flex-wrap: wrap;
+}
+
+.subnavLink {
+  min-height: var(--tap-min);
+  display: inline-flex;
+  align-items: center;
+  padding: 0 16px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+  text-decoration: none;
+}
+.subnavLink:hover { text-decoration: none; background: var(--color-surface-muted); }
+.subnavActive {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: var(--color-primary-contrast);
+}

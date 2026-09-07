@@ -1,0 +1,73 @@
+/* Podium: the next party is the loudest thing on screen. */
+
+.next {
+  display: flex;
+  align-items: center;
+  gap: var(--gap-lg);
+  flex-wrap: wrap;
+  padding: var(--gap-lg);
+  margin-bottom: var(--gap-lg);
+  border: 1px solid var(--color-primary);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--color-primary) 8%, var(--color-surface));
+}
+
+.nextLabel {
+  display: block;
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.nextNumber {
+  font-size: 3.5rem;
+  line-height: 1;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+
+.nextWho {
+  font-size: var(--text-lg);
+}
+
+.nextAction {
+  margin-left: auto;
+  min-height: 56px;
+  min-width: 180px;
+  padding: 0 24px;
+  font-size: var(--text-lg);
+  font-weight: 600;
+  border: 1px solid var(--color-primary);
+  border-radius: var(--radius);
+  background: var(--color-primary);
+  color: var(--color-primary-contrast);
+  cursor: pointer;
+}
+.nextAction:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.idle {
+  padding: var(--gap-lg);
+  margin-bottom: var(--gap-lg);
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius);
+  color: var(--color-text-muted);
+  text-align: center;
+}
+
+.notice {
+  padding: var(--gap);
+  margin-bottom: var(--gap);
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--color-success) 12%, var(--color-surface));
+  color: var(--color-text);
+}
+
+.tablesNote {
+  margin: 0 0 var(--gap);
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+}

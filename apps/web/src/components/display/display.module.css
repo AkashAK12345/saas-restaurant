@@ -1,0 +1,289 @@
+/*
+ * Screens, not apps: read from across a room. Large type, high contrast, no
+ * interactive chrome, dark ground (the display root layout sets the page).
+ */
+
+.screen {
+  width: 100%;
+  min-height: 100dvh;
+  padding: clamp(16px, 3vw, 48px);
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  gap: clamp(16px, 3vh, 40px);
+}
+
+.header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+
+.title {
+  margin: 0;
+  font-size: clamp(1.5rem, 3vw, 2.5rem);
+  letter-spacing: 0.02em;
+}
+
+.branch {
+  color: #9aa3b0;
+  font-size: clamp(1rem, 1.6vw, 1.5rem);
+}
+
+/* ── now serving ────────────────────────────────────────────────────────── */
+
+.serving {
+  display: grid;
+  gap: clamp(12px, 2vw, 28px);
+  grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr));
+  align-content: start;
+}
+
+.servingCard {
+  display: grid;
+  gap: 8px;
+  justify-items: center;
+  padding: clamp(16px, 3vw, 40px);
+  border-radius: 18px;
+  background: #1b2029;
+  border: 2px solid #2f6bff;
+  box-shadow: 0 0 40px rgba(47, 107, 255, 0.18);
+}
+
+.servingNumber {
+  font-size: clamp(4rem, 12vw, 9rem);
+  line-height: 0.95;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  color: #ffffff;
+}
+
+.servingTable {
+  font-size: clamp(1.1rem, 2.2vw, 2rem);
+  color: #8fb2ff;
+  font-weight: 600;
+}
+
+.servingTime {
+  color: #9aa3b0;
+  font-size: clamp(0.9rem, 1.4vw, 1.2rem);
+}
+
+.idle {
+  display: grid;
+  place-items: center;
+  text-align: center;
+  color: #9aa3b0;
+  font-size: clamp(1.2rem, 3vw, 2.2rem);
+}
+
+/* ── footer strip ───────────────────────────────────────────────────────── */
+
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  flex-wrap: wrap;
+  color: #9aa3b0;
+  font-size: clamp(0.95rem, 1.6vw, 1.3rem);
+}
+
+.recent {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.recentItem {
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: #21252c;
+  font-variant-numeric: tabular-nums;
+}
+
+.waiting strong {
+  color: #eceef1;
+  font-variant-numeric: tabular-nums;
+}
+
+.conn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #6b7480;
+}
+.dotOpen { background: #5cd17c; }
+.dotWaiting { background: #e0b93c; }
+.dotClosed { background: #ff7b7b; }
+
+.stale {
+  color: #e0b93c;
+}
+
+/* ── admin board ────────────────────────────────────────────────────────── */
+
+.adminGrid {
+  display: grid;
+  gap: clamp(12px, 2vw, 28px);
+  grid-template-columns: 1fr;
+  align-content: start;
+}
+
+@media (min-width: 900px) {
+  .adminGrid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+.adminColumn {
+  min-width: 0;
+  background: #171b21;
+  border: 1px solid #2e343d;
+  border-radius: 14px;
+  padding: clamp(12px, 1.5vw, 20px);
+}
+
+.adminHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  font-size: clamp(1.1rem, 1.8vw, 1.6rem);
+}
+
+.adminCount {
+  font-variant-numeric: tabular-nums;
+  color: #9aa3b0;
+}
+
+.adminList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+  max-height: 62vh;
+  overflow-y: auto;
+}
+
+.adminRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #1f242c;
+}
+
+.adminNumber {
+  font-size: clamp(1.4rem, 2.4vw, 2rem);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  min-width: 2.5ch;
+}
+
+.adminMeta {
+  color: #9aa3b0;
+  font-size: clamp(0.9rem, 1.3vw, 1.1rem);
+}
+
+.adminTable {
+  margin-left: auto;
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: #2b3442;
+  color: #cfd6e2;
+  white-space: nowrap;
+}
+
+.adminEmpty {
+  color: #6b7480;
+  margin: 0;
+}
+
+.adminCounts {
+  display: flex;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+
+/* ── pairing ────────────────────────────────────────────────────────────── */
+
+.pair {
+  width: min(560px, 92vw);
+  display: grid;
+  gap: 16px;
+  padding: 28px;
+  border-radius: 16px;
+  background: #171b21;
+  border: 1px solid #2e343d;
+  font-size: 1rem;
+}
+
+.pairTitle {
+  margin: 0;
+  font-size: 1.5rem;
+}
+
+.pairLabel {
+  display: block;
+  margin-bottom: 6px;
+  color: #9aa3b0;
+}
+
+.pairInput {
+  width: 100%;
+  min-height: 48px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid #2e343d;
+  background: #0f1114;
+  color: #eceef1;
+}
+
+.pairButton {
+  min-height: 52px;
+  border-radius: 10px;
+  border: 1px solid #2f6bff;
+  background: #2f6bff;
+  color: #ffffff;
+  font-size: 1.05rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.pairButton:disabled { opacity: 0.55; cursor: not-allowed; }
+
+.pairHint {
+  margin: 0;
+  color: #6b7480;
+  font-size: 0.9rem;
+}
+
+.pairError {
+  margin: 0;
+  padding: 12px;
+  border-radius: 8px;
+  background: #3a1616;
+  color: #ff9b9b;
+}
+
+.unpair {
+  justify-self: start;
+  min-height: 44px;
+  padding: 0 14px;
+  border-radius: 8px;
+  border: 1px solid #2e343d;
+  background: transparent;
+  color: #9aa3b0;
+  cursor: pointer;
+}

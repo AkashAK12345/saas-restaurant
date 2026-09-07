@@ -3,6 +3,7 @@ import { AppModule } from './app.module.js';
 import { AllExceptionsFilter } from './core/filters/all-exceptions.filter.js';
 import { ValidationPipe, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { buildCorsOptions } from './core/cors.js';
 
 async function bootstrap() {
   const logger = new Logger('Bootstrap');
@@ -30,6 +31,11 @@ async function bootstrap() {
   );
 
   const configService = app.get(ConfigService);
+
+  // The browser app runs on its own origin; without an allowlist every request
+  // from it is blocked before it leaves the browser. See core/cors.ts.
+  app.enableCors(buildCorsOptions(configService.get<string>('CORS_ORIGINS')));
+
   const port = configService.get<number>('PORT') || 3001;
 
   await app.listen(port);

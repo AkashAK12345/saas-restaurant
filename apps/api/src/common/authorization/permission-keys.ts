@@ -76,6 +76,15 @@ export const PERMISSION_KEYS = {
   QUEUE_VIEW: 'queue.view',
   BANQUET_KDS_VIEW: 'banquet.kds.view',
   TASKS_VIEW: 'tasks.view',
+
+  // ── Queue Management (Phase 7) ───────────────────────────────────────────
+  // One key per explicit queue operation exposed under /queue-tokens. Table
+  // assignment/release is part of seating and is covered by queue.seat.
+  QUEUE_REGISTER: 'queue.register',
+  QUEUE_CALL: 'queue.call',
+  QUEUE_SEAT: 'queue.seat',
+  QUEUE_NO_SHOW: 'queue.no_show',
+  QUEUE_CANCEL: 'queue.cancel',
 } as const;
 
 export type PermissionKey = (typeof PERMISSION_KEYS)[keyof typeof PERMISSION_KEYS];
@@ -294,5 +303,30 @@ export const SYSTEM_PERMISSIONS: Array<{
     name: PERMISSION_KEYS.TASKS_VIEW,
     module: 'tasks',
     description: 'View tasks and subscribe to task updates at a branch',
+  },
+  {
+    name: PERMISSION_KEYS.QUEUE_REGISTER,
+    module: 'queue',
+    description: 'Register a party in the queue (issue a token) at a branch',
+  },
+  {
+    name: PERMISSION_KEYS.QUEUE_CALL,
+    module: 'queue',
+    description: 'Call a waiting queue token',
+  },
+  {
+    name: PERMISSION_KEYS.QUEUE_SEAT,
+    module: 'queue',
+    description: 'Seat a called party and assign or release its table',
+  },
+  {
+    name: PERMISSION_KEYS.QUEUE_NO_SHOW,
+    module: 'queue',
+    description: 'Mark a called queue token as a no-show',
+  },
+  {
+    name: PERMISSION_KEYS.QUEUE_CANCEL,
+    module: 'queue',
+    description: 'Cancel a waiting or called queue token',
   },
 ];

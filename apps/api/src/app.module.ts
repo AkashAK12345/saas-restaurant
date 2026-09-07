@@ -14,6 +14,7 @@ import { DisplayDevicesModule } from './modules/display-devices/display-devices.
 import { DisplayModule } from './modules/display/display.module.js';
 import { RealtimeModule } from './modules/realtime/realtime.module.js';
 import { SchedulerModule } from './common/scheduler/scheduler.module.js';
+import { QueueTokensModule } from './modules/queue-tokens/queue-tokens.module.js';
 
 @Module({
   imports: [
@@ -38,6 +39,8 @@ import { SchedulerModule } from './common/scheduler/scheduler.module.js';
     RealtimeModule,
     // T0-C scheduler foundation (registers no jobs)
     SchedulerModule,
+    // Phase 7 — queue management (backend domain core)
+    QueueTokensModule,
   ],
 })
 export class AppModule {}

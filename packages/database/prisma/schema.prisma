@@ -65,6 +65,32 @@ enum DisplayDeviceStatus {
   REVOKED
 }
 
+// Queue token lifecycle (Phase 7). Transitions are constrained by the state
+// machine in apps/api/src/modules/queue-tokens/queue-state-machine.ts — the
+// database stores the status, the application decides which changes are legal.
+//
+//   WAITING ─▶ CALLED ─▶ SEATED
+//      │          ├────▶ NO_SHOW
+//      └──────────┴────▶ CANCELLED
+enum QueueTokenStatus {
+  WAITING
+  CALLED
+  SEATED
+  NO_SHOW
+  CANCELLED
+}
+
+// One row per lifecycle step; see QueueTokenEvent.
+enum QueueTokenEventType {
+  REGISTERED
+  CALLED
+  SEATED
+  NO_SHOW
+  CANCELLED
+  TABLE_ASSIGNED
+  TABLE_RELEASED
+}
+
 enum AuditEventType {
   CREATE
   UPDATE
@@ -93,6 +119,7 @@ model User {
   memberships  CompanyMembership[]
   branch_roles UserBranchRole[]
   audit_logs   AuditLog[]
+  queue_token_events QueueTokenEvent[]
 
   // Declares the index created by migration 20260906130000_user_status so the
   // schema matches the database; without this Prisma tries to DROP it.
@@ -117,6 +144,7 @@ model Company {
   roles       Role[]
   audit_logs  AuditLog[]
   customers   Customer[]
+  queue_tokens QueueToken[]
 
   @@map("companies")
 }
@@ -154,6 +182,8 @@ model Branch {
   audit_logs      AuditLog[]
   tables          Table[]
   display_devices DisplayDevice[]
+  queue_tokens    QueueToken[]
+  queue_counters  QueueCounter[]
 
   @@index([company_id])
   @@map("branches")
@@ -177,7 +207,8 @@ model Customer {
   created_at DateTime       @default(now()) @db.Timestamptz(3)
   updated_at DateTime       @updatedAt @db.Timestamptz(3)
 
-  company Company @relation(fields: [company_id], references: [id], onDelete: Restrict)
+  company      Company      @relation(fields: [company_id], references: [id], onDelete: Restrict)
+  queue_tokens QueueToken[]
 
   // PostgreSQL unique indexes treat NULLs as distinct, so this enforces
   // "one customer per normalized phone per company" while allowing any number
@@ -201,7 +232,8 @@ model Table {
   created_at DateTime    @default(now()) @db.Timestamptz(3)
   updated_at DateTime    @updatedAt @db.Timestamptz(3)
 
-  branch Branch @relation(fields: [branch_id], references: [id], onDelete: Restrict)
+  branch       Branch       @relation(fields: [branch_id], references: [id], onDelete: Restrict)
+  queue_tokens QueueToken[]
 
   @@unique([branch_id, label])
   @@index([branch_id])
@@ -227,6 +259,99 @@ model DisplayDevice {
   @@index([branch_id])
   @@index([status])
   @@map("display_devices")
+}
+
+// -----------------------------------------------------------------------------
+// QUEUE MANAGEMENT (Phase 7)
+// -----------------------------------------------------------------------------
+
+// A party waiting for a table. Branch-scoped; company_id is denormalised so a
+// token can be scoped in a single WHERE without a join (the same pattern the
+// authorization checks use everywhere else).
+//
+// Status changes only happen through the explicit domain operations in
+// QueueTokensService (call / seat / no-show / cancel / assign-table /
+// release-table); there is no generic update path.
+//
+// Table occupancy: a token holds a table while it is SEATED with a non-null
+// assigned_table_id. Releasing the table (a manual queue operation until POS
+// exists) clears assigned_table_id; the assignment itself is preserved in the
+// TABLE_ASSIGNED / TABLE_RELEASED events. Exclusivity is enforced by the
+// partial unique index queue_tokens_one_seated_party_per_table (raw SQL in the
+// migration — Prisma cannot express partial indexes).
+model QueueToken {
+  id                String           @id @default(uuid()) @db.Uuid
+  company_id        String           @db.Uuid
+  branch_id         String           @db.Uuid
+  // Optional: anonymous walk-ins have no customer record.
+  customer_id       String?          @db.Uuid
+  // Calendar date in the BRANCH timezone. Token numbers restart at 1 per
+  // branch per service date.
+  service_date      DateTime         @db.Date
+  token_number      Int
+  status            QueueTokenStatus @default(WAITING)
+  party_size        Int
+  assigned_table_id String?          @db.Uuid
+  called_at         DateTime?        @db.Timestamptz(3)
+  seated_at         DateTime?        @db.Timestamptz(3)
+  cancelled_at      DateTime?        @db.Timestamptz(3)
+  no_show_at        DateTime?        @db.Timestamptz(3)
+  created_at        DateTime         @default(now()) @db.Timestamptz(3)
+  updated_at        DateTime         @updatedAt @db.Timestamptz(3)
+
+  company        Company           @relation(fields: [company_id], references: [id], onDelete: Restrict)
+  branch         Branch            @relation(fields: [branch_id], references: [id], onDelete: Restrict)
+  customer       Customer?         @relation(fields: [customer_id], references: [id], onDelete: Restrict)
+  assigned_table Table?            @relation(fields: [assigned_table_id], references: [id], onDelete: Restrict)
+  events         QueueTokenEvent[]
+
+  @@unique([branch_id, service_date, token_number])
+  @@index([branch_id, service_date, status])
+  @@index([company_id])
+  @@index([customer_id])
+  @@index([assigned_table_id])
+  @@map("queue_tokens")
+}
+
+// Append-only lifecycle history of a token. UPDATE and DELETE are rejected by
+// database triggers (see the migration), mirroring audit_logs.
+model QueueTokenEvent {
+  id              String              @id @default(uuid()) @db.Uuid
+  queue_token_id  String              @db.Uuid
+  event_type      QueueTokenEventType
+  previous_status QueueTokenStatus?
+  new_status      QueueTokenStatus
+  // Null when the step is not performed by a staff user (reserved for the
+  // scheduler / device paths that later phases add).
+  actor_user_id   String?             @db.Uuid
+  // Only for table events: { table_id }. Nothing else is stored here.
+  metadata        Json?
+  created_at      DateTime            @default(now()) @db.Timestamptz(3)
+
+  queue_token QueueToken @relation(fields: [queue_token_id], references: [id], onDelete: Restrict)
+  actor       User?      @relation(fields: [actor_user_id], references: [id], onDelete: Restrict)
+
+  @@index([queue_token_id, created_at])
+  @@map("queue_token_events")
+}
+
+// Per-branch, per-service-date token allocator. Allocation is a single
+// INSERT ... ON CONFLICT DO UPDATE ... RETURNING statement inside the
+// registration transaction, so PostgreSQL's row lock serialises concurrent
+// registrations and no two transactions can observe the same number.
+// next_number is the next value to hand out.
+model QueueCounter {
+  id           String   @id @default(uuid()) @db.Uuid
+  branch_id    String   @db.Uuid
+  service_date DateTime @db.Date
+  next_number  Int      @default(1)
+  created_at   DateTime @default(now()) @db.Timestamptz(3)
+  updated_at   DateTime @updatedAt @db.Timestamptz(3)
+
+  branch Branch @relation(fields: [branch_id], references: [id], onDelete: Restrict)
+
+  @@unique([branch_id, service_date])
+  @@map("queue_counters")
 }
 
 // -----------------------------------------------------------------------------

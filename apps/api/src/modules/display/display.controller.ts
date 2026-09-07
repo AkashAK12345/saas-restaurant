@@ -16,6 +16,7 @@ import { RequireDisplayKind } from '../../common/display-auth/require-display-ki
 import { RealtimeService } from '../realtime/realtime.service.js';
 import { CreateDisplayStreamTicketDto } from '../realtime/realtime.dto.js';
 import { displayKindMaySubscribe } from '../../common/realtime/channels.js';
+import { QueueTokensService } from '../queue-tokens/queue-tokens.service.js';
 
 /**
  * DEVICE-side routes. Guarded by DisplayDeviceGuard only — no JWT, no RBAC.
@@ -30,6 +31,7 @@ export class DisplayController {
   constructor(
     private readonly prisma: PrismaService,
     private readonly realtime: RealtimeService,
+    private readonly queueTokens: QueueTokensService,
   ) {}
 
   /** Any ACTIVE device of the requested branch may ask who it is. */
@@ -51,6 +53,27 @@ export class DisplayController {
       select: { id: true, name: true, timezone: true },
     });
     return branch;
+  }
+
+  /**
+   * The queue board for the device's OWN branch, projected for its kind.
+   *
+   * There is no second queue read model behind this: both projections are
+   * derived from the same queue_tokens rows the podium reads. The branch is
+   * taken from the authenticated device, never from a parameter, so a screen
+   * cannot ask for another branch's queue.
+   *
+   *   QUEUE_CUSTOMER → token numbers, table labels and a waiting count only.
+   *   QUEUE_ADMIN    → the full operational picture, still without customer
+   *                    names (a device is not a permission-holding user).
+   */
+  @Get('queue/board')
+  @RequireDisplayKind(DisplayDeviceKind.QUEUE_CUSTOMER, DisplayDeviceKind.QUEUE_ADMIN)
+  queueBoard(@Req() req: DisplayRequest) {
+    const d = req.display!;
+    return d.kind === DisplayDeviceKind.QUEUE_ADMIN
+      ? this.queueTokens.adminBoard(d.branchId)
+      : this.queueTokens.customerBoard(d.branchId);
   }
 
   /**

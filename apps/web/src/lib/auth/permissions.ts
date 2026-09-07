@@ -21,6 +21,12 @@ export const PERMISSION_KEYS = {
   QUEUE_VIEW: 'queue.view',
   BANQUET_KDS_VIEW: 'banquet.kds.view',
   TASKS_VIEW: 'tasks.view',
+  // Queue Management (Phase 7) — one key per explicit queue operation.
+  QUEUE_REGISTER: 'queue.register',
+  QUEUE_CALL: 'queue.call',
+  QUEUE_SEAT: 'queue.seat',
+  QUEUE_NO_SHOW: 'queue.no_show',
+  QUEUE_CANCEL: 'queue.cancel',
 } as const;
 
 export type PermissionKey = (typeof PERMISSION_KEYS)[keyof typeof PERMISSION_KEYS] | (string & {});
