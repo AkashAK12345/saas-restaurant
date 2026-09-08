@@ -23,7 +23,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { href: '/customers', label: 'Customers', permissions: [PERMISSION_KEYS.CUSTOMERS_VIEW] },
   { href: '/tables', label: 'Tables', permissions: [PERMISSION_KEYS.TABLES_VIEW], requiresBranch: true },
   { href: '/queue', label: 'Queue', permissions: [PERMISSION_KEYS.QUEUE_VIEW], requiresBranch: true },
-  { href: '/banquet', label: 'Banquet', permissions: [PERMISSION_KEYS.BANQUET_KDS_VIEW], requiresBranch: true },
+  { href: '/banquet', label: 'Banquet', permissions: [PERMISSION_KEYS.BANQUET_VIEW, PERMISSION_KEYS.BANQUET_KDS_VIEW], requiresBranch: true },
   { href: '/tasks', label: 'Tasks', permissions: [PERMISSION_KEYS.TASKS_VIEW], requiresBranch: true },
   { href: '/displays', label: 'Displays', permissions: [PERMISSION_KEYS.DISPLAY_DEVICES_VIEW], requiresBranch: true },
   { href: '/settings/users', label: 'Users', permissions: [PERMISSION_KEYS.USERS_VIEW] },

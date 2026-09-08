@@ -154,9 +154,14 @@ describe('queue display screen', () => {
     expect(screen.queryByRole('button')).toBeNull();
   });
 
-  it('the banquet placeholder still renders standalone', () => {
+  it('the chef display renders standalone and asks to be paired', async () => {
+    // Phase 8 replaced the placeholder with the real kitchen screen; unpaired,
+    // it shows the same device pairing form and still no staff affordances.
     render(<BanquetDisplayPage />);
-    expect(screen.getByRole('heading', { name: 'Chef display' })).toBeDefined();
+    expect(await screen.findByRole('heading', { name: 'Pair this screen' })).toBeDefined();
+    expect(screen.queryByRole('navigation')).toBeNull();
+    expect(screen.queryByRole('link')).toBeNull();
+    expect(screen.queryByText(/sign (in|out)/i)).toBeNull();
   });
 
   it('the staff session hook throws outside the staff root — no display tree can reach a session', () => {

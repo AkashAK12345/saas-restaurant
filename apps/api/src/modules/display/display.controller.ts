@@ -17,13 +17,15 @@ import { RealtimeService } from '../realtime/realtime.service.js';
 import { CreateDisplayStreamTicketDto } from '../realtime/realtime.dto.js';
 import { displayKindMaySubscribe } from '../../common/realtime/channels.js';
 import { QueueTokensService } from '../queue-tokens/queue-tokens.service.js';
+import { BanquetKdsService } from '../banquet/banquet-kds.service.js';
 
 /**
  * DEVICE-side routes. Guarded by DisplayDeviceGuard only — no JWT, no RBAC.
  *
- * Read-only foundation. The two routes here exist so a paired screen can
- * confirm its own identity and show its branch, and so the guard's branch and
- * kind restrictions are exercised end-to-end. Stream endpoints arrive in T0-B.
+ * READ ONLY, by contract. A paired screen can confirm its identity, read its
+ * branch, fetch the board for its own kind and mint a short-lived stream
+ * ticket. Nothing here mutates anything: every write in the queue and banquet
+ * domains is a staff operation behind RBAC.
  */
 @Controller('display')
 @UseGuards(DisplayDeviceGuard)
@@ -32,6 +34,7 @@ export class DisplayController {
     private readonly prisma: PrismaService,
     private readonly realtime: RealtimeService,
     private readonly queueTokens: QueueTokensService,
+    private readonly banquetKds: BanquetKdsService,
   ) {}
 
   /** Any ACTIVE device of the requested branch may ask who it is. */
@@ -42,11 +45,15 @@ export class DisplayController {
   }
 
   /**
-   * Branch presentation details for queue screens. A chef board has no reason
-   * to read this, so it is limited to the queue kinds.
+   * Branch presentation details, so a screen can title itself. Every screen
+   * kind that renders a board needs this.
    */
   @Get('branch')
-  @RequireDisplayKind(DisplayDeviceKind.QUEUE_CUSTOMER, DisplayDeviceKind.QUEUE_ADMIN)
+  @RequireDisplayKind(
+    DisplayDeviceKind.QUEUE_CUSTOMER,
+    DisplayDeviceKind.QUEUE_ADMIN,
+    DisplayDeviceKind.BANQUET_CHEF,
+  )
   async branch(@Req() req: DisplayRequest) {
     const branch = await this.prisma.branch.findUnique({
       where: { id: req.display!.branchId },
@@ -74,6 +81,24 @@ export class DisplayController {
     return d.kind === DisplayDeviceKind.QUEUE_ADMIN
       ? this.queueTokens.adminBoard(d.branchId)
       : this.queueTokens.customerBoard(d.branchId);
+  }
+
+  /**
+   * The kitchen board for the device's OWN branch.
+   *
+   * Same discipline as the queue board: the branch comes from the
+   * authenticated device row, never from a parameter, and the projection is
+   * chosen server-side. A chef screen sees the room, the covers, the service
+   * time, the kitchen notes and what to cook — no customer identity and no
+   * money at all.
+   *
+   * READ ONLY. There is no device route that mutates banquet data; advancing
+   * an item is a staff operation behind banquet.kds.manage.
+   */
+  @Get('banquet/board')
+  @RequireDisplayKind(DisplayDeviceKind.BANQUET_CHEF)
+  banquetBoard(@Req() req: DisplayRequest) {
+    return this.banquetKds.chefBoard(req.display!.branchId);
   }
 
   /**

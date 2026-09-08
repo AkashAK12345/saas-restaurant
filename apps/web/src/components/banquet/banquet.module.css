@@ -1,0 +1,251 @@
+/* Banquet operations: desktop/tablet first, every control ≥ --tap-min. */
+
+.subnav {
+  display: flex;
+  gap: 8px;
+  margin-bottom: var(--gap-lg);
+  flex-wrap: wrap;
+}
+
+.subnavLink {
+  min-height: var(--tap-min);
+  display: inline-flex;
+  align-items: center;
+  padding: 0 16px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+  text-decoration: none;
+}
+.subnavLink:hover { text-decoration: none; background: var(--color-surface-muted); }
+.subnavActive {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: var(--color-primary-contrast);
+}
+
+.bar {
+  display: flex;
+  align-items: center;
+  gap: var(--gap);
+  flex-wrap: wrap;
+  margin-bottom: var(--gap-lg);
+}
+.spacer { flex: 1 1 auto; }
+
+.action {
+  min-height: var(--tap-min);
+  padding: 0 16px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-muted);
+  cursor: pointer;
+}
+.action:disabled { opacity: 0.55; cursor: not-allowed; }
+.primary {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: var(--color-primary-contrast);
+}
+.danger {
+  color: var(--color-danger);
+  border-color: color-mix(in srgb, var(--color-danger) 45%, var(--color-border));
+}
+
+.error {
+  padding: var(--gap);
+  margin-bottom: var(--gap);
+  background: var(--color-danger-bg);
+  color: var(--color-danger);
+  border-radius: var(--radius);
+}
+.notice {
+  padding: var(--gap);
+  margin-bottom: var(--gap);
+  background: color-mix(in srgb, var(--color-success) 12%, var(--color-surface));
+  border-radius: var(--radius);
+}
+.empty {
+  margin: 0;
+  padding: var(--gap);
+  color: var(--color-text-muted);
+  background: var(--color-surface-muted);
+  border-radius: var(--radius);
+}
+
+/* ── cards & lists ───────────────────────────────────────────────────────── */
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--gap);
+}
+
+.card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: var(--gap);
+  display: grid;
+  gap: 10px;
+}
+
+.cardTop {
+  display: flex;
+  align-items: baseline;
+  gap: var(--gap);
+  flex-wrap: wrap;
+}
+
+.title { font-weight: 600; font-size: var(--text-lg); }
+.meta { color: var(--color-text-muted); font-size: 0.9rem; }
+.money { font-variant-numeric: tabular-nums; font-weight: 600; }
+
+.badge {
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  white-space: nowrap;
+  background: var(--color-surface-muted);
+  color: var(--color-text-muted);
+}
+.badgeDraft { background: var(--color-warning-bg); color: var(--color-text); }
+.badgeConfirmed { background: color-mix(in srgb, var(--color-primary) 18%, transparent); color: var(--color-primary); }
+.badgeCompleted { background: color-mix(in srgb, var(--color-success) 18%, transparent); color: var(--color-success); }
+.badgeCancelled { background: var(--color-danger-bg); color: var(--color-danger); }
+
+.link { color: var(--color-primary); }
+
+/* The card title IS the way into a booking on a tablet, so it has to be a
+   real touch target rather than a 24px line of text. */
+.titleLink {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--tap-min);
+  color: var(--color-primary);
+}
+
+/* ── forms ───────────────────────────────────────────────────────────────── */
+
+.form {
+  display: grid;
+  gap: var(--gap);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: var(--gap-lg);
+  margin-bottom: var(--gap-lg);
+}
+
+.grid {
+  display: grid;
+  gap: var(--gap);
+  grid-template-columns: 1fr;
+}
+@media (min-width: 720px) {
+  .grid2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .grid3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+.label {
+  display: block;
+  margin-bottom: 6px;
+  font-weight: 600;
+}
+
+.input,
+.select,
+.textarea {
+  width: 100%;
+  min-height: var(--tap-min);
+  padding: 8px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+}
+.textarea { min-height: 88px; resize: vertical; }
+
+.hint { margin: 6px 0 0; color: var(--color-text-muted); font-size: 0.9rem; }
+
+.actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+/* ── detail layout ───────────────────────────────────────────────────────── */
+
+.columns {
+  display: grid;
+  gap: var(--gap-lg);
+  grid-template-columns: 1fr;
+}
+@media (min-width: 1000px) {
+  .columns { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); }
+}
+
+.panel {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: var(--gap-lg);
+  margin-bottom: var(--gap-lg);
+}
+.panelTitle { margin: 0 0 var(--gap); font-size: var(--text-lg); }
+
+.rows { display: grid; gap: 8px; }
+.row {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--gap);
+  padding: 8px 0;
+  border-bottom: 1px solid var(--color-border);
+}
+.row:last-child { border-bottom: 0; }
+.rowLabel { color: var(--color-text-muted); }
+
+.balanceTotal {
+  font-size: var(--text-xl);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.paid { color: var(--color-success); }
+.due { color: var(--color-danger); }
+
+/* ── kitchen board (staff) ───────────────────────────────────────────────── */
+
+.kdsGrid {
+  display: grid;
+  gap: var(--gap-lg);
+  grid-template-columns: 1fr;
+}
+@media (min-width: 900px) {
+  .kdsGrid { grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
+}
+
+.items { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.item {
+  display: flex;
+  align-items: center;
+  gap: var(--gap);
+  padding: 8px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-muted);
+  flex-wrap: wrap;
+}
+.itemName { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.itemPending { }
+.itemCooking { background: color-mix(in srgb, var(--color-primary) 14%, var(--color-surface-muted)); }
+.itemReady { background: color-mix(in srgb, var(--color-success) 16%, var(--color-surface-muted)); }
+
+.stream {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.9rem;
+  color: var(--color-text-muted);
+}
+.dot { width: 10px; height: 10px; border-radius: 50%; background: var(--color-text-muted); }
+.dotOpen { background: var(--color-success); }
+.dotWaiting { background: var(--color-warning-bg); border: 1px solid var(--color-border); }
+.dotClosed { background: var(--color-danger); }

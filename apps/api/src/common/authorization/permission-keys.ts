@@ -85,6 +85,22 @@ export const PERMISSION_KEYS = {
   QUEUE_SEAT: 'queue.seat',
   QUEUE_NO_SHOW: 'queue.no_show',
   QUEUE_CANCEL: 'queue.cancel',
+
+  // ── Banquet Management (Phase 8) ─────────────────────────────────────────
+  // One read key covers every banquet read; each mutation that changes what a
+  // booking MEANS gets its own key. BANQUET_KDS_VIEW (above, from T0-B) still
+  // gates the kitchen board and its stream.
+  BANQUET_VIEW: 'banquet.view',
+  BANQUET_HALL_MANAGE: 'banquet.hall.manage',
+  BANQUET_PACKAGE_MANAGE: 'banquet.package.manage',
+  BANQUET_BOOKING_CREATE: 'banquet.booking.create',
+  BANQUET_BOOKING_UPDATE: 'banquet.booking.update',
+  BANQUET_BOOKING_CONFIRM: 'banquet.booking.confirm',
+  BANQUET_BOOKING_CANCEL: 'banquet.booking.cancel',
+  BANQUET_BOOKING_COMPLETE: 'banquet.booking.complete',
+  BANQUET_PAYMENT_CREATE: 'banquet.payment.create',
+  BANQUET_EVENT_PLAN_MANAGE: 'banquet.event_plan.manage',
+  BANQUET_KDS_MANAGE: 'banquet.kds.manage',
 } as const;
 
 export type PermissionKey = (typeof PERMISSION_KEYS)[keyof typeof PERMISSION_KEYS];
@@ -328,5 +344,60 @@ export const SYSTEM_PERMISSIONS: Array<{
     name: PERMISSION_KEYS.QUEUE_CANCEL,
     module: 'queue',
     description: 'Cancel a waiting or called queue token',
+  },
+  {
+    name: PERMISSION_KEYS.BANQUET_VIEW,
+    module: 'banquet',
+    description: 'View banquet halls, packages, bookings, payments and event plans at a branch',
+  },
+  {
+    name: PERMISSION_KEYS.BANQUET_HALL_MANAGE,
+    module: 'banquet',
+    description: 'Create and update banquet halls at a branch',
+  },
+  {
+    name: PERMISSION_KEYS.BANQUET_PACKAGE_MANAGE,
+    module: 'banquet',
+    description: 'Create and update banquet packages for the company',
+  },
+  {
+    name: PERMISSION_KEYS.BANQUET_BOOKING_CREATE,
+    module: 'banquet',
+    description: 'Create a draft banquet booking',
+  },
+  {
+    name: PERMISSION_KEYS.BANQUET_BOOKING_UPDATE,
+    module: 'banquet',
+    description: 'Update the details of a draft banquet booking',
+  },
+  {
+    name: PERMISSION_KEYS.BANQUET_BOOKING_CONFIRM,
+    module: 'banquet',
+    description: 'Confirm a draft booking, claiming its hall for the event window',
+  },
+  {
+    name: PERMISSION_KEYS.BANQUET_BOOKING_CANCEL,
+    module: 'banquet',
+    description: 'Cancel a draft or confirmed banquet booking',
+  },
+  {
+    name: PERMISSION_KEYS.BANQUET_BOOKING_COMPLETE,
+    module: 'banquet',
+    description: 'Mark a confirmed banquet event as completed',
+  },
+  {
+    name: PERMISSION_KEYS.BANQUET_PAYMENT_CREATE,
+    module: 'banquet',
+    description: 'Record an advance or balance payment against a booking',
+  },
+  {
+    name: PERMISSION_KEYS.BANQUET_EVENT_PLAN_MANAGE,
+    module: 'banquet',
+    description: 'Create and update the event plan for a booking',
+  },
+  {
+    name: PERMISSION_KEYS.BANQUET_KDS_MANAGE,
+    module: 'banquet',
+    description: 'Advance kitchen preparation state for banquet items',
   },
 ];

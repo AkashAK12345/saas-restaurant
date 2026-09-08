@@ -15,6 +15,7 @@ import { DisplayModule } from './modules/display/display.module.js';
 import { RealtimeModule } from './modules/realtime/realtime.module.js';
 import { SchedulerModule } from './common/scheduler/scheduler.module.js';
 import { QueueTokensModule } from './modules/queue-tokens/queue-tokens.module.js';
+import { BanquetModule } from './modules/banquet/banquet.module.js';
 
 @Module({
   imports: [
@@ -41,6 +42,8 @@ import { QueueTokensModule } from './modules/queue-tokens/queue-tokens.module.js
     SchedulerModule,
     // Phase 7 — queue management (backend domain core)
     QueueTokensModule,
+    // Phase 8 — banquet management
+    BanquetModule,
   ],
 })
 export class AppModule {}

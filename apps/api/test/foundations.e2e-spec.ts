@@ -558,12 +558,26 @@ describe('T0-A Foundations (e2e)', () => {
       for (const d of [customer, admin, chef]) {
         expect((await asDevice(d.body.credential, branchA.id)).status).toBe(200);
       }
-      // /display/branch: queue kinds only
+      // /display/branch: every board-rendering kind may title itself. Phase 8
+      // added BANQUET_CHEF here when the chef display began showing its branch.
       const c = await asDevice(customer.body.credential, branchA.id, '/api/v1/display/branch');
       expect(c.status).toBe(200);
       expect(c.body).toEqual({ id: branchA.id, name: 'Alpha HQ', timezone: 'Asia/Kolkata' });
-      expect((await asDevice(admin.body.credential, branchA.id, '/api/v1/display/branch')).status).toBe(200);
-      expect((await asDevice(chef.body.credential, branchA.id, '/api/v1/display/branch')).status).toBe(403);
+      for (const d of [admin, chef]) {
+        expect((await asDevice(d.body.credential, branchA.id, '/api/v1/display/branch')).status).toBe(200);
+      }
+
+      // The BOARD routes are where a kind actually gates data, and they stay
+      // mutually exclusive: a queue screen can never render the kitchen, and a
+      // kitchen screen can never render the queue.
+      for (const d of [customer, admin]) {
+        expect(
+          (await asDevice(d.body.credential, branchA.id, '/api/v1/display/banquet/board')).status,
+        ).toBe(403);
+      }
+      expect(
+        (await asDevice(chef.body.credential, branchA.id, '/api/v1/display/queue/board')).status,
+      ).toBe(403);
     });
 
     it('DD-10. an INACTIVE branch or non-ACTIVE company stops its devices', async () => {

@@ -287,3 +287,92 @@
   color: #9aa3b0;
   cursor: pointer;
 }
+
+/* ── chef board ─────────────────────────────────────────────────────────── */
+
+.chefGrid {
+  display: grid;
+  gap: clamp(12px, 2vw, 24px);
+  grid-template-columns: repeat(auto-fit, minmax(min(340px, 100%), 1fr));
+  align-content: start;
+}
+
+.chefCard {
+  background: #171b21;
+  border: 1px solid #2e343d;
+  border-radius: 14px;
+  padding: clamp(12px, 1.6vw, 22px);
+  display: grid;
+  gap: 10px;
+  align-content: start;
+}
+
+.chefHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.chefHall {
+  font-size: clamp(1.4rem, 2.4vw, 2.2rem);
+  font-weight: 700;
+}
+
+.chefCovers {
+  color: #8fb2ff;
+  font-size: clamp(1rem, 1.6vw, 1.4rem);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.chefTime {
+  color: #9aa3b0;
+  font-size: clamp(1rem, 1.5vw, 1.3rem);
+}
+
+.chefNotes {
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: #3d3416;
+  color: #f0d98a;
+  font-size: clamp(0.95rem, 1.4vw, 1.2rem);
+}
+
+.chefItems {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.chefItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: #1f242c;
+  font-size: clamp(1.05rem, 1.7vw, 1.5rem);
+}
+
+.chefState {
+  font-size: 0.8em;
+  color: #9aa3b0;
+  white-space: nowrap;
+}
+
+.chefPending { }
+.chefCooking {
+  background: #23314a;
+  border-left: 6px solid #2f6bff;
+}
+.chefReady {
+  background: #1e3626;
+  border-left: 6px solid #5cd17c;
+}
+.chefReady .chefState { color: #5cd17c; }

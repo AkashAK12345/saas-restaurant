@@ -80,6 +80,42 @@ enum QueueTokenStatus {
   CANCELLED
 }
 
+// ── Banquet (Phase 8) ────────────────────────────────────────────────────────
+
+enum BanquetHallStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum BanquetPackageStatus {
+  ACTIVE
+  INACTIVE
+}
+
+// Booking lifecycle. Transitions are constrained by the state machine in
+// apps/api/src/modules/banquet/banquet-state-machine.ts.
+//
+//   DRAFT ─▶ CONFIRMED ─▶ COMPLETED
+//     └──────────┴──────▶ CANCELLED
+//
+// CONFLICT PARTICIPATION: only CONFIRMED and COMPLETED occupy a hall. A DRAFT
+// is a tentative enquiry that deliberately does NOT block anyone — several may
+// exist for the same slot — and confirming is what claims the hall. A
+// CANCELLED booking releases it.
+enum BanquetBookingStatus {
+  DRAFT
+  CONFIRMED
+  COMPLETED
+  CANCELLED
+}
+
+// Preparation state of one snapshotted booking item on the chef display.
+enum BanquetKdsStatus {
+  PENDING
+  IN_PROGRESS
+  READY
+}
+
 // One row per lifecycle step; see QueueTokenEvent.
 enum QueueTokenEventType {
   REGISTERED
@@ -120,6 +156,7 @@ model User {
   branch_roles UserBranchRole[]
   audit_logs   AuditLog[]
   queue_token_events QueueTokenEvent[]
+  banquet_payments   BanquetPayment[]
 
   // Declares the index created by migration 20260906130000_user_status so the
   // schema matches the database; without this Prisma tries to DROP it.
@@ -145,6 +182,8 @@ model Company {
   audit_logs  AuditLog[]
   customers   Customer[]
   queue_tokens QueueToken[]
+  banquet_packages BanquetPackage[]
+  banquet_bookings BanquetBooking[]
 
   @@map("companies")
 }
@@ -184,6 +223,8 @@ model Branch {
   display_devices DisplayDevice[]
   queue_tokens    QueueToken[]
   queue_counters  QueueCounter[]
+  banquet_halls    BanquetHall[]
+  banquet_bookings BanquetBooking[]
 
   @@index([company_id])
   @@map("branches")
@@ -209,6 +250,7 @@ model Customer {
 
   company      Company      @relation(fields: [company_id], references: [id], onDelete: Restrict)
   queue_tokens QueueToken[]
+  banquet_bookings BanquetBooking[]
 
   // PostgreSQL unique indexes treat NULLs as distinct, so this enforces
   // "one customer per normalized phone per company" while allowing any number
@@ -352,6 +394,195 @@ model QueueCounter {
 
   @@unique([branch_id, service_date])
   @@map("queue_counters")
+}
+
+// -----------------------------------------------------------------------------
+// BANQUET MANAGEMENT (Phase 8)
+// -----------------------------------------------------------------------------
+
+// A function room. Branch-scoped, exactly like Table. Deliberately NOT related
+// to the deferred Phase 2 Floor model.
+model BanquetHall {
+  id         String            @id @default(uuid()) @db.Uuid
+  branch_id  String            @db.Uuid
+  name       String
+  capacity   Int
+  status     BanquetHallStatus @default(ACTIVE)
+  created_at DateTime          @default(now()) @db.Timestamptz(3)
+  updated_at DateTime          @updatedAt @db.Timestamptz(3)
+
+  branch   Branch           @relation(fields: [branch_id], references: [id], onDelete: Restrict)
+  bookings BanquetBooking[]
+
+  @@unique([branch_id, name])
+  @@index([branch_id])
+  @@map("banquet_halls")
+}
+
+// A commercial offering. COMPANY-scoped like Customer, so one catalogue serves
+// every branch. This is not a Product/Menu system: it exists only to price a
+// banquet and to hand the kitchen a list of components.
+//
+// MONEY: price_per_guest_minor is an INTEGER in the minor unit of `currency`
+// (e.g. paise for INR, cents for USD). No floating point is used anywhere in
+// the money path. The price is PER GUEST — the banquet convention — so a
+// booking's total is price × guest_count. That choice is documented in
+// banquet-money.ts and snapshotted onto every booking.
+model BanquetPackage {
+  id                    String               @id @default(uuid()) @db.Uuid
+  company_id            String               @db.Uuid
+  name                  String
+  description           String?
+  price_per_guest_minor Int
+  currency              String               @db.Char(3)
+  status                BanquetPackageStatus @default(ACTIVE)
+  created_at            DateTime             @default(now()) @db.Timestamptz(3)
+  updated_at            DateTime             @updatedAt @db.Timestamptz(3)
+
+  company  Company              @relation(fields: [company_id], references: [id], onDelete: Restrict)
+  items    BanquetPackageItem[]
+  bookings BanquetBooking[]
+
+  @@unique([company_id, name])
+  @@index([company_id])
+  @@map("banquet_packages")
+}
+
+// A component of a package (a dish, a service line). Snapshotted onto a booking
+// at creation time; editing the package later never rewrites history.
+model BanquetPackageItem {
+  id         String   @id @default(uuid()) @db.Uuid
+  package_id String   @db.Uuid
+  name       String
+  position   Int
+  created_at DateTime @default(now()) @db.Timestamptz(3)
+  updated_at DateTime @updatedAt @db.Timestamptz(3)
+
+  package BanquetPackage @relation(fields: [package_id], references: [id], onDelete: Restrict)
+
+  @@index([package_id])
+  @@map("banquet_package_items")
+}
+
+// A booked event. Branch-scoped; company_id is denormalised for single-query
+// scoping, the same pattern QueueToken uses.
+//
+// TIME: starts_at / ends_at are absolute instants (timestamptz). Overlap is
+// therefore evaluated on the real timeline and is DST-proof by construction —
+// no wall-clock arithmetic is involved. The branch timezone is used only to
+// PRESENT an event and to group the chef display by branch-local day.
+//
+// SNAPSHOTS: package_name, price_per_guest_minor, currency and
+// total_amount_minor are copied at creation. A later edit to the package
+// cannot change what a historical booking meant or cost.
+//
+// The hall is protected by a PostgreSQL exclusion constraint; see the
+// migration. `balance` is deliberately NOT a column — it is derived as
+// total_amount_minor minus successful payments.
+model BanquetBooking {
+  id                    String               @id @default(uuid()) @db.Uuid
+  company_id            String               @db.Uuid
+  branch_id             String               @db.Uuid
+  customer_id           String               @db.Uuid
+  hall_id               String               @db.Uuid
+  package_id            String?              @db.Uuid
+  starts_at             DateTime             @db.Timestamptz(3)
+  ends_at               DateTime             @db.Timestamptz(3)
+  guest_count           Int
+  status                BanquetBookingStatus @default(DRAFT)
+  // Commercial snapshot, fixed at booking time.
+  package_name          String
+  price_per_guest_minor Int
+  currency              String               @db.Char(3)
+  total_amount_minor    Int
+  notes                 String?
+  confirmed_at          DateTime?            @db.Timestamptz(3)
+  completed_at          DateTime?            @db.Timestamptz(3)
+  cancelled_at          DateTime?            @db.Timestamptz(3)
+  created_at            DateTime             @default(now()) @db.Timestamptz(3)
+  updated_at            DateTime             @updatedAt @db.Timestamptz(3)
+
+  company    Company              @relation(fields: [company_id], references: [id], onDelete: Restrict)
+  branch     Branch               @relation(fields: [branch_id], references: [id], onDelete: Restrict)
+  customer   Customer             @relation(fields: [customer_id], references: [id], onDelete: Restrict)
+  hall       BanquetHall          @relation(fields: [hall_id], references: [id], onDelete: Restrict)
+  package    BanquetPackage?      @relation(fields: [package_id], references: [id], onDelete: Restrict)
+  items      BanquetBookingItem[]
+  payments   BanquetPayment[]
+  event_plan BanquetEventPlan?
+
+  @@index([branch_id, starts_at])
+  @@index([branch_id, status])
+  @@index([company_id])
+  @@index([customer_id])
+  @@index([hall_id])
+  @@map("banquet_bookings")
+}
+
+// The package components as they stood when the booking was made, plus the
+// kitchen's preparation state for each. The chef display reads these; staff
+// with banquet.kds.manage advance them.
+model BanquetBookingItem {
+  id          String           @id @default(uuid()) @db.Uuid
+  booking_id  String           @db.Uuid
+  name        String
+  position    Int
+  kds_status  BanquetKdsStatus @default(PENDING)
+  started_at  DateTime?        @db.Timestamptz(3)
+  ready_at    DateTime?        @db.Timestamptz(3)
+  created_at  DateTime         @default(now()) @db.Timestamptz(3)
+  updated_at  DateTime         @updatedAt @db.Timestamptz(3)
+
+  booking BanquetBooking @relation(fields: [booking_id], references: [id], onDelete: Restrict)
+
+  @@index([booking_id])
+  @@map("banquet_booking_items")
+}
+
+// The operational plan for one booking: when food is served, how the room is
+// set, and what the kitchen needs to know. Deliberately three fields and no
+// task list — a task/checklist system is Phase 9 and must not be pre-empted.
+model BanquetEventPlan {
+  id            String    @id @default(uuid()) @db.Uuid
+  booking_id    String    @unique @db.Uuid
+  service_at    DateTime? @db.Timestamptz(3)
+  setup_notes   String?
+  kitchen_notes String?
+  created_at    DateTime  @default(now()) @db.Timestamptz(3)
+  updated_at    DateTime  @updatedAt @db.Timestamptz(3)
+
+  booking BanquetBooking @relation(fields: [booking_id], references: [id], onDelete: Restrict)
+
+  @@map("banquet_event_plans")
+}
+
+// An advance or balance payment against a booking. APPEND-ONLY: UPDATE and
+// DELETE are rejected by database triggers, exactly as for audit_logs and
+// queue_token_events. There is no refund path — the roadmap does not define
+// one, and inventing a negative payment would silently become accounting.
+//
+// This is NOT Finance: there is no ledger, no journal and no accounting entry.
+// It records what a customer paid against one event.
+model BanquetPayment {
+  id            String   @id @default(uuid()) @db.Uuid
+  booking_id    String   @db.Uuid
+  company_id    String   @db.Uuid
+  branch_id     String   @db.Uuid
+  amount_minor  Int
+  currency      String   @db.Char(3)
+  paid_at       DateTime @db.Timestamptz(3)
+  // Free-text snapshot only ("cash", "card ****1234"). PaymentMethod is a
+  // deferred Phase 2 entity and is deliberately not referenced.
+  method        String?
+  reference     String?
+  actor_user_id String?  @db.Uuid
+  created_at    DateTime @default(now()) @db.Timestamptz(3)
+
+  booking BanquetBooking @relation(fields: [booking_id], references: [id], onDelete: Restrict)
+  actor   User?          @relation(fields: [actor_user_id], references: [id], onDelete: Restrict)
+
+  @@index([booking_id, paid_at])
+  @@map("banquet_payments")
 }
 
 // -----------------------------------------------------------------------------

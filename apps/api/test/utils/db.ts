@@ -38,6 +38,23 @@ export async function purgeQueueHistory(prisma: PrismaService): Promise<void> {
 }
 
 /**
+ * Phase 8 banquet rows. `banquet_payments` carries the same append-only
+ * triggers as audit_logs and queue_token_events (migration
+ * 20260907120000_phase8_banquet), so it is TRUNCATEd for the same reasons;
+ * the rest are ordinary rows that must go before the customers, halls,
+ * branches and users they reference.
+ */
+export async function purgeBanquet(prisma: PrismaService): Promise<void> {
+  await prisma.$executeRawUnsafe('TRUNCATE TABLE "banquet_payments"');
+  await prisma.banquetEventPlan.deleteMany();
+  await prisma.banquetBookingItem.deleteMany();
+  await prisma.banquetBooking.deleteMany();
+  await prisma.banquetHall.deleteMany();
+  await prisma.banquetPackageItem.deleteMany();
+  await prisma.banquetPackage.deleteMany();
+}
+
+/**
  * Full reset in foreign-key-safe order.
  *
  * Every FK into companies/branches/users is ON DELETE RESTRICT (correct for
@@ -50,6 +67,7 @@ export async function purgeQueueHistory(prisma: PrismaService): Promise<void> {
 export async function resetDatabase(prisma: PrismaService): Promise<void> {
   await purgeAuditLogs(prisma);
   await purgeQueueHistory(prisma);
+  await purgeBanquet(prisma);
   await prisma.userBranchRole.deleteMany();
   await prisma.rolePermission.deleteMany();
   await prisma.userSession.deleteMany();
@@ -84,6 +102,7 @@ export async function deleteUserCascade(
 ): Promise<void> {
   await purgeAuditLogs(prisma);
   await purgeQueueHistory(prisma);
+  await purgeBanquet(prisma);
   await prisma.userBranchRole.deleteMany({ where: { user_id: userId } });
   await prisma.userSession.deleteMany({ where: { user_id: userId } });
   await prisma.companyMembership.deleteMany({ where: { user_id: userId } });

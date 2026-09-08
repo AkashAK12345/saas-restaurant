@@ -27,6 +27,17 @@ export const PERMISSION_KEYS = {
   QUEUE_SEAT: 'queue.seat',
   QUEUE_NO_SHOW: 'queue.no_show',
   QUEUE_CANCEL: 'queue.cancel',
+  // Banquet Management (Phase 8)
+  BANQUET_VIEW: 'banquet.view',
+  BANQUET_HALL_MANAGE: 'banquet.hall.manage',
+  BANQUET_PACKAGE_MANAGE: 'banquet.package.manage',
+  BANQUET_BOOKING_CREATE: 'banquet.booking.create',
+  BANQUET_BOOKING_CONFIRM: 'banquet.booking.confirm',
+  BANQUET_BOOKING_CANCEL: 'banquet.booking.cancel',
+  BANQUET_BOOKING_COMPLETE: 'banquet.booking.complete',
+  BANQUET_PAYMENT_CREATE: 'banquet.payment.create',
+  BANQUET_EVENT_PLAN_MANAGE: 'banquet.event_plan.manage',
+  BANQUET_KDS_MANAGE: 'banquet.kds.manage',
 } as const;
 
 export type PermissionKey = (typeof PERMISSION_KEYS)[keyof typeof PERMISSION_KEYS] | (string & {});

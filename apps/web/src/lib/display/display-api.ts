@@ -1,7 +1,11 @@
 import { apiBaseUrl } from '@/lib/api/client';
 import type { StreamTicketResponse } from '@/lib/api/types';
 import type { QueueAdminBoard, QueueCustomerBoard } from '@/lib/queue/types';
+import type { ChefBoard } from '@/lib/banquet/types';
 import type { DeviceSession } from './device-session';
+
+/** Realtime channels a display device may request a ticket for. */
+export type DisplayChannel = 'queue' | 'banquet-kds';
 
 /**
  * Device-authenticated calls. This is the SAME authentication scheme T0-A
@@ -67,10 +71,16 @@ export const displayApi = {
   branch: (s: DeviceSession) => displayRequest<DisplayBranch>('/display/branch', s),
   customerBoard: (s: DeviceSession) => displayRequest<QueueCustomerBoard>('/display/queue/board', s),
   adminBoard: (s: DeviceSession) => displayRequest<QueueAdminBoard>('/display/queue/board', s),
-  /** Single-use, 60-second ticket — the only thing that may go in the stream URL. */
-  streamTicket: (s: DeviceSession) =>
+  /** The kitchen board for a BANQUET_CHEF device. */
+  banquetBoard: (s: DeviceSession) => displayRequest<ChefBoard>('/display/banquet/board', s),
+  /**
+   * Single-use, 60-second ticket — the only thing that may go in the stream
+   * URL. The channel a device may ask for is restricted by its kind
+   * server-side, so requesting the wrong one is refused rather than ignored.
+   */
+  streamTicket: (s: DeviceSession, channel: DisplayChannel = 'queue') =>
     displayRequest<StreamTicketResponse>('/display/stream-tickets', s, {
       method: 'POST',
-      body: { channel: 'queue' },
+      body: { channel },
     }),
 };

@@ -1,0 +1,327 @@
+import {
+  Body,
+  Controller,
+  Get,
+  Headers,
+  HttpCode,
+  HttpStatus,
+  Param,
+  ParseUUIDPipe,
+  Patch,
+  Post,
+  Put,
+  Query,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
+import { BanquetCatalogService } from './banquet-catalog.service.js';
+import { BanquetBookingsService } from './banquet-bookings.service.js';
+import { BanquetKdsService } from './banquet-kds.service.js';
+import {
+  CreateBookingDto,
+  CreateHallDto,
+  CreatePackageDto,
+  CreatePaymentDto,
+  KdsBoardQueryDto,
+  ListBookingsQueryDto,
+  UpdateBookingDto,
+  UpdateHallDto,
+  UpdatePackageDto,
+  UpsertEventPlanDto,
+} from './banquet.dto.js';
+import { PaginationQueryDto } from '../../common/pagination.dto.js';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
+import { PermissionGuard } from '../../common/authorization/permission.guard.js';
+import {
+  RequireBranchPermission,
+  RequireCompanyPermission,
+} from '../../common/authorization/require-permission.decorator.js';
+import { PERMISSION_KEYS } from '../../common/authorization/permission-keys.js';
+import type { BanquetActorContext, BanquetCompanyContext } from './banquet-context.js';
+
+interface AuthenticatedRequest {
+  user: { id: string };
+}
+
+/**
+ * Staff-side banquet API.
+ *
+ * Halls, bookings, payments, event plans and the kitchen board are BRANCH
+ * scoped; packages are COMPANY scoped, like customers. Every route carries a
+ * permission decorator, so PermissionGuard proves — server-side, against the
+ * database — that the caller has ACTIVE membership, that the branch belongs to
+ * the company and is ACTIVE, and that the caller holds the permission there.
+ * The context headers are a request, never the proof.
+ *
+ * There is deliberately NO route that writes a booking status or a KDS status
+ * directly: each lifecycle move is its own operation, and each one runs a
+ * single validated transition of the state machine.
+ */
+@Controller('banquet')
+@UseGuards(JwtAuthGuard)
+export class BanquetController {
+  constructor(
+    private readonly catalog: BanquetCatalogService,
+    private readonly bookings: BanquetBookingsService,
+    private readonly kds: BanquetKdsService,
+  ) {}
+
+  private branchCtx(
+    companyId: string,
+    branchId: string,
+    req: AuthenticatedRequest,
+  ): BanquetActorContext {
+    return { companyId, branchId, actorUserId: req.user.id };
+  }
+
+  private companyCtx(companyId: string, req: AuthenticatedRequest): BanquetCompanyContext {
+    return { companyId, actorUserId: req.user.id };
+  }
+
+  // ── Halls (branch-scoped) ─────────────────────────────────────────────────
+
+  @Get('halls')
+  @UseGuards(PermissionGuard)
+  @RequireBranchPermission(PERMISSION_KEYS.BANQUET_VIEW)
+  listHalls(@Headers('x-branch-id') branchId: string, @Query() page: PaginationQueryDto) {
+    return this.catalog.listHalls(branchId, page);
+  }
+
+  @Get('halls/:id')
+  @UseGuards(PermissionGuard)
+  @RequireBranchPermission(PERMISSION_KEYS.BANQUET_VIEW)
+  getHall(@Param('id', ParseUUIDPipe) id: string, @Headers('x-branch-id') branchId: string) {
+    return this.catalog.getHall(id, branchId);
+  }
+
+  @Post('halls')
+  @HttpCode(HttpStatus.CREATED)
+  @UseGuards(PermissionGuard)
+  @RequireBranchPermission(PERMISSION_KEYS.BANQUET_HALL_MANAGE)
+  createHall(
+    @Headers('x-company-id') companyId: string,
+    @Headers('x-branch-id') branchId: string,
+    @Body() dto: CreateHallDto,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.catalog.createHall(this.branchCtx(companyId, branchId, req), dto);
+  }
+
+  @Patch('halls/:id')
+  @UseGuards(PermissionGuard)
+  @RequireBranchPermission(PERMISSION_KEYS.BANQUET_HALL_MANAGE)
+  updateHall(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Headers('x-company-id') companyId: string,
+    @Headers('x-branch-id') branchId: string,
+    @Body() dto: UpdateHallDto,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.catalog.updateHall(this.branchCtx(companyId, branchId, req), id, dto);
+  }
+
+  // ── Packages (company-scoped) ─────────────────────────────────────────────
+
+  @Get('packages')
+  @UseGuards(PermissionGuard)
+  @RequireCompanyPermission(PERMISSION_KEYS.BANQUET_VIEW)
+  listPackages(@Headers('x-company-id') companyId: string, @Query() page: PaginationQueryDto) {
+    return this.catalog.listPackages(companyId, page);
+  }
+
+  @Get('packages/:id')
+  @UseGuards(PermissionGuard)
+  @RequireCompanyPermission(PERMISSION_KEYS.BANQUET_VIEW)
+  getPackage(@Param('id', ParseUUIDPipe) id: string, @Headers('x-company-id') companyId: string) {
+    return this.catalog.getPackage(id, companyId);
+  }
+
+  @Post('packages')
+  @HttpCode(HttpStatus.CREATED)
+  @UseGuards(PermissionGuard)
+  @RequireCompanyPermission(PERMISSION_KEYS.BANQUET_PACKAGE_MANAGE)
+  createPackage(
+    @Headers('x-company-id') companyId: string,
+    @Body() dto: CreatePackageDto,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.catalog.createPackage(this.companyCtx(companyId, req), dto);
+  }
+
+  @Patch('packages/:id')
+  @UseGuards(PermissionGuard)
+  @RequireCompanyPermission(PERMISSION_KEYS.BANQUET_PACKAGE_MANAGE)
+  updatePackage(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Headers('x-company-id') companyId: string,
+    @Body() dto: UpdatePackageDto,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.catalog.updatePackage(this.companyCtx(companyId, req), id, dto);
+  }
+
+  // ── Kitchen board (declared before :id routes) ────────────────────────────
+
+  @Get('kds/board')
+  @UseGuards(PermissionGuard)
+  @RequireBranchPermission(PERMISSION_KEYS.BANQUET_KDS_VIEW)
+  kdsBoard(@Headers('x-branch-id') branchId: string, @Query() query: KdsBoardQueryDto) {
+    return this.kds.staffBoard(branchId, query.service_date);
+  }
+
+  @Post('kds/items/:id/start')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(PermissionGuard)
+  @RequireBranchPermission(PERMISSION_KEYS.BANQUET_KDS_MANAGE)
+  startItem(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Headers('x-company-id') companyId: string,
+    @Headers('x-branch-id') branchId: string,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.kds.startItem(this.branchCtx(companyId, branchId, req), id);
+  }
+
+  @Post('kds/items/:id/ready')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(PermissionGuard)
+  @RequireBranchPermission(PERMISSION_KEYS.BANQUET_KDS_MANAGE)
+  readyItem(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Headers('x-company-id') companyId: string,
+    @Headers('x-branch-id') branchId: string,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.kds.readyItem(this.branchCtx(companyId, branchId, req), id);
+  }
+
+  // ── Bookings (branch-scoped) ──────────────────────────────────────────────
+
+  @Get('bookings')
+  @UseGuards(PermissionGuard)
+  @RequireBranchPermission(PERMISSION_KEYS.BANQUET_VIEW)
+  listBookings(
+    @Headers('x-branch-id') branchId: string,
+    @Query() query: ListBookingsQueryDto,
+  ) {
+    return this.bookings.list(branchId, query);
+  }
+
+  @Get('bookings/:id')
+  @UseGuards(PermissionGuard)
+  @RequireBranchPermission(PERMISSION_KEYS.BANQUET_VIEW)
+  getBooking(@Param('id', ParseUUIDPipe) id: string, @Headers('x-branch-id') branchId: string) {
+    return this.bookings.get(branchId, id);
+  }
+
+  @Post('bookings')
+  @HttpCode(HttpStatus.CREATED)
+  @UseGuards(PermissionGuard)
+  @RequireBranchPermission(PERMISSION_KEYS.BANQUET_BOOKING_CREATE)
+  createBooking(
+    @Headers('x-company-id') companyId: string,
+    @Headers('x-branch-id') branchId: string,
+    @Body() dto: CreateBookingDto,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.bookings.create(this.branchCtx(companyId, branchId, req), dto);
+  }
+
+  @Patch('bookings/:id')
+  @UseGuards(PermissionGuard)
+  @RequireBranchPermission(PERMISSION_KEYS.BANQUET_BOOKING_UPDATE)
+  updateBooking(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Headers('x-company-id') companyId: string,
+    @Headers('x-branch-id') branchId: string,
+    @Body() dto: UpdateBookingDto,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.bookings.update(this.branchCtx(companyId, branchId, req), id, dto);
+  }
+
+  @Post('bookings/:id/confirm')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(PermissionGuard)
+  @RequireBranchPermission(PERMISSION_KEYS.BANQUET_BOOKING_CONFIRM)
+  confirmBooking(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Headers('x-company-id') companyId: string,
+    @Headers('x-branch-id') branchId: string,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.bookings.confirm(this.branchCtx(companyId, branchId, req), id);
+  }
+
+  @Post('bookings/:id/complete')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(PermissionGuard)
+  @RequireBranchPermission(PERMISSION_KEYS.BANQUET_BOOKING_COMPLETE)
+  completeBooking(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Headers('x-company-id') companyId: string,
+    @Headers('x-branch-id') branchId: string,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.bookings.complete(this.branchCtx(companyId, branchId, req), id);
+  }
+
+  @Post('bookings/:id/cancel')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(PermissionGuard)
+  @RequireBranchPermission(PERMISSION_KEYS.BANQUET_BOOKING_CANCEL)
+  cancelBooking(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Headers('x-company-id') companyId: string,
+    @Headers('x-branch-id') branchId: string,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.bookings.cancel(this.branchCtx(companyId, branchId, req), id);
+  }
+
+  // ── Payments (advance & balance) ──────────────────────────────────────────
+
+  @Get('bookings/:id/payments')
+  @UseGuards(PermissionGuard)
+  @RequireBranchPermission(PERMISSION_KEYS.BANQUET_VIEW)
+  listPayments(@Param('id', ParseUUIDPipe) id: string, @Headers('x-branch-id') branchId: string) {
+    return this.bookings.listPayments(branchId, id);
+  }
+
+  @Post('bookings/:id/payments')
+  @HttpCode(HttpStatus.CREATED)
+  @UseGuards(PermissionGuard)
+  @RequireBranchPermission(PERMISSION_KEYS.BANQUET_PAYMENT_CREATE)
+  createPayment(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Headers('x-company-id') companyId: string,
+    @Headers('x-branch-id') branchId: string,
+    @Body() dto: CreatePaymentDto,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.bookings.createPayment(this.branchCtx(companyId, branchId, req), id, dto);
+  }
+
+  // ── Event plan ────────────────────────────────────────────────────────────
+
+  @Get('bookings/:id/event-plan')
+  @UseGuards(PermissionGuard)
+  @RequireBranchPermission(PERMISSION_KEYS.BANQUET_VIEW)
+  getEventPlan(@Param('id', ParseUUIDPipe) id: string, @Headers('x-branch-id') branchId: string) {
+    return this.bookings.getEventPlan(branchId, id);
+  }
+
+  @Put('bookings/:id/event-plan')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(PermissionGuard)
+  @RequireBranchPermission(PERMISSION_KEYS.BANQUET_EVENT_PLAN_MANAGE)
+  upsertEventPlan(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Headers('x-company-id') companyId: string,
+    @Headers('x-branch-id') branchId: string,
+    @Body() dto: UpsertEventPlanDto,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.bookings.upsertEventPlan(this.branchCtx(companyId, branchId, req), id, dto);
+  }
+}

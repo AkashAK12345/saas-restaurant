@@ -3,6 +3,7 @@ import { DisplayController } from './display.controller.js';
 import { DisplayAuthModule } from '../../common/display-auth/display-auth.module.js';
 import { RealtimeModule } from '../realtime/realtime.module.js';
 import { QueueTokensModule } from '../queue-tokens/queue-tokens.module.js';
+import { BanquetModule } from '../banquet/banquet.module.js';
 
 // Deliberately does NOT import AuthModule or AuthorizationModule: nothing here
 // may ever be reachable with a staff JWT or satisfied by an RBAC permission.
@@ -10,7 +11,7 @@ import { QueueTokensModule } from '../queue-tokens/queue-tokens.module.js';
 // routes below call no mutation, and the service's mutations all require a
 // QueueActorContext that only an RBAC-guarded staff route can produce.
 @Module({
-  imports: [DisplayAuthModule, RealtimeModule, QueueTokensModule],
+  imports: [DisplayAuthModule, RealtimeModule, QueueTokensModule, BanquetModule],
   controllers: [DisplayController],
 })
 export class DisplayModule {}

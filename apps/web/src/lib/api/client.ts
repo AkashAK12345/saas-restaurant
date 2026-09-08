@@ -201,6 +201,9 @@ export const api = {
     apiRequest<T>(path, { ...opts, method: 'POST', body }),
   patch: <T>(path: string, body?: unknown, opts: Omit<RequestOptions, 'method' | 'body'> = {}) =>
     apiRequest<T>(path, { ...opts, method: 'PATCH', body }),
+  /** For replace-style upserts, e.g. a booking's single event plan. */
+  put: <T>(path: string, body?: unknown, opts: Omit<RequestOptions, 'method' | 'body'> = {}) =>
+    apiRequest<T>(path, { ...opts, method: 'PUT', body }),
   /** For unauthenticated endpoints (login). */
   public: <T>(path: string, opts: RequestOptions = {}) => rawRequest<T>(path, { ...opts, auth: false }),
 };
