@@ -1,0 +1,347 @@
+import {
+  Body,
+  Controller,
+  Get,
+  Headers,
+  HttpCode,
+  HttpStatus,
+  Param,
+  ParseUUIDPipe,
+  Patch,
+  Post,
+  Query,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
+import { RoutineStatus } from '@samco/database';
+import { TasksService } from './tasks.service.js';
+import { RoutinesService } from './routines.service.js';
+import { ChecklistTemplatesService } from './checklist-templates.service.js';
+import {
+  AssignTaskDto,
+  CreateChecklistTemplateDto,
+  CreateRoutineDto,
+  CreateTaskDto,
+  ListTasksQueryDto,
+  TaskSummaryQueryDto,
+  ToggleChecklistItemDto,
+  UpdateChecklistTemplateDto,
+  UpdateRoutineDto,
+  UpdateTaskDto,
+} from './tasks.dto.js';
+import { PaginationQueryDto } from '../../common/pagination.dto.js';
+import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
+import { PermissionGuard } from '../../common/authorization/permission.guard.js';
+import {
+  RequireBranchPermission,
+  RequireCompanyPermission,
+} from '../../common/authorization/require-permission.decorator.js';
+import { PERMISSION_KEYS } from '../../common/authorization/permission-keys.js';
+import type { TaskActorContext, TaskCompanyContext } from './tasks-context.js';
+
+interface AuthenticatedRequest {
+  user: { id: string };
+}
+
+/**
+ * Tasks, checklists and routines.
+ *
+ * Tasks and routines are BRANCH scoped; checklist templates are COMPANY
+ * scoped, like customers. Every route carries a permission decorator, so
+ * PermissionGuard proves — server-side, against the database — that the caller
+ * has ACTIVE membership, that the branch belongs to the company and is ACTIVE,
+ * and that the caller holds the permission there.
+ *
+ * ASSIGNMENT IS NOT AUTHORIZATION: being the assignee of a task grants nothing.
+ * Every operation below is gated by the same RBAC as it would be for anyone
+ * else, and the tests assert exactly that.
+ *
+ * There is deliberately NO route that writes a task status: each lifecycle
+ * move is its own operation running one validated transition.
+ */
+@Controller()
+@UseGuards(JwtAuthGuard)
+export class TasksController {
+  constructor(
+    private readonly tasks: TasksService,
+    private readonly routines: RoutinesService,
+    private readonly checklists: ChecklistTemplatesService,
+  ) {}
+
+  private branchCtx(
+    companyId: string,
+    branchId: string,
+    req: AuthenticatedRequest,
+  ): TaskActorContext {
+    return { companyId, branchId, actorUserId: req.user.id };
+  }
+
+  private companyCtx(companyId: string, req: AuthenticatedRequest): TaskCompanyContext {
+    return { companyId, actorUserId: req.user.id };
+  }
+
+  // ── Checklist templates (company-scoped) ─────────────────────────────────
+
+  @Get('checklists')
+  @UseGuards(PermissionGuard)
+  @RequireCompanyPermission(PERMISSION_KEYS.TASKS_VIEW)
+  listChecklists(@Headers('x-company-id') companyId: string, @Query() page: PaginationQueryDto) {
+    return this.checklists.list(companyId, page);
+  }
+
+  @Get('checklists/:id')
+  @UseGuards(PermissionGuard)
+  @RequireCompanyPermission(PERMISSION_KEYS.TASKS_VIEW)
+  getChecklist(@Param('id', ParseUUIDPipe) id: string, @Headers('x-company-id') companyId: string) {
+    return this.checklists.get(id, companyId);
+  }
+
+  @Post('checklists')
+  @HttpCode(HttpStatus.CREATED)
+  @UseGuards(PermissionGuard)
+  @RequireCompanyPermission(PERMISSION_KEYS.TASKS_CHECKLIST_MANAGE)
+  createChecklist(
+    @Headers('x-company-id') companyId: string,
+    @Body() dto: CreateChecklistTemplateDto,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.checklists.create(this.companyCtx(companyId, req), dto);
+  }
+
+  @Patch('checklists/:id')
+  @UseGuards(PermissionGuard)
+  @RequireCompanyPermission(PERMISSION_KEYS.TASKS_CHECKLIST_MANAGE)
+  updateChecklist(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Headers('x-company-id') companyId: string,
+    @Body() dto: UpdateChecklistTemplateDto,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.checklists.update(this.companyCtx(companyId, req), id, dto);
+  }
+
+  // ── Routines (branch-scoped; declared before /tasks/:id patterns) ────────
+
+  @Get('routines')
+  @UseGuards(PermissionGuard)
+  @RequireBranchPermission(PERMISSION_KEYS.TASKS_VIEW)
+  listRoutines(@Headers('x-branch-id') branchId: string, @Query() page: PaginationQueryDto) {
+    return this.routines.list(branchId, page);
+  }
+
+  @Get('routines/:id')
+  @UseGuards(PermissionGuard)
+  @RequireBranchPermission(PERMISSION_KEYS.TASKS_VIEW)
+  getRoutine(@Param('id', ParseUUIDPipe) id: string, @Headers('x-branch-id') branchId: string) {
+    return this.routines.get(id, branchId);
+  }
+
+  @Post('routines')
+  @HttpCode(HttpStatus.CREATED)
+  @UseGuards(PermissionGuard)
+  @RequireBranchPermission(PERMISSION_KEYS.TASKS_ROUTINE_MANAGE)
+  createRoutine(
+    @Headers('x-company-id') companyId: string,
+    @Headers('x-branch-id') branchId: string,
+    @Body() dto: CreateRoutineDto,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.routines.create(this.branchCtx(companyId, branchId, req), dto);
+  }
+
+  @Patch('routines/:id')
+  @UseGuards(PermissionGuard)
+  @RequireBranchPermission(PERMISSION_KEYS.TASKS_ROUTINE_MANAGE)
+  updateRoutine(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Headers('x-company-id') companyId: string,
+    @Headers('x-branch-id') branchId: string,
+    @Body() dto: UpdateRoutineDto,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.routines.update(this.branchCtx(companyId, branchId, req), id, dto);
+  }
+
+  @Post('routines/:id/activate')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(PermissionGuard)
+  @RequireBranchPermission(PERMISSION_KEYS.TASKS_ROUTINE_MANAGE)
+  activateRoutine(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Headers('x-company-id') companyId: string,
+    @Headers('x-branch-id') branchId: string,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.routines.setStatus(this.branchCtx(companyId, branchId, req), id, RoutineStatus.ACTIVE);
+  }
+
+  @Post('routines/:id/deactivate')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(PermissionGuard)
+  @RequireBranchPermission(PERMISSION_KEYS.TASKS_ROUTINE_MANAGE)
+  deactivateRoutine(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Headers('x-company-id') companyId: string,
+    @Headers('x-branch-id') branchId: string,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.routines.setStatus(this.branchCtx(companyId, branchId, req), id, RoutineStatus.INACTIVE);
+  }
+
+  /**
+   * Materialise every due occurrence for this branch, now.
+   *
+   * The request-time path the scheduler duplicates: idempotent, so it is safe
+   * to call at any time, by hand or from a screen, and safe if the scheduler
+   * is disabled entirely.
+   */
+  @Post('routines/materialize')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(PermissionGuard)
+  @RequireBranchPermission(PERMISSION_KEYS.TASKS_ROUTINE_MANAGE)
+  materializeRoutines(
+    @Headers('x-company-id') companyId: string,
+    @Headers('x-branch-id') branchId: string,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.routines.materializeBranch(this.branchCtx(companyId, branchId, req));
+  }
+
+  // ── Tasks (branch-scoped) ────────────────────────────────────────────────
+
+  /** Completion reporting. Declared before :id so "summary" is not read as one. */
+  @Get('tasks/summary')
+  @UseGuards(PermissionGuard)
+  @RequireBranchPermission(PERMISSION_KEYS.TASKS_REPORTS_VIEW)
+  summary(
+    @Headers('x-company-id') companyId: string,
+    @Headers('x-branch-id') branchId: string,
+    @Query() query: TaskSummaryQueryDto,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.tasks.summary(this.branchCtx(companyId, branchId, req), query);
+  }
+
+  @Get('tasks')
+  @UseGuards(PermissionGuard)
+  @RequireBranchPermission(PERMISSION_KEYS.TASKS_VIEW)
+  listTasks(
+    @Headers('x-company-id') companyId: string,
+    @Headers('x-branch-id') branchId: string,
+    @Query() query: ListTasksQueryDto,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.tasks.list(this.branchCtx(companyId, branchId, req), query);
+  }
+
+  @Get('tasks/:id')
+  @UseGuards(PermissionGuard)
+  @RequireBranchPermission(PERMISSION_KEYS.TASKS_VIEW)
+  getTask(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Headers('x-company-id') companyId: string,
+    @Headers('x-branch-id') branchId: string,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.tasks.get(this.branchCtx(companyId, branchId, req), id);
+  }
+
+  @Post('tasks')
+  @HttpCode(HttpStatus.CREATED)
+  @UseGuards(PermissionGuard)
+  @RequireBranchPermission(PERMISSION_KEYS.TASKS_CREATE)
+  createTask(
+    @Headers('x-company-id') companyId: string,
+    @Headers('x-branch-id') branchId: string,
+    @Body() dto: CreateTaskDto,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.tasks.create(this.branchCtx(companyId, branchId, req), dto);
+  }
+
+  @Patch('tasks/:id')
+  @UseGuards(PermissionGuard)
+  @RequireBranchPermission(PERMISSION_KEYS.TASKS_UPDATE)
+  updateTask(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Headers('x-company-id') companyId: string,
+    @Headers('x-branch-id') branchId: string,
+    @Body() dto: UpdateTaskDto,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.tasks.update(this.branchCtx(companyId, branchId, req), id, dto);
+  }
+
+  @Post('tasks/:id/assign')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(PermissionGuard)
+  @RequireBranchPermission(PERMISSION_KEYS.TASKS_ASSIGN)
+  assignTask(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Headers('x-company-id') companyId: string,
+    @Headers('x-branch-id') branchId: string,
+    @Body() dto: AssignTaskDto,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.tasks.assign(this.branchCtx(companyId, branchId, req), id, dto);
+  }
+
+  @Post('tasks/:id/start')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(PermissionGuard)
+  @RequireBranchPermission(PERMISSION_KEYS.TASKS_START)
+  startTask(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Headers('x-company-id') companyId: string,
+    @Headers('x-branch-id') branchId: string,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.tasks.start(this.branchCtx(companyId, branchId, req), id);
+  }
+
+  @Post('tasks/:id/complete')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(PermissionGuard)
+  @RequireBranchPermission(PERMISSION_KEYS.TASKS_COMPLETE)
+  completeTask(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Headers('x-company-id') companyId: string,
+    @Headers('x-branch-id') branchId: string,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.tasks.complete(this.branchCtx(companyId, branchId, req), id);
+  }
+
+  @Post('tasks/:id/cancel')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(PermissionGuard)
+  @RequireBranchPermission(PERMISSION_KEYS.TASKS_CANCEL)
+  cancelTask(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Headers('x-company-id') companyId: string,
+    @Headers('x-branch-id') branchId: string,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.tasks.cancel(this.branchCtx(companyId, branchId, req), id);
+  }
+
+  /** Ticking an item is doing the task, so it rides on tasks.update. */
+  @Patch('tasks/:id/checklist/:itemId')
+  @UseGuards(PermissionGuard)
+  @RequireBranchPermission(PERMISSION_KEYS.TASKS_UPDATE)
+  setChecklistItem(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('itemId', ParseUUIDPipe) itemId: string,
+    @Headers('x-company-id') companyId: string,
+    @Headers('x-branch-id') branchId: string,
+    @Body() dto: ToggleChecklistItemDto,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.tasks.setChecklistItem(
+      this.branchCtx(companyId, branchId, req),
+      id,
+      itemId,
+      dto.is_done,
+    );
+  }
+}

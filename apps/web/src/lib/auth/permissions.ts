@@ -38,6 +38,16 @@ export const PERMISSION_KEYS = {
   BANQUET_PAYMENT_CREATE: 'banquet.payment.create',
   BANQUET_EVENT_PLAN_MANAGE: 'banquet.event_plan.manage',
   BANQUET_KDS_MANAGE: 'banquet.kds.manage',
+  // Tasks & Routines (Phase 9)
+  TASKS_CREATE: 'tasks.create',
+  TASKS_UPDATE: 'tasks.update',
+  TASKS_ASSIGN: 'tasks.assign',
+  TASKS_START: 'tasks.start',
+  TASKS_COMPLETE: 'tasks.complete',
+  TASKS_CANCEL: 'tasks.cancel',
+  TASKS_CHECKLIST_MANAGE: 'tasks.checklist.manage',
+  TASKS_ROUTINE_MANAGE: 'tasks.routine.manage',
+  TASKS_REPORTS_VIEW: 'tasks.reports.view',
 } as const;
 
 export type PermissionKey = (typeof PERMISSION_KEYS)[keyof typeof PERMISSION_KEYS] | (string & {});

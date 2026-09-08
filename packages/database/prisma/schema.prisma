@@ -127,6 +127,55 @@ enum QueueTokenEventType {
   TABLE_RELEASED
 }
 
+// ── Tasks & Routines (Phase 9) ───────────────────────────────────────────────
+
+// Task lifecycle. Transitions are constrained by the state machine in
+// apps/api/src/modules/tasks/task-state-machine.ts.
+//
+//   PENDING ─▶ IN_PROGRESS ─▶ COMPLETED
+//      │            └────────▶ CANCELLED
+//      ├─────────────────────▶ COMPLETED   (a small job needs no "start")
+//      └─────────────────────▶ CANCELLED
+enum TaskStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum TaskPriority {
+  LOW
+  NORMAL
+  HIGH
+}
+
+// Where a task came from. The seam that lets future modules generate tasks
+// without Phase 9 knowing anything about them.
+enum TaskSource {
+  MANUAL
+  ROUTINE
+}
+
+// Recurrence a routine supports. Deliberately two: DAILY covers "every day at
+// 06:00", WEEKLY covers "every Monday at 09:00", and between them they cover
+// the operational routines a restaurant actually runs. MONTHLY is not
+// implemented — month-end semantics (the 31st in February) are a product
+// decision nobody has made.
+enum RoutineFrequency {
+  DAILY
+  WEEKLY
+}
+
+enum RoutineStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum ChecklistTemplateStatus {
+  ACTIVE
+  INACTIVE
+}
+
 enum AuditEventType {
   CREATE
   UPDATE
@@ -157,6 +206,10 @@ model User {
   audit_logs   AuditLog[]
   queue_token_events QueueTokenEvent[]
   banquet_payments   BanquetPayment[]
+  assigned_tasks     Task[]              @relation("TaskAssignee")
+  completed_tasks    Task[]              @relation("TaskCompleter")
+  checklist_items_done TaskChecklistItem[] @relation("ChecklistItemDoneBy")
+  default_for_routines TaskRoutine[]     @relation("RoutineDefaultAssignee")
 
   // Declares the index created by migration 20260906130000_user_status so the
   // schema matches the database; without this Prisma tries to DROP it.
@@ -184,6 +237,9 @@ model Company {
   queue_tokens QueueToken[]
   banquet_packages BanquetPackage[]
   banquet_bookings BanquetBooking[]
+  checklist_templates ChecklistTemplate[]
+  task_routines       TaskRoutine[]
+  tasks               Task[]
 
   @@map("companies")
 }
@@ -225,6 +281,8 @@ model Branch {
   queue_counters  QueueCounter[]
   banquet_halls    BanquetHall[]
   banquet_bookings BanquetBooking[]
+  task_routines    TaskRoutine[]
+  tasks            Task[]
 
   @@index([company_id])
   @@map("branches")
@@ -583,6 +641,160 @@ model BanquetPayment {
 
   @@index([booking_id, paid_at])
   @@map("banquet_payments")
+}
+
+// -----------------------------------------------------------------------------
+// TASKS & ROUTINES (Phase 9)
+// -----------------------------------------------------------------------------
+
+// A reusable checklist definition. COMPANY-scoped like Customer and
+// BanquetPackage, so one definition serves every branch.
+//
+// Editing a template NEVER rewrites history: a task copies the items it needs
+// at creation time (see TaskChecklistItem), so a completed task cannot become
+// retroactively incomplete because someone added an item to the template.
+model ChecklistTemplate {
+  id          String                  @id @default(uuid()) @db.Uuid
+  company_id  String                  @db.Uuid
+  name        String
+  description String?
+  status      ChecklistTemplateStatus @default(ACTIVE)
+  created_at  DateTime                @default(now()) @db.Timestamptz(3)
+  updated_at  DateTime                @updatedAt @db.Timestamptz(3)
+
+  company  Company                 @relation(fields: [company_id], references: [id], onDelete: Restrict)
+  items    ChecklistTemplateItem[]
+  routines TaskRoutine[]
+  tasks    Task[]
+
+  @@unique([company_id, name])
+  @@index([company_id])
+  @@map("checklist_templates")
+}
+
+model ChecklistTemplateItem {
+  id          String   @id @default(uuid()) @db.Uuid
+  template_id String   @db.Uuid
+  label       String
+  position    Int
+  is_required Boolean  @default(true)
+  created_at  DateTime @default(now()) @db.Timestamptz(3)
+  updated_at  DateTime @updatedAt @db.Timestamptz(3)
+
+  template ChecklistTemplate @relation(fields: [template_id], references: [id], onDelete: Restrict)
+
+  @@index([template_id])
+  @@map("checklist_template_items")
+}
+
+// A recurring operational definition. BRANCH-scoped, which is what makes the
+// timezone unambiguous: a routine's wall-clock time is always read in its
+// branch's own timezone (Branch.timezone), never in UTC and never in the
+// server's zone. A company-level routine is deliberately not offered — it
+// would have no single timezone to be scheduled in.
+model TaskRoutine {
+  id          String           @id @default(uuid()) @db.Uuid
+  company_id  String           @db.Uuid
+  branch_id   String           @db.Uuid
+  name        String
+  description String?
+  frequency   RoutineFrequency
+  /// Branch-local wall clock, "HH:MM". Interpreted in Branch.timezone.
+  time_of_day String
+  /// WEEKLY only: 0 = Sunday … 6 = Saturday, in branch-local time.
+  weekdays    Int[]
+  priority    TaskPriority     @default(NORMAL)
+  status      RoutineStatus    @default(ACTIVE)
+  /// Copied onto each generated task at materialization time.
+  checklist_template_id String? @db.Uuid
+  default_assignee_id   String? @db.Uuid
+  created_at  DateTime         @default(now()) @db.Timestamptz(3)
+  updated_at  DateTime         @updatedAt @db.Timestamptz(3)
+
+  company           Company            @relation(fields: [company_id], references: [id], onDelete: Restrict)
+  branch            Branch             @relation(fields: [branch_id], references: [id], onDelete: Restrict)
+  checklist         ChecklistTemplate? @relation(fields: [checklist_template_id], references: [id], onDelete: Restrict)
+  default_assignee  User?              @relation("RoutineDefaultAssignee", fields: [default_assignee_id], references: [id], onDelete: Restrict)
+  tasks             Task[]
+
+  @@unique([branch_id, name])
+  @@index([branch_id, status])
+  @@index([company_id])
+  @@map("task_routines")
+}
+
+// A concrete operational task. Branch-scoped; company_id is denormalised for
+// single-query scoping, the pattern QueueToken and BanquetBooking both use.
+//
+// IDEMPOTENT ROUTINE MATERIALIZATION: (routine_id, routine_occurrence_date) is
+// UNIQUE. PostgreSQL treats NULLs as distinct, so manual tasks — which have
+// neither — never collide, while a routine can produce at most one task per
+// branch-local occurrence date no matter how many materialization runs race.
+// That is the whole idempotency guarantee, enforced by the database rather
+// than by an application check that could lose a race.
+//
+// ASSIGNMENT IS NOT AUTHORIZATION. assignee_id records who is responsible for
+// doing the work. It grants nothing: every API operation is still gated by
+// RBAC through PermissionGuard.
+model Task {
+  id                     String       @id @default(uuid()) @db.Uuid
+  company_id             String       @db.Uuid
+  branch_id              String       @db.Uuid
+  title                  String
+  description            String?
+  status                 TaskStatus   @default(PENDING)
+  priority               TaskPriority @default(NORMAL)
+  due_at                 DateTime?    @db.Timestamptz(3)
+  assignee_id            String?      @db.Uuid
+  source                 TaskSource   @default(MANUAL)
+  routine_id             String?      @db.Uuid
+  /// Branch-local calendar date of the occurrence this task materialises.
+  routine_occurrence_date DateTime?   @db.Date
+  /// Template the checklist was copied from, for reference only.
+  checklist_template_id  String?      @db.Uuid
+  started_at             DateTime?    @db.Timestamptz(3)
+  completed_at           DateTime?    @db.Timestamptz(3)
+  completed_by           String?      @db.Uuid
+  cancelled_at           DateTime?    @db.Timestamptz(3)
+  created_at             DateTime     @default(now()) @db.Timestamptz(3)
+  updated_at             DateTime     @updatedAt @db.Timestamptz(3)
+
+  company        Company            @relation(fields: [company_id], references: [id], onDelete: Restrict)
+  branch         Branch             @relation(fields: [branch_id], references: [id], onDelete: Restrict)
+  assignee       User?              @relation("TaskAssignee", fields: [assignee_id], references: [id], onDelete: Restrict)
+  completer      User?              @relation("TaskCompleter", fields: [completed_by], references: [id], onDelete: Restrict)
+  routine        TaskRoutine?       @relation(fields: [routine_id], references: [id], onDelete: Restrict)
+  checklist_from ChecklistTemplate? @relation(fields: [checklist_template_id], references: [id], onDelete: Restrict)
+  checklist      TaskChecklistItem[]
+
+  @@unique([routine_id, routine_occurrence_date])
+  @@index([branch_id, status])
+  @@index([branch_id, due_at])
+  @@index([assignee_id, status])
+  @@index([company_id])
+  @@map("tasks")
+}
+
+// A task's OWN checklist: a snapshot taken when the task was created, never a
+// live view of the template. Completion state lives here, so history stays
+// truthful however the template changes afterwards.
+model TaskChecklistItem {
+  id          String    @id @default(uuid()) @db.Uuid
+  task_id     String    @db.Uuid
+  label       String
+  position    Int
+  is_required Boolean   @default(true)
+  is_done     Boolean   @default(false)
+  done_at     DateTime? @db.Timestamptz(3)
+  done_by     String?   @db.Uuid
+  created_at  DateTime  @default(now()) @db.Timestamptz(3)
+  updated_at  DateTime  @updatedAt @db.Timestamptz(3)
+
+  task   Task  @relation(fields: [task_id], references: [id], onDelete: Restrict)
+  doneBy User? @relation("ChecklistItemDoneBy", fields: [done_by], references: [id], onDelete: Restrict)
+
+  @@index([task_id])
+  @@map("task_checklist_items")
 }
 
 // -----------------------------------------------------------------------------

@@ -16,6 +16,7 @@ import { RealtimeModule } from './modules/realtime/realtime.module.js';
 import { SchedulerModule } from './common/scheduler/scheduler.module.js';
 import { QueueTokensModule } from './modules/queue-tokens/queue-tokens.module.js';
 import { BanquetModule } from './modules/banquet/banquet.module.js';
+import { TasksModule } from './modules/tasks/tasks.module.js';
 
 @Module({
   imports: [
@@ -44,6 +45,8 @@ import { BanquetModule } from './modules/banquet/banquet.module.js';
     QueueTokensModule,
     // Phase 8 — banquet management
     BanquetModule,
+    // Phase 9 — tasks & routines
+    TasksModule,
   ],
 })
 export class AppModule {}

@@ -55,6 +55,20 @@ export async function purgeBanquet(prisma: PrismaService): Promise<void> {
 }
 
 /**
+ * Phase 9 task rows. Ordinary tables (no append-only triggers here — checklist
+ * items are ticked and un-ticked, so they are mutable by design), but they
+ * reference users, branches and companies with ON DELETE RESTRICT and so must
+ * be cleared before them.
+ */
+export async function purgeTasks(prisma: PrismaService): Promise<void> {
+  await prisma.taskChecklistItem.deleteMany();
+  await prisma.task.deleteMany();
+  await prisma.taskRoutine.deleteMany();
+  await prisma.checklistTemplateItem.deleteMany();
+  await prisma.checklistTemplate.deleteMany();
+}
+
+/**
  * Full reset in foreign-key-safe order.
  *
  * Every FK into companies/branches/users is ON DELETE RESTRICT (correct for
@@ -68,6 +82,7 @@ export async function resetDatabase(prisma: PrismaService): Promise<void> {
   await purgeAuditLogs(prisma);
   await purgeQueueHistory(prisma);
   await purgeBanquet(prisma);
+  await purgeTasks(prisma);
   await prisma.userBranchRole.deleteMany();
   await prisma.rolePermission.deleteMany();
   await prisma.userSession.deleteMany();
@@ -103,6 +118,7 @@ export async function deleteUserCascade(
   await purgeAuditLogs(prisma);
   await purgeQueueHistory(prisma);
   await purgeBanquet(prisma);
+  await purgeTasks(prisma);
   await prisma.userBranchRole.deleteMany({ where: { user_id: userId } });
   await prisma.userSession.deleteMany({ where: { user_id: userId } });
   await prisma.companyMembership.deleteMany({ where: { user_id: userId } });

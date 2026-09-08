@@ -101,6 +101,19 @@ export const PERMISSION_KEYS = {
   BANQUET_PAYMENT_CREATE: 'banquet.payment.create',
   BANQUET_EVENT_PLAN_MANAGE: 'banquet.event_plan.manage',
   BANQUET_KDS_MANAGE: 'banquet.kds.manage',
+
+  // ── Tasks & Routines (Phase 9) ───────────────────────────────────────────
+  // TASKS_VIEW (above, from T0-B) still gates every task read and the `tasks`
+  // stream. Each key below maps to exactly one implemented operation.
+  TASKS_CREATE: 'tasks.create',
+  TASKS_UPDATE: 'tasks.update',
+  TASKS_ASSIGN: 'tasks.assign',
+  TASKS_START: 'tasks.start',
+  TASKS_COMPLETE: 'tasks.complete',
+  TASKS_CANCEL: 'tasks.cancel',
+  TASKS_CHECKLIST_MANAGE: 'tasks.checklist.manage',
+  TASKS_ROUTINE_MANAGE: 'tasks.routine.manage',
+  TASKS_REPORTS_VIEW: 'tasks.reports.view',
 } as const;
 
 export type PermissionKey = (typeof PERMISSION_KEYS)[keyof typeof PERMISSION_KEYS];
@@ -399,5 +412,50 @@ export const SYSTEM_PERMISSIONS: Array<{
     name: PERMISSION_KEYS.BANQUET_KDS_MANAGE,
     module: 'banquet',
     description: 'Advance kitchen preparation state for banquet items',
+  },
+  {
+    name: PERMISSION_KEYS.TASKS_CREATE,
+    module: 'tasks',
+    description: 'Create a task at a branch',
+  },
+  {
+    name: PERMISSION_KEYS.TASKS_UPDATE,
+    module: 'tasks',
+    description: 'Edit an open task and tick its checklist items',
+  },
+  {
+    name: PERMISSION_KEYS.TASKS_ASSIGN,
+    module: 'tasks',
+    description: 'Assign a task to a member of staff, or clear its assignment',
+  },
+  {
+    name: PERMISSION_KEYS.TASKS_START,
+    module: 'tasks',
+    description: 'Mark a task as being worked on',
+  },
+  {
+    name: PERMISSION_KEYS.TASKS_COMPLETE,
+    module: 'tasks',
+    description: 'Complete a task once its required checklist items are done',
+  },
+  {
+    name: PERMISSION_KEYS.TASKS_CANCEL,
+    module: 'tasks',
+    description: 'Cancel an open task',
+  },
+  {
+    name: PERMISSION_KEYS.TASKS_CHECKLIST_MANAGE,
+    module: 'tasks',
+    description: 'Create and update reusable checklist templates for the company',
+  },
+  {
+    name: PERMISSION_KEYS.TASKS_ROUTINE_MANAGE,
+    module: 'tasks',
+    description: 'Create, edit, activate and materialise recurring routines at a branch',
+  },
+  {
+    name: PERMISSION_KEYS.TASKS_REPORTS_VIEW,
+    module: 'tasks',
+    description: 'View task and routine completion summaries for a branch',
   },
 ];
