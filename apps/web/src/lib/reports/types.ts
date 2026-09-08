@@ -1,0 +1,109 @@
+/**
+ * The reporting envelope, exactly as the API returns it.
+ *
+ * These types mirror `apps/api/src/modules/reports/report-contract.ts`. They
+ * are DELIBERATELY generic: the frontend renders whatever columns and metrics
+ * a report declares, so a report added to a future backend module appears here
+ * with no frontend change at all.
+ */
+export type ReportKind = 'summary' | 'rows';
+
+export type ReportValueType =
+  | 'string'
+  | 'number'
+  | 'percent'
+  | 'money'
+  | 'duration'
+  | 'date'
+  | 'datetime';
+
+export interface ReportColumn {
+  key: string;
+  label: string;
+  type: ReportValueType;
+}
+
+export interface ReportOptionSpec {
+  key: string;
+  label: string;
+  values: readonly string[];
+}
+
+export interface ReportDefinition {
+  key: string;
+  name: string;
+  description: string;
+  domain: string;
+  scope: 'branch';
+  kind: ReportKind;
+  columns: readonly ReportColumn[];
+  options?: readonly ReportOptionSpec[];
+  exportable: boolean;
+}
+
+export interface ReportMetric {
+  key: string;
+  label: string;
+  value: number | string | null;
+  type: ReportValueType;
+  /** ISO 4217; present on money metrics. */
+  currency?: string;
+}
+
+export interface ReportResponse {
+  key: string;
+  name: string;
+  description: string;
+  domain: string;
+  kind: ReportKind;
+  generated_at: string;
+  /** The branch's IANA zone — the authority for every date shown. */
+  timezone: string;
+  filters: {
+    branch_id: string;
+    from: string;
+    to: string;
+    options: Record<string, string>;
+  };
+  columns: readonly ReportColumn[];
+  /** The filters this report offers; `filters.options` is what was applied. */
+  option_specs: readonly ReportOptionSpec[];
+  /** Whether the report may be downloaded at all, before permissions. */
+  exportable: boolean;
+  metrics: ReportMetric[];
+  rows: Array<Record<string, unknown>>;
+  meta: { total: number; limit: number; offset: number };
+}
+
+export interface ReportCatalogue {
+  data: ReportDefinition[];
+  meta: { total: number };
+}
+
+export type ExportFormat = 'xlsx' | 'pdf';
+
+// ── Dashboard ───────────────────────────────────────────────────────────────
+
+export interface WidgetMetric extends ReportMetric {
+  emphasis?: 'neutral' | 'positive' | 'warning' | 'danger';
+}
+
+export interface DashboardWidget {
+  key: string;
+  title: string;
+  domain: string;
+  display: 'metrics' | 'breakdown';
+  /** True when the widget describes now, not the selected window. */
+  live: boolean;
+  metrics: WidgetMetric[];
+  /** Present when this one widget failed; the rest of the page still renders. */
+  error?: string;
+}
+
+export interface DashboardResponse {
+  branch_id: string;
+  timezone: string;
+  generated_at: string;
+  filters: { from: string; to: string };
+  widgets: DashboardWidget[];
+}

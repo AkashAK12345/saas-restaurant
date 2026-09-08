@@ -8,6 +8,14 @@ import { AuthorizationModule } from '../../common/authorization/authorization.mo
 import { RealtimeCoreModule } from '../../common/realtime/realtime-core.module.js';
 import { SchedulerModule } from '../../common/scheduler/scheduler.module.js';
 import { JobRegistry } from '../../common/scheduler/job-registry.service.js';
+import { ReportingCoreModule } from '../reports/reporting-core.module.js';
+import {
+  TaskAssigneeReport,
+  TaskCompletionReport,
+  TaskReportRegistrar,
+  TaskRoutineReport,
+  TasksOpenWidget,
+} from './tasks.report-provider.js';
 
 /** How often the process wakes to look for due routine occurrences. */
 export const ROUTINE_JOB_NAME = 'tasks.routines.materialize';
@@ -53,9 +61,25 @@ export class RoutineScheduler implements OnModuleInit {
 }
 
 @Module({
-  imports: [AuthModule, AuthorizationModule, RealtimeCoreModule, SchedulerModule],
+  imports: [
+    AuthModule,
+    AuthorizationModule,
+    RealtimeCoreModule,
+    SchedulerModule,
+    ReportingCoreModule,
+  ],
   controllers: [TasksController],
-  providers: [TasksService, RoutinesService, ChecklistTemplatesService, RoutineScheduler],
+  providers: [
+    TasksService,
+    RoutinesService,
+    ChecklistTemplatesService,
+    RoutineScheduler,
+    TaskCompletionReport,
+    TaskAssigneeReport,
+    TaskRoutineReport,
+    TasksOpenWidget,
+    TaskReportRegistrar,
+  ],
   exports: [TasksService, RoutinesService],
 })
 export class TasksModule {}

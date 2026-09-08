@@ -21,6 +21,7 @@
   --color-danger: #c62828;
   --color-danger-bg: #fdecec;
   --color-success: #1b7f3b;
+  --color-warning: #8a5a00;
   --color-warning-bg: #fff4d6;
   --color-focus: #7aa2ff;
 
@@ -61,6 +62,7 @@
     --color-danger: #ff7b7b;
     --color-danger-bg: #3a1616;
     --color-success: #5cd17c;
+    --color-warning: #f0c65a;
     --color-warning-bg: #3d3416;
     --color-focus: #9dbaff;
   }

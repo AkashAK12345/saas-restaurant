@@ -48,6 +48,11 @@ export const PERMISSION_KEYS = {
   TASKS_CHECKLIST_MANAGE: 'tasks.checklist.manage',
   TASKS_ROUTINE_MANAGE: 'tasks.routine.manage',
   TASKS_REPORTS_VIEW: 'tasks.reports.view',
+  // Reports & Dashboard (Phase 10). REPORTS_VIEW opens the catalogue; each
+  // report additionally needs its own domain key, which the server checks.
+  REPORTS_VIEW: 'reports.view',
+  REPORTS_EXPORT: 'reports.export',
+  DASHBOARD_VIEW: 'dashboard.view',
 } as const;
 
 export type PermissionKey = (typeof PERMISSION_KEYS)[keyof typeof PERMISSION_KEYS] | (string & {});

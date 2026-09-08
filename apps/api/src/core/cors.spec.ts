@@ -43,4 +43,12 @@ describe('CORS configuration', () => {
   it('drops empty entries rather than allowing a blank origin', () => {
     expect(parseOrigins('https://a.example.com,,  ,')).toEqual(['https://a.example.com']);
   });
+
+  // Without this a report export downloads under a generic fallback name: the
+  // browser hands JavaScript the bytes but hides the header naming the file.
+  it('exposes Content-Disposition so a download keeps the name the API gave it', () => {
+    const exposed = buildCorsOptions(undefined).exposedHeaders as string[];
+    expect(exposed).toContain('Content-Disposition');
+    expect(exposed).not.toContain('*');
+  });
 });

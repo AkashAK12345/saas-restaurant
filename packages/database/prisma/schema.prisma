@@ -640,6 +640,10 @@ model BanquetPayment {
   actor   User?          @relation(fields: [actor_user_id], references: [id], onDelete: Restrict)
 
   @@index([booking_id, paid_at])
+  // Phase 10: the banquet payments report scans one branch over a date
+  // window. Without this it is a sequential scan of every payment ever
+  // taken, filtered afterwards.
+  @@index([branch_id, paid_at])
   @@map("banquet_payments")
 }
 
@@ -772,6 +776,10 @@ model Task {
   @@index([branch_id, due_at])
   @@index([assignee_id, status])
   @@index([company_id])
+  // Phase 10: every task report groups one branch's tasks by the period
+  // they were raised in. The existing branch indexes are on status and
+  // due_at, neither of which helps that range scan.
+  @@index([branch_id, created_at])
   @@map("tasks")
 }
 

@@ -44,6 +44,11 @@ export function buildCorsOptions(raw: string | undefined): CorsOptions {
       'X-Stream-Ticket',
       'Last-Event-ID',
     ],
+    // A cross-origin response only hands JavaScript the CORS-safelisted
+    // headers. Without this the browser can read a report export's bytes but
+    // not the filename the server chose for it, and every download saves under
+    // a generic fallback name.
+    exposedHeaders: ['Content-Disposition'],
     credentials: false,
     maxAge: 600,
   };

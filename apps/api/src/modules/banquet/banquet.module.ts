@@ -6,6 +6,13 @@ import { BanquetKdsService } from './banquet-kds.service.js';
 import { AuthModule } from '../auth/auth.module.js';
 import { AuthorizationModule } from '../../common/authorization/authorization.module.js';
 import { RealtimeCoreModule } from '../../common/realtime/realtime-core.module.js';
+import { ReportingCoreModule } from '../reports/reporting-core.module.js';
+import {
+  BanquetBookingsReport,
+  BanquetOverviewWidget,
+  BanquetPaymentsReport,
+  BanquetReportRegistrar,
+} from './banquet.report-provider.js';
 
 /**
  * Phase 8 — banquet management. PrismaService and AuditLogService come from
@@ -16,9 +23,17 @@ import { RealtimeCoreModule } from '../../common/realtime/realtime-core.module.j
  * render a chef board without importing any staff authorization.
  */
 @Module({
-  imports: [AuthModule, AuthorizationModule, RealtimeCoreModule],
+  imports: [AuthModule, AuthorizationModule, RealtimeCoreModule, ReportingCoreModule],
   controllers: [BanquetController],
-  providers: [BanquetCatalogService, BanquetBookingsService, BanquetKdsService],
+  providers: [
+    BanquetCatalogService,
+    BanquetBookingsService,
+    BanquetKdsService,
+    BanquetBookingsReport,
+    BanquetPaymentsReport,
+    BanquetOverviewWidget,
+    BanquetReportRegistrar,
+  ],
   exports: [BanquetKdsService, BanquetBookingsService],
 })
 export class BanquetModule {}

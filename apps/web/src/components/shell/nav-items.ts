@@ -15,7 +15,7 @@ export interface NavItem {
 
 /**
  * Navigation is keyed on PERMISSIONS, never on role names or an admin flag.
- * Phase 7–10 screens register here as they are built; the paths below are
+ * Phase 7–10 screens register here as they are built; the remaining paths are
  * placeholders for the foundation and render "coming soon" pages.
  */
 export const NAV_ITEMS: readonly NavItem[] = [
@@ -25,6 +25,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
   { href: '/queue', label: 'Queue', permissions: [PERMISSION_KEYS.QUEUE_VIEW], requiresBranch: true },
   { href: '/banquet', label: 'Banquet', permissions: [PERMISSION_KEYS.BANQUET_VIEW, PERMISSION_KEYS.BANQUET_KDS_VIEW], requiresBranch: true },
   { href: '/tasks', label: 'Tasks', permissions: [PERMISSION_KEYS.TASKS_VIEW], requiresBranch: true },
+  { href: '/reports', label: 'Reports', permissions: [PERMISSION_KEYS.REPORTS_VIEW], requiresBranch: true },
   { href: '/displays', label: 'Displays', permissions: [PERMISSION_KEYS.DISPLAY_DEVICES_VIEW], requiresBranch: true },
   { href: '/settings/users', label: 'Users', permissions: [PERMISSION_KEYS.USERS_VIEW] },
   { href: '/settings/roles', label: 'Roles', permissions: [PERMISSION_KEYS.ROLES_VIEW] },

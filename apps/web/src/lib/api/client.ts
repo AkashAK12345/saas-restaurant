@@ -193,6 +193,71 @@ export async function apiRequest<T>(path: string, opts: RequestOptions = {}): Pr
   }
 }
 
+/**
+ * Fetch a binary response (a report export) through the same session machinery
+ * as every other call: same auth header, same context headers, same
+ * refresh-once-on-401. Components must not reach for `fetch` just because the
+ * body is not JSON.
+ *
+ * The filename comes from the server's Content-Disposition, which is where the
+ * naming decision belongs — the browser saves what the API named.
+ */
+export interface DownloadedFile {
+  blob: Blob;
+  filename: string;
+}
+
+function filenameFromDisposition(header: string | null, fallback: string): string {
+  const match = header?.match(/filename="([^"]+)"/);
+  return match ? match[1] : fallback;
+}
+
+async function rawDownload(path: string, opts: RequestOptions, fallbackName: string): Promise<DownloadedFile> {
+  const headers: Record<string, string> = { ...(opts.headers ?? {}) };
+  if (opts.auth !== false) {
+    const token = sessionStore.getAccessToken();
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+  }
+  if (opts.companyId) headers['X-Company-ID'] = opts.companyId;
+  if (opts.branchId) headers['X-Branch-ID'] = opts.branchId;
+
+  const res = await fetch(apiBaseUrl() + path, { method: 'GET', headers, signal: opts.signal });
+  if (!res.ok) {
+    // A refused download still answers with the JSON error envelope.
+    const data = await parseBody(res);
+    const body =
+      data && typeof data === 'object' && 'statusCode' in (data as object)
+        ? (data as ApiErrorBody)
+        : null;
+    throw new ApiError(res.status, body, `Download failed (${res.status})`);
+  }
+  return {
+    blob: await res.blob(),
+    filename: filenameFromDisposition(res.headers.get('content-disposition'), fallbackName),
+  };
+}
+
+export async function apiDownload(
+  path: string,
+  fallbackName: string,
+  opts: RequestOptions = {},
+): Promise<DownloadedFile> {
+  if (opts.auth !== false && !sessionStore.getAccessToken()) {
+    const ok = await refreshSession();
+    if (!ok) throw new NotAuthenticatedError();
+  }
+  try {
+    return await rawDownload(path, opts, fallbackName);
+  } catch (err) {
+    if (err instanceof ApiError && err.isUnauthorized && opts.auth !== false) {
+      const ok = await refreshSession();
+      if (!ok) throw new NotAuthenticatedError();
+      return rawDownload(path, opts, fallbackName);
+    }
+    throw err;
+  }
+}
+
 /** Convenience wrappers so call sites read naturally. */
 export const api = {
   get: <T>(path: string, opts: Omit<RequestOptions, 'method' | 'body'> = {}) =>

@@ -1,0 +1,366 @@
+/*
+ * Reporting screens.
+ *
+ * Design constraints inherited from T0-D: CSS Modules only (no Tailwind), the
+ * tokens defined in globals.css, and a 44px minimum tap target on every
+ * control. Colours are taken ONLY from those tokens, so both the light and
+ * dark schemes follow automatically — a hard-coded hex here would look correct
+ * in one scheme and unreadable in the other.
+ *
+ * A report is inherently wide, so tables scroll INSIDE their own container:
+ * the page body itself never scrolls sideways on a tablet.
+ */
+
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap-lg);
+  /* A flex item defaults to min-width:auto, i.e. its content's intrinsic
+     width. Without this a wide table pushes the whole page sideways instead
+     of scrolling inside its own container. */
+  min-width: 0;
+}
+
+.header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--gap);
+}
+
+.title {
+  margin: 0;
+  font-size: var(--text-xl);
+  color: var(--color-text);
+}
+
+.subtitle {
+  margin: 4px 0 0;
+  color: var(--color-text-muted);
+  font-size: 0.875rem;
+}
+
+.zone {
+  margin: 4px 0 0;
+  color: var(--color-text-muted);
+  font-size: 0.8125rem;
+}
+
+/* ── Filters ─────────────────────────────────────────────────────────────── */
+
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--gap);
+  padding: var(--gap);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 9rem;
+}
+
+.label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
+.input,
+.select {
+  min-height: var(--tap-min);
+  padding: 0 10px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+}
+
+.input:focus-visible,
+.select:focus-visible,
+.button:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--gap);
+}
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: var(--tap-min);
+  padding: 0 14px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.button:hover:not(:disabled) {
+  background: var(--color-surface-muted);
+}
+
+.button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.primary {
+  border-color: var(--color-primary);
+  background: var(--color-primary);
+  color: var(--color-primary-contrast);
+}
+
+.primary:hover:not(:disabled) {
+  filter: brightness(1.08);
+  background: var(--color-primary);
+}
+
+/* ── Metrics ─────────────────────────────────────────────────────────────── */
+
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr));
+  gap: var(--gap);
+  margin: 0;
+  padding: 0;
+}
+
+.metric {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: var(--gap);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+}
+
+.metric dd {
+  margin: 0;
+}
+
+.metricLabel {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+}
+
+.metricValue {
+  font-size: var(--text-xl);
+  font-weight: 600;
+  color: var(--color-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.warning .metricValue {
+  color: var(--color-warning);
+}
+
+.danger .metricValue {
+  color: var(--color-danger);
+}
+
+.positive .metricValue {
+  color: var(--color-success);
+}
+
+/* ── Table ───────────────────────────────────────────────────────────────── */
+
+.tableWrap {
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+  color: var(--color-text);
+}
+
+.table th,
+.table td {
+  padding: 10px 12px;
+  text-align: left;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.table th {
+  position: sticky;
+  top: 0;
+  /* Both halves are tokens: an undefined colour here reads as invisible text. */
+  background: var(--color-surface-muted);
+  color: var(--color-text-muted);
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.numeric {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.empty {
+  padding: var(--gap-lg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+  text-align: center;
+  color: var(--color-text-muted);
+}
+
+/* ── Pagination ──────────────────────────────────────────────────────────── */
+
+.pagination {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--gap);
+}
+
+.pageInfo {
+  font-size: 0.8125rem;
+  color: var(--color-text-muted);
+}
+
+/* ── Catalogue & dashboard ───────────────────────────────────────────────── */
+
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(17rem, 1fr));
+  gap: var(--gap);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: var(--gap);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+}
+
+.cardTitle {
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--tap-min);
+  font-size: var(--text-lg);
+  font-weight: 600;
+  color: var(--color-primary);
+  text-decoration: none;
+}
+
+.cardTitle:hover {
+  text-decoration: underline;
+}
+
+.domain {
+  align-self: flex-start;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--color-surface-muted);
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--color-text-muted);
+}
+
+.widget {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap);
+  padding: var(--gap);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+}
+
+.widgetHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--gap);
+}
+
+.widgetTitle {
+  margin: 0;
+  font-size: var(--text-lg);
+  color: var(--color-text);
+}
+
+.live {
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--color-text-muted);
+}
+
+/* ── Status messages ─────────────────────────────────────────────────────── */
+
+.notice,
+.error {
+  margin: 0;
+  padding: var(--gap);
+  border-radius: var(--radius);
+  font-size: 0.875rem;
+}
+
+.notice {
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-muted);
+  color: var(--color-text);
+}
+
+.error {
+  border: 1px solid var(--color-danger);
+  background: var(--color-danger-bg);
+  color: var(--color-danger);
+}
+
+@media (max-width: 640px) {
+  .filters {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .field {
+    min-width: 0;
+  }
+
+  .actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}

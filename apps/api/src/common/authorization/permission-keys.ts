@@ -114,6 +114,14 @@ export const PERMISSION_KEYS = {
   TASKS_CHECKLIST_MANAGE: 'tasks.checklist.manage',
   TASKS_ROUTINE_MANAGE: 'tasks.routine.manage',
   TASKS_REPORTS_VIEW: 'tasks.reports.view',
+
+  // ── Reports & Dashboard (Phase 10) ───────────────────────────────────────
+  // REPORTS_VIEW (above, reserved since Phase 1) now gates the reporting
+  // system itself. It is deliberately NOT sufficient on its own: running a
+  // report also requires that report's own domain permission, so "reports"
+  // can never become a back door into data a user cannot otherwise see.
+  REPORTS_EXPORT: 'reports.export',
+  DASHBOARD_VIEW: 'dashboard.view',
 } as const;
 
 export type PermissionKey = (typeof PERMISSION_KEYS)[keyof typeof PERMISSION_KEYS];
@@ -266,7 +274,9 @@ export const SYSTEM_PERMISSIONS: Array<{
   {
     name: PERMISSION_KEYS.REPORTS_VIEW,
     module: 'reports',
-    description: 'View reports',
+    description:
+      'Use the reporting system. Each report ALSO requires its own domain ' +
+      'permission, so this key alone reveals nothing.',
   },
   {
     name: PERMISSION_KEYS.AUDIT_LOGS_VIEW,
@@ -457,5 +467,17 @@ export const SYSTEM_PERMISSIONS: Array<{
     name: PERMISSION_KEYS.TASKS_REPORTS_VIEW,
     module: 'tasks',
     description: 'View task and routine completion summaries for a branch',
+  },
+  {
+    name: PERMISSION_KEYS.REPORTS_EXPORT,
+    module: 'reports',
+    description:
+      'Download a report as Excel or PDF. Exports carry exactly the data the ' +
+      'viewer is already permitted to see.',
+  },
+  {
+    name: PERMISSION_KEYS.DASHBOARD_VIEW,
+    module: 'reports',
+    description: 'View the operational dashboard for a branch',
   },
 ];

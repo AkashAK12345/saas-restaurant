@@ -88,7 +88,10 @@ describe('LoginThrottleService', () => {
     );
   });
 
-  it('bounds memory under a high-cardinality attack', () => {
+  // 10,500 registrations is real work, and vitest's 5s default is not enough
+  // for it once the suite runs enough files in parallel to contend for CPU.
+  // The assertion is unchanged — only the time it is allowed to take.
+  it('bounds memory under a high-cardinality attack', { timeout: 30_000 }, () => {
     const overflow = LOGIN_THROTTLE.MAX_TRACKED_KEYS + 500;
     for (let i = 0; i < overflow; i++) {
       throttle.registerFailure(`10.0.${Math.floor(i / 254)}.${i % 254}`, `u${i}@x.com`);

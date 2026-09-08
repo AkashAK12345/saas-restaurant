@@ -77,6 +77,11 @@
   max-width: var(--content-max);
   margin: 0 auto;
   padding: var(--gap-lg) var(--gap);
+  /* A grid item defaults to min-width:auto — its content's intrinsic width —
+     so a page with something genuinely wide (a report table) would stretch
+     this track and scroll the WHOLE app sideways on a tablet. Pinned to 0 so
+     wide content scrolls inside its own container instead. */
+  min-width: 0;
 }
 
 .bottomnav {
