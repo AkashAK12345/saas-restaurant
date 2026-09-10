@@ -390,7 +390,18 @@ model QueueToken {
   service_date      DateTime         @db.Date
   token_number      Int
   status            QueueTokenStatus @default(WAITING)
+  /// Guests, split for capacity planning: a table for 2 adults + 2 kids is not
+  /// the same seating problem as one for 4 adults.
+  adults            Int
+  kids              Int              @default(0)
+  /// The TOTAL, kept as a stored column rather than derived on read: every
+  /// board, report and display already reads it, and a database CHECK holds it
+  /// equal to adults + kids so the two can never disagree.
   party_size        Int
+  /// Set when the guest asked for a table at a later time rather than joining
+  /// the live queue. Recorded and displayed; it deliberately does NOT reorder
+  /// calling, which is a capacity-planning decision nobody has specified yet.
+  advance_booking_at DateTime?       @db.Timestamptz(3)
   assigned_table_id String?          @db.Uuid
   called_at         DateTime?        @db.Timestamptz(3)
   seated_at         DateTime?        @db.Timestamptz(3)

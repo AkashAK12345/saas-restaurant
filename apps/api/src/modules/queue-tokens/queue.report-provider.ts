@@ -53,6 +53,8 @@ const TOKEN_COLUMNS = [
   { key: 'token_number', label: 'Token', type: 'number' },
   { key: 'status', label: 'Status', type: 'string' },
   { key: 'party_size', label: 'Party', type: 'number' },
+  { key: 'adults', label: 'Adults', type: 'number' },
+  { key: 'kids', label: 'Kids', type: 'number' },
   { key: 'table_label', label: 'Table', type: 'string' },
   { key: 'registered_at', label: 'Registered', type: 'datetime' },
   { key: 'called_at', label: 'Called', type: 'datetime' },
@@ -76,6 +78,8 @@ interface TokenRow {
   token_number: number;
   status: string;
   party_size: number;
+  adults: number;
+  kids: number;
   table_label: string | null;
   registered_at: Date;
   called_at: Date | null;
@@ -219,6 +223,8 @@ export class QueueTokensReport implements ReportProvider {
           t."token_number",
           t."status"::text AS "status",
           t."party_size",
+          t."adults",
+          t."kids",
           tbl."label"      AS "table_label",
           t."created_at"   AS "registered_at",
           t."called_at",
@@ -266,12 +272,21 @@ export class QueueTodayWidget implements DashboardWidgetProvider {
 
   async run({ ctx }: WidgetQuery): Promise<WidgetResult> {
     const [row] = await this.prisma.$queryRaw<
-      Array<{ waiting: bigint; called: bigint; seated: bigint; longest_wait: number | null }>
+      Array<{
+        waiting: bigint;
+        called: bigint;
+        seated: bigint;
+        adults: bigint;
+        kids: bigint;
+        longest_wait: number | null;
+      }>
     >(Prisma.sql`
       SELECT
         COUNT(*) FILTER (WHERE "status" = 'WAITING') AS "waiting",
         COUNT(*) FILTER (WHERE "status" = 'CALLED')  AS "called",
         COUNT(*) FILTER (WHERE "status" = 'SEATED')  AS "seated",
+        COALESCE(SUM("adults") FILTER (WHERE "status" IN ('WAITING', 'CALLED')), 0) AS "adults",
+        COALESCE(SUM("kids")   FILTER (WHERE "status" IN ('WAITING', 'CALLED')), 0) AS "kids",
         MAX(EXTRACT(EPOCH FROM (NOW() - "created_at")))
           FILTER (WHERE "status" IN ('WAITING', 'CALLED')) AS "longest_wait"
       FROM "queue_tokens"
@@ -291,6 +306,10 @@ export class QueueTodayWidget implements DashboardWidgetProvider {
           emphasis: waiting > 0 ? 'warning' : 'neutral',
         },
         { key: 'called', label: 'Called', value: toReportNumber(row?.called), type: 'number' },
+        // The split of everyone still in the queue — what a host needs to
+        // match parties to tables, and what the admin display headlines.
+        { key: 'adults', label: 'Adults waiting', value: toReportNumber(row?.adults), type: 'number' },
+        { key: 'kids', label: 'Kids waiting', value: toReportNumber(row?.kids), type: 'number' },
         { key: 'seated', label: 'Seated today', value: toReportNumber(row?.seated), type: 'number' },
         {
           key: 'longest_wait',

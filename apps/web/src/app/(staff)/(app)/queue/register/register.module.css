@@ -176,3 +176,41 @@
   color: var(--color-text-muted);
   font-size: 0.9rem;
 }
+
+/* ── Advance booking ─────────────────────────────────────────────────────── */
+
+.advance {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.advanceLabel {
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.optional {
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.advanceInput {
+  min-height: var(--tap-min);
+  padding: 0 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-muted);
+  color: var(--color-text);
+  font: inherit;
+}
+
+.advanceHint {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+}

@@ -31,7 +31,12 @@ export interface QueueTokenPublic {
   service_date: string;
   token_number: number;
   status: QueueTokenStatus;
+  /** The party, split. `party_size` is the server-derived total of the two. */
+  adults: number;
+  kids: number;
   party_size: number;
+  /** Set when the guest asked for a later table rather than the live queue. */
+  advance_booking_at: string | null;
   assigned_table_id: string | null;
   assigned_table: { id: string; label: string } | null;
   called_at: string | null;

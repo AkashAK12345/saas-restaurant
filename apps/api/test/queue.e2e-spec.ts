@@ -68,11 +68,11 @@ describe('Phase 7 Queue Management (e2e)', () => {
   const asPodium = (req: request.Test, branchId = branchA.id) =>
     as(req, tokenPodiumA, companyA.id, branchId);
 
-  const register = (body: Record<string, unknown> = { party_size: 2 }, branchId = branchA.id) =>
+  const register = (body: Record<string, unknown> = { adults: 2 }, branchId = branchA.id) =>
     asPodium(request(http).post('/api/v1/queue-tokens'), branchId).send(body);
 
   /** Register a token and drive it to CALLED. */
-  const registerCalled = async (body: Record<string, unknown> = { party_size: 2 }) => {
+  const registerCalled = async (body: Record<string, unknown> = { adults: 2 }) => {
     const r = await register(body);
     await asPodium(request(http).post(`/api/v1/queue-tokens/${r.body.id}/call`)).send();
     return r.body;
@@ -191,7 +191,7 @@ describe('Phase 7 Queue Management (e2e)', () => {
 
   describe('Registration', () => {
     it('QR-1. registers an anonymous walk-in as WAITING with a token number', async () => {
-      const res = await register({ party_size: 3 });
+      const res = await register({ adults: 3 });
       expect(res.status).toBe(201);
       expect(res.body).toMatchObject({
         company_id: companyA.id,
@@ -199,7 +199,10 @@ describe('Phase 7 Queue Management (e2e)', () => {
         customer_id: null,
         customer: null,
         status: 'WAITING',
+        adults: 3,
+        kids: 0,
         party_size: 3,
+        advance_booking_at: null,
         assigned_table_id: null,
         called_at: null,
         seated_at: null,
@@ -209,7 +212,7 @@ describe('Phase 7 Queue Management (e2e)', () => {
     });
 
     it('QR-2. registers against an existing customer of the same company', async () => {
-      const res = await register({ party_size: 2, customer_id: customerA.id });
+      const res = await register({ adults: 2, customer_id: customerA.id });
       expect(res.status).toBe(201);
       expect(res.body.customer_id).toBe(customerA.id);
       // The projection is id + name only — no phone, no status.
@@ -218,7 +221,7 @@ describe('Phase 7 Queue Management (e2e)', () => {
     });
 
     it('QR-3. rejects a customer from another company as 404 (no existence disclosure)', async () => {
-      const res = await register({ party_size: 2, customer_id: customerB.id });
+      const res = await register({ adults: 2, customer_id: customerB.id });
       expect(res.status).toBe(404);
       expect(JSON.stringify(res.body)).not.toContain('Other Co Customer');
     });
@@ -227,13 +230,13 @@ describe('Phase 7 Queue Management (e2e)', () => {
       const inactive = await prisma.customer.create({
         data: { company_id: companyA.id, name: 'Dormant', status: 'INACTIVE' },
       });
-      const res = await register({ party_size: 2, customer_id: inactive.id });
+      const res = await register({ adults: 2, customer_id: inactive.id });
       expect(res.status).toBe(409);
     });
 
     it('QR-5. never requires a phone and never creates a customer implicitly', async () => {
       const before = await prisma.customer.count({ where: { company_id: companyA.id } });
-      const res = await register({ party_size: 1 });
+      const res = await register({ adults: 1 });
       expect(res.status).toBe(201);
       expect(await prisma.customer.count({ where: { company_id: companyA.id } })).toBe(before);
     });
@@ -249,14 +252,14 @@ describe('Phase 7 Queue Management (e2e)', () => {
 
       const numbers: number[] = [];
       for (let i = 0; i < 3; i++) {
-        const res = await register({ party_size: 2 }, branch.id);
+        const res = await register({ adults: 2 }, branch.id);
         numbers.push(res.body.token_number);
       }
       expect(numbers).toEqual([1, 2, 3]);
     });
 
     it('QR-7. numbering is isolated per branch', async () => {
-      const a2 = await register({ party_size: 2 }, branchA2.id);
+      const a2 = await register({ adults: 2 }, branchA2.id);
       expect(a2.status).toBe(201);
       // branchA2 has its own counter, so it starts at 1 regardless of branchA.
       expect(a2.body.token_number).toBe(1);
@@ -264,23 +267,36 @@ describe('Phase 7 Queue Management (e2e)', () => {
     });
 
     it('QR-8. uses the BRANCH timezone for the service date', async () => {
-      const res = await register({ party_size: 2 });
+      const res = await register({ adults: 2 });
       expect(res.body.service_date).toBe(currentServiceDate('Asia/Kolkata'));
     });
 
     it('QR-9. validates the payload and rejects unknown fields', async () => {
       const cases = [
         [{}, 400],
-        [{ party_size: 0 }, 400],
-        [{ party_size: -1 }, 400],
-        [{ party_size: 1.5 }, 400],
-        [{ party_size: 101 }, 400],
-        [{ party_size: 'two' }, 400],
-        [{ party_size: 2, customer_id: 'not-a-uuid' }, 400],
+        [{ adults: 0 }, 400],
+        [{ adults: -1 }, 400],
+        [{ adults: 1.5 }, 400],
+        [{ adults: 101 }, 400],
+        [{ adults: 'two' }, 400],
+        [{ adults: 2, kids: -1 }, 400],
+        [{ adults: 2, kids: 1.5 }, 400],
+        [{ adults: 2, customer_id: 'not-a-uuid' }, 400],
+        // The TOTAL is derived, never sent: a client cannot post a party_size
+        // that disagrees with the split, because it cannot post one at all.
+        [{ adults: 2, party_size: 99 }, 400],
+        [{ party_size: 2 }, 400],
         // Status is not client-settable anywhere, including at registration.
-        [{ party_size: 2, status: 'SEATED' }, 400],
-        [{ party_size: 2, token_number: 99 }, 400],
-        [{ party_size: 2, branch_id: branchB.id }, 400],
+        [{ adults: 2, status: 'SEATED' }, 400],
+        [{ adults: 2, token_number: 99 }, 400],
+        [{ adults: 2, branch_id: branchB.id }, 400],
+        // An advance booking is an instant, in the future, within the horizon.
+        [{ adults: 2, advance_booking_at: 'tomorrow' }, 400],
+        [{ adults: 2, advance_booking_at: '2020-01-01T10:00:00.000Z' }, 400],
+        [
+          { adults: 2, advance_booking_at: new Date(Date.now() + 40 * 3_600_000).toISOString() },
+          400,
+        ],
       ] as const;
       for (const [body, expected] of cases) {
         const res = await register(body as Record<string, unknown>);
@@ -289,7 +305,7 @@ describe('Phase 7 Queue Management (e2e)', () => {
     });
 
     it('QR-10. writes a REGISTERED history row and an audit record', async () => {
-      const res = await register({ party_size: 2 });
+      const res = await register({ adults: 2 });
       const events = await prisma.queueTokenEvent.findMany({ where: { queue_token_id: res.body.id } });
       expect(events).toHaveLength(1);
       expect(events[0]).toMatchObject({
@@ -651,7 +667,7 @@ describe('Phase 7 Queue Management (e2e)', () => {
         .post('/api/v1/queue-tokens')
         .set('X-Company-ID', companyA.id)
         .set('X-Branch-ID', branchA.id)
-        .send({ party_size: 2 });
+        .send({ adults: 2 });
       expect(res.status).toBe(401);
     });
 
@@ -673,7 +689,7 @@ describe('Phase 7 Queue Management (e2e)', () => {
           tokenViewerA,
           companyA.id,
           branchA.id,
-        ).send({ party_size: 2, table_id: tableA2.id });
+        ).send({ adults: 2, table_id: tableA2.id });
         expect([path, res.status]).toEqual([path, 403]);
       }
     });
@@ -689,7 +705,7 @@ describe('Phase 7 Queue Management (e2e)', () => {
         tokenPodiumA,
         companyA.id,
         branchB.id, // another company's branch entirely
-      ).send({ party_size: 2 });
+      ).send({ adults: 2 });
       expect(res.status).toBe(403);
     });
 
@@ -699,7 +715,7 @@ describe('Phase 7 Queue Management (e2e)', () => {
         tokenPodiumB, // company B user
         companyA.id, // claiming company A
         branchA.id,
-      ).send({ party_size: 2 });
+      ).send({ adults: 2 });
       expect(res.status).toBe(403);
     });
 
@@ -709,7 +725,7 @@ describe('Phase 7 Queue Management (e2e)', () => {
         tokenPodiumA,
         companyA.id,
         branchOff.id,
-      ).send({ party_size: 2 });
+      ).send({ adults: 2 });
       expect(res.status).toBe(403);
     });
 
@@ -719,7 +735,7 @@ describe('Phase 7 Queue Management (e2e)', () => {
         tokenSuspended,
         companyS.id,
         branchS.id,
-      ).send({ party_size: 2 });
+      ).send({ adults: 2 });
       expect(res.status).toBe(403);
     });
 
@@ -772,7 +788,7 @@ describe('Phase 7 Queue Management (e2e)', () => {
         .post('/api/v1/queue-tokens')
         .set('Authorization', `Bearer ${tokenPodiumA}`)
         .set('X-Company-ID', companyA.id)
-        .send({ party_size: 2 });
+        .send({ adults: 2 });
       expect(noBranch.status).toBe(403);
 
       const noCompany = await request(http)
@@ -816,7 +832,7 @@ describe('Phase 7 Queue Management (e2e)', () => {
 
     it('QE-1. publishes registered/called/seated on the branch queue channel', async () => {
       const wait = collect(branchA.id, 3);
-      const t = await register({ party_size: 2 });
+      const t = await register({ adults: 2 });
       await asPodium(request(http).post(`/api/v1/queue-tokens/${t.body.id}/call`)).send();
       await asPodium(request(http).post(`/api/v1/queue-tokens/${t.body.id}/seat`)).send({});
       const events = await wait;
@@ -847,7 +863,7 @@ describe('Phase 7 Queue Management (e2e)', () => {
 
     it('QE-3. the payload is display-safe — no PII, credentials or tokens', async () => {
       const wait = collect(branchA.id, 1);
-      await register({ party_size: 2, customer_id: customerA.id });
+      await register({ adults: 2, customer_id: customerA.id });
       const [event] = await wait;
 
       expect(event.data).toMatchObject({
@@ -883,7 +899,7 @@ describe('Phase 7 Queue Management (e2e)', () => {
       const otherBranch: any[] = [];
       const sub = broker.subscribe(scopeA(branchA2.id)).subscribe((e) => otherBranch.push(e));
       const wait = collect(branchA.id, 1);
-      await register({ party_size: 2 });
+      await register({ adults: 2 });
       await wait;
       await new Promise((r) => setTimeout(r, 50));
       expect(otherBranch).toHaveLength(0);
@@ -906,7 +922,7 @@ describe('Phase 7 Queue Management (e2e)', () => {
       });
 
       const results = await Promise.all(
-        Array.from({ length: 12 }, () => register({ party_size: 2 }, branch.id)),
+        Array.from({ length: 12 }, () => register({ adults: 2 }, branch.id)),
       );
       expect(results.every((r) => r.status === 201)).toBe(true);
 
@@ -986,6 +1002,7 @@ describe('Phase 7 Queue Management (e2e)', () => {
               branch_id: branchA.id,
               service_date: existing!.service_date,
               token_number: existing!.token_number,
+              adults: 2,
               party_size: 2,
             },
           }),
@@ -1029,9 +1046,9 @@ describe('Phase 7 Queue Management (e2e)', () => {
       const table = await prisma.table.create({
         data: { branch_id: boardBranch.id, label: 'B1', capacity: 4 },
       });
-      const t1 = await register({ party_size: 2 }, boardBranch.id);
-      const t2 = await register({ party_size: 4 }, boardBranch.id);
-      const t3 = await register({ party_size: 3 }, boardBranch.id);
+      const t1 = await register({ adults: 2 }, boardBranch.id);
+      const t2 = await register({ adults: 4 }, boardBranch.id);
+      const t3 = await register({ adults: 3 }, boardBranch.id);
 
       let board = (await onBoard(request(http).get('/api/v1/queue-tokens/board'))).body;
       expect(board.counts.waiting).toBe(3);
@@ -1069,8 +1086,8 @@ describe('Phase 7 Queue Management (e2e)', () => {
       });
       const on = (req: request.Test) => as(req, tokenPodiumA, companyA.id, branch.id);
 
-      const a = await register({ party_size: 2 }, branch.id);
-      const b = await register({ party_size: 2 }, branch.id);
+      const a = await register({ adults: 2 }, branch.id);
+      const b = await register({ adults: 2 }, branch.id);
       // Call the SECOND token first: order must follow called_at, not number.
       await on(request(http).post(`/api/v1/queue-tokens/${b.body.id}/call`)).send();
       await new Promise((r) => setTimeout(r, 10));
@@ -1081,7 +1098,7 @@ describe('Phase 7 Queue Management (e2e)', () => {
     });
 
     it('QB-4. shows the customer name to staff who hold queue.view', async () => {
-      const t = await register({ party_size: 2, customer_id: customerA.id }, boardBranch.id);
+      const t = await register({ adults: 2, customer_id: customerA.id }, boardBranch.id);
       expect(t.status).toBe(201);
       const board = (await onBoard(request(http).get('/api/v1/queue-tokens/board'))).body;
       const entry = board.waiting.find((x: any) => x.id === t.body.id);
@@ -1169,13 +1186,13 @@ describe('Phase 7 Queue Management (e2e)', () => {
       const on = (req: request.Test) => as(req, tokenPodiumA, companyA.id, dBranch.id);
 
       // A named customer, so the projections can be checked for PII leakage.
-      seededToken = (await register({ party_size: 2, customer_id: customerA.id }, dBranch.id)).body;
+      seededToken = (await register({ adults: 2, customer_id: customerA.id }, dBranch.id)).body;
       await on(request(http).post(`/api/v1/queue-tokens/${seededToken.id}/call`)).send();
       await on(request(http).post(`/api/v1/queue-tokens/${seededToken.id}/seat`)).send({ table_id: table.id });
 
-      calledToken = (await register({ party_size: 5 }, dBranch.id)).body;
+      calledToken = (await register({ adults: 5 }, dBranch.id)).body;
       await on(request(http).post(`/api/v1/queue-tokens/${calledToken.id}/call`)).send();
-      await register({ party_size: 3 }, dBranch.id); // one still waiting
+      await register({ adults: 3 }, dBranch.id); // one still waiting
 
       customerDevice = await pair(dBranch.id, DisplayDeviceKind.QUEUE_CUSTOMER);
       adminDevice = await pair(dBranch.id, DisplayDeviceKind.QUEUE_ADMIN);
@@ -1223,6 +1240,8 @@ describe('Phase 7 Queue Management (e2e)', () => {
         id: calledToken.id,
         token_number: calledToken.token_number,
         party_size: 5,
+        adults: 5,
+        kids: 0,
         status: 'CALLED',
       });
       expect(res.body.seated[0].assigned_table).toEqual({
@@ -1320,7 +1339,7 @@ describe('Phase 7 Queue Management (e2e)', () => {
         .set('Authorization', `Display ${customerDevice}`)
         .set('X-Company-ID', companyA.id)
         .set('X-Branch-ID', dBranch.id)
-        .send({ party_size: 2 });
+        .send({ adults: 2 });
       expect(deviceMutation.status).toBe(401);
     });
 
@@ -1400,7 +1419,7 @@ describe('Phase 7 Queue Management (e2e)', () => {
       );
       const waitingBefore = before.body.waiting_count;
 
-      await register({ party_size: 2 }, dBranch.id);
+      await register({ adults: 2 }, dBranch.id);
 
       const after = await asDevice(
         request(http).get('/api/v1/display/queue/board'),

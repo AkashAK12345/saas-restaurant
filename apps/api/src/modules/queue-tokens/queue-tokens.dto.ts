@@ -1,6 +1,7 @@
 import {
   IsEnum,
   IsInt,
+  IsISO8601,
   IsOptional,
   IsUUID,
   Matches,
@@ -12,6 +13,20 @@ import { PaginationQueryDto } from '../../common/pagination.dto.js';
 import { SERVICE_DATE_PATTERN } from './queue-service-date.js';
 
 /**
+ * The largest party the queue will take. A restaurant seating more than this
+ * at one table is running a banquet, which has its own module and its own
+ * booking rules.
+ */
+export const MAX_PARTY_SIZE = 100;
+
+/**
+ * How far ahead an advance booking may be placed. A queue token is a
+ * same-service artefact — its number restarts daily — so a request weeks out
+ * belongs in Banquet, not here.
+ */
+export const MAX_ADVANCE_BOOKING_HOURS = 24;
+
+/**
  * Registration. The branch (and therefore the company, the timezone and the
  * service date) comes from the guard-verified X-Branch-ID context, never from
  * the body. The token number is allocated server-side.
@@ -21,10 +36,30 @@ import { SERVICE_DATE_PATTERN } from './queue-service-date.js';
  * record is ever created implicitly here — use POST /customers for that.
  */
 export class RegisterQueueTokenDto {
+  /**
+   * The party, split. `party_size` is NOT accepted from a client: it is the
+   * sum, computed server-side, so the total and the split can never be sent
+   * disagreeing with each other.
+   */
   @IsInt()
   @Min(1)
-  @Max(100)
-  party_size!: number;
+  @Max(MAX_PARTY_SIZE)
+  adults!: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(MAX_PARTY_SIZE)
+  kids?: number;
+
+  /**
+   * A future instant, when the guest asked for a table later rather than
+   * joining the live queue. ISO 8601 with an offset — an instant, not a wall
+   * clock, so it cannot be ambiguous about which branch's day it belongs to.
+   */
+  @IsOptional()
+  @IsISO8601({ strict: true }, { message: 'advance_booking_at must be an ISO 8601 instant' })
+  advance_booking_at?: string;
 
   @IsOptional()
   @IsUUID()

@@ -26,7 +26,10 @@ function makeToken(overrides: Record<string, unknown> = {}) {
     service_date: new Date('2026-09-07T00:00:00.000Z'),
     token_number: 1,
     status: QueueTokenStatus.WAITING,
+    adults: 2,
+    kids: 0,
     party_size: 2,
+    advance_booking_at: null,
     assigned_table_id: null,
     assigned_table: null,
     called_at: null,
@@ -89,7 +92,7 @@ describe('QueueTokensService', () => {
 
   describe('register', () => {
     it('allocates the number in one locking statement inside the transaction', async () => {
-      await service.register(ctx, { party_size: 2 });
+      await service.register(ctx, { adults: 2 });
 
       expect(prisma.$transaction).toHaveBeenCalledTimes(1);
       expect(tx.$queryRaw).toHaveBeenCalledTimes(1);
@@ -105,7 +108,7 @@ describe('QueueTokensService', () => {
     it('derives the service date from the BRANCH timezone', async () => {
       // 19:00 UTC on the 7th is already the 8th in Kolkata.
       vi.setSystemTime(new Date('2026-09-07T19:00:00.000Z'));
-      await service.register(ctx, { party_size: 2 });
+      await service.register(ctx, { adults: 2 });
       expect(tx.queueToken.create.mock.calls[0][0].data.service_date.toISOString()).toBe(
         '2026-09-08T00:00:00.000Z',
       );
@@ -113,7 +116,7 @@ describe('QueueTokensService', () => {
     });
 
     it('starts the token WAITING and writes a REGISTERED history row', async () => {
-      await service.register(ctx, { party_size: 4 });
+      await service.register(ctx, { adults: 4 });
       expect(tx.queueToken.create.mock.calls[0][0].data.status).toBe(QueueTokenStatus.WAITING);
       expect(tx.queueTokenEvent.create).toHaveBeenCalledWith({
         data: expect.objectContaining({
@@ -126,7 +129,7 @@ describe('QueueTokensService', () => {
     });
 
     it('registers an anonymous walk-in without touching customers', async () => {
-      const view = await service.register(ctx, { party_size: 2 });
+      const view = await service.register(ctx, { adults: 2 });
       expect(tx.customer.findFirst).not.toHaveBeenCalled();
       expect(tx.queueToken.create.mock.calls[0][0].data.customer_id).toBeNull();
       expect(view.customer_id).toBeNull();
@@ -134,7 +137,7 @@ describe('QueueTokensService', () => {
 
     it('accepts a customer of the same company', async () => {
       tx.customer.findFirst.mockResolvedValue({ id: CUSTOMER, status: 'ACTIVE' });
-      await service.register(ctx, { party_size: 2, customer_id: CUSTOMER });
+      await service.register(ctx, { adults: 2, customer_id: CUSTOMER });
       // Scoped by id AND company in ONE query — never fetch-then-compare.
       expect(tx.customer.findFirst).toHaveBeenCalledWith(
         expect.objectContaining({ where: { id: CUSTOMER, company_id: COMPANY } }),
@@ -144,7 +147,7 @@ describe('QueueTokensService', () => {
 
     it('rejects a customer from another company as not found', async () => {
       tx.customer.findFirst.mockResolvedValue(null); // scoped query finds nothing
-      await expect(service.register(ctx, { party_size: 2, customer_id: CUSTOMER })).rejects.toBeInstanceOf(
+      await expect(service.register(ctx, { adults: 2, customer_id: CUSTOMER })).rejects.toBeInstanceOf(
         NotFoundException,
       );
       expect(tx.queueToken.create).not.toHaveBeenCalled();
@@ -153,30 +156,30 @@ describe('QueueTokensService', () => {
 
     it('rejects an inactive customer', async () => {
       tx.customer.findFirst.mockResolvedValue({ id: CUSTOMER, status: 'INACTIVE' });
-      await expect(service.register(ctx, { party_size: 2, customer_id: CUSTOMER })).rejects.toBeInstanceOf(
+      await expect(service.register(ctx, { adults: 2, customer_id: CUSTOMER })).rejects.toBeInstanceOf(
         ConflictException,
       );
     });
 
     it('never creates a customer record implicitly', async () => {
-      await service.register(ctx, { party_size: 2 });
+      await service.register(ctx, { adults: 2 });
       expect(tx.customer.create).toBeUndefined();
     });
 
     it('rejects registration at a branch that is no longer active', async () => {
       tx.branch.findUnique.mockResolvedValue({ company_id: COMPANY, status: 'INACTIVE', timezone: 'UTC' });
-      await expect(service.register(ctx, { party_size: 2 })).rejects.toBeInstanceOf(ConflictException);
+      await expect(service.register(ctx, { adults: 2 })).rejects.toBeInstanceOf(ConflictException);
       expect(broker.publish).not.toHaveBeenCalled();
     });
 
     it('rejects a branch that belongs to another company', async () => {
       tx.branch.findUnique.mockResolvedValue({ company_id: 'other', status: 'ACTIVE', timezone: 'UTC' });
-      await expect(service.register(ctx, { party_size: 2 })).rejects.toBeInstanceOf(NotFoundException);
+      await expect(service.register(ctx, { adults: 2 })).rejects.toBeInstanceOf(NotFoundException);
     });
 
     it('fails loudly if the counter returns nothing usable', async () => {
       tx.$queryRaw.mockResolvedValue([]);
-      await expect(service.register(ctx, { party_size: 2 })).rejects.toThrow();
+      await expect(service.register(ctx, { adults: 2 })).rejects.toThrow();
       expect(broker.publish).not.toHaveBeenCalled();
     });
   });
@@ -346,7 +349,7 @@ describe('QueueTokensService', () => {
 
   describe('audit', () => {
     it('writes the audit record inside the same transaction as the mutation', async () => {
-      await service.register(ctx, { party_size: 2 });
+      await service.register(ctx, { adults: 2 });
       const [params, passedTx] = audit.create.mock.calls[0];
       expect(passedTx).toBe(tx); // STRICT policy: rolls back with the mutation
       expect(params).toMatchObject({
@@ -362,7 +365,7 @@ describe('QueueTokensService', () => {
       tx.queueToken.create.mockResolvedValue(
         makeToken({ customer_id: CUSTOMER, customer: { id: CUSTOMER, name: 'Asha Rao' } }),
       );
-      await service.register(ctx, { party_size: 2, customer_id: CUSTOMER });
+      await service.register(ctx, { adults: 2, customer_id: CUSTOMER });
       const payload = JSON.stringify(audit.create.mock.calls[0][0].payload);
       expect(payload).not.toContain('Asha Rao');
       expect(payload).not.toContain('phone');
@@ -380,7 +383,7 @@ describe('QueueTokensService', () => {
       });
       broker.publish.mockImplementation(() => order.push('publish'));
 
-      await service.register(ctx, { party_size: 2 });
+      await service.register(ctx, { adults: 2 });
 
       expect(order).toEqual(['commit', 'publish']);
       const [scope, type] = broker.publish.mock.calls[0];
@@ -390,7 +393,7 @@ describe('QueueTokensService', () => {
 
     it('publishes nothing when the transaction fails', async () => {
       prisma.$transaction.mockRejectedValue(new Error('rolled back'));
-      await expect(service.register(ctx, { party_size: 2 })).rejects.toThrow('rolled back');
+      await expect(service.register(ctx, { adults: 2 })).rejects.toThrow('rolled back');
       expect(broker.publish).not.toHaveBeenCalled();
     });
 
@@ -409,7 +412,7 @@ describe('QueueTokensService', () => {
         makeToken({ customer_id: CUSTOMER, customer: { id: CUSTOMER, name: 'Asha Rao' } }),
       );
       tx.customer.findFirst.mockResolvedValue({ id: CUSTOMER, status: 'ACTIVE' });
-      const returned = await service.register(ctx, { party_size: 2, customer_id: CUSTOMER });
+      const returned = await service.register(ctx, { adults: 2, customer_id: CUSTOMER });
 
       const payload = broker.publish.mock.calls[0][2] as Record<string, unknown>;
       expect(Object.keys(payload).sort()).toEqual(
@@ -424,7 +427,10 @@ describe('QueueTokensService', () => {
           'customer_id',
           'id',
           'no_show_at',
+          'adults',
+          'kids',
           'party_size',
+          'advance_booking_at',
           'seated_at',
           'service_date',
           'status',

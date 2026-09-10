@@ -376,3 +376,10 @@
   border-left: 6px solid #5cd17c;
 }
 .chefReady .chefState { color: #5cd17c; }
+
+/* The brand mark on a public board. Sized to sit with the heading, not shout
+   over it — the token numbers are what a guest is here to read. */
+.logo {
+  flex: none;
+  margin-right: 16px;
+}

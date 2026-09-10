@@ -9,29 +9,66 @@
  */
 
 :root {
-  /* palette */
-  --color-bg: #f6f7f9;
+  /*
+   * Palette — warm ivory ground, white cards, terracotta accent.
+   *
+   * The ground is deliberately NOT white: cards are white, so the page behind
+   * them has to be warmer and darker or the card edges disappear. Every grey
+   * here is warm (a red/yellow bias, never blue), which is what stops the
+   * ivory from reading as "dirty white".
+   */
+  --color-bg: #f4f2ea;
   --color-surface: #ffffff;
-  --color-surface-muted: #eef0f3;
-  --color-border: #d9dde3;
-  --color-text: #17191c;
-  --color-text-muted: #5c6470;
-  --color-primary: #1f5eff;
+  --color-surface-muted: #f1efe7;
+  --color-border: #e6e2d8;
+  --color-text: #2c2825;
+  --color-text-muted: #8b8478;
+  --color-primary: #c25839;
   --color-primary-contrast: #ffffff;
-  --color-danger: #c62828;
-  --color-danger-bg: #fdecec;
-  --color-success: #1b7f3b;
-  --color-warning: #8a5a00;
-  --color-warning-bg: #fff4d6;
-  --color-focus: #7aa2ff;
+  --color-danger: #c0392b;
+  --color-danger-bg: #fbe9e5;
+  --color-success: #2f8557;
+  --color-warning: #b07d18;
+  --color-warning-bg: #fbefd5;
+  --color-focus: #d99070;
+
+  /*
+   * BRAND. The maroon of the SAMCO logo. It is the identity colour and is used
+   * where the brand speaks for itself — the wordmark, sign-in, public display
+   * headers — and deliberately NOT as the interface's action colour, which
+   * stays terracotta so a button never competes with the logo beside it.
+   */
+  --color-brand: #7a1b39;
+  --color-brand-muted: #9c5670;
+
+  /*
+   * Accents for icon tiles and per-section nav tints.
+   *
+   * Each is a PAIR: a saturated `-fg` for the glyph and a pale `-bg` for the
+   * rounded tile behind it. They are decorative wayfinding — which module you
+   * are in — and never the only carrier of meaning, so colour-blind users lose
+   * nothing. Text on a `-bg` tile always uses --color-text.
+   */
+  --accent-blue-fg: #2f6fb0;
+  --accent-blue-bg: #dceafa;
+  --accent-green-fg: #2f8557;
+  --accent-green-bg: #dcf0e4;
+  --accent-amber-fg: #b07d18;
+  --accent-amber-bg: #fbefd5;
+  --accent-purple-fg: #6b5bb5;
+  --accent-purple-bg: #e8e4f8;
+  --accent-terracotta-fg: #c25839;
+  --accent-terracotta-bg: #fae2da;
 
   /* layout */
   --nav-width: 240px;
   --topbar-height: 56px;
-  --bottombar-height: 64px;
+  --bottombar-height: 70px;
   --content-max: 1200px;
-  --radius: 10px;
-  --radius-sm: 6px;
+  /* Generous radii: cards 16, controls 12, pills fully round. */
+  --radius: 16px;
+  --radius-sm: 12px;
+  --radius-pill: 999px;
 
   /* touch */
   --tap-min: 44px; /* WCAG 2.5.8 / Apple HIG minimum */
@@ -46,27 +83,19 @@
   --text-xl: 22px;
   --text-2xl: 28px;
 
-  color-scheme: light dark;
+  /*
+   * LIGHT ONLY, on purpose. The product's design is a light, warm ivory
+   * interface; there is no dark counterpart to switch to. Declaring `light`
+   * also stops the browser from darkening native controls — a date picker or a
+   * select would otherwise render dark inside a light card on a device set to
+   * dark mode.
+   *
+   * The public DISPLAY screens are a separate surface with their own dark
+   * styling, which does not come from here.
+   */
+  color-scheme: light;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --color-bg: #0f1114;
-    --color-surface: #181b20;
-    --color-surface-muted: #21252c;
-    --color-border: #2e343d;
-    --color-text: #eceef1;
-    --color-text-muted: #9aa3b0;
-    --color-primary: #6b96ff;
-    --color-primary-contrast: #0b1020;
-    --color-danger: #ff7b7b;
-    --color-danger-bg: #3a1616;
-    --color-success: #5cd17c;
-    --color-warning: #f0c65a;
-    --color-warning-bg: #3d3416;
-    --color-focus: #9dbaff;
-  }
-}
 
 *,
 *::before,

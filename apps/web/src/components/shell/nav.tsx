@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { hasAnyPermission } from '@/lib/auth/permissions';
 import { NAV_ITEMS, type NavItem } from './nav-items';
+import { NavIcon } from './nav-icons';
 import styles from './nav.module.css';
 
 export interface NavProps {
@@ -44,11 +45,18 @@ export function Nav({ permissions, hasBranch, variant, onNavigate }: NavProps) {
             <li key={item.href}>
               <Link
                 href={item.href}
+                // The accent drives the tile tint; `active` decides whether it
+                // is filled. Colour alone never marks the current page —
+                // aria-current does that, for everyone.
+                data-accent={item.accent}
                 className={`${styles.link} ${active ? styles.active : ''}`}
                 aria-current={active ? 'page' : undefined}
                 onClick={onNavigate}
               >
-                {item.label}
+                <span className={styles.tile}>
+                  <NavIcon name={item.icon} />
+                </span>
+                <span className={styles.label}>{item.label}</span>
               </Link>
             </li>
           );

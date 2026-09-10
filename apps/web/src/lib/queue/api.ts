@@ -50,8 +50,20 @@ export const queueApi = {
   get: (ctx: QueueContext, id: string) =>
     api.get<QueueTokenDetail>(`/queue-tokens/${id}`, ctxOpts(ctx)),
 
-  register: (ctx: QueueContext, body: { party_size: number; customer_id?: string }) =>
-    api.post<QueueToken>('/queue-tokens', body, ctxOpts(ctx)),
+  /**
+   * The party is sent SPLIT. The total is derived server-side, so there is no
+   * `party_size` to send and no way for the two to disagree.
+   */
+  register: (
+    ctx: QueueContext,
+    body: {
+      adults: number;
+      kids?: number;
+      /** ISO instant, for a table requested later rather than joining now. */
+      advance_booking_at?: string;
+      customer_id?: string;
+    },
+  ) => api.post<QueueToken>('/queue-tokens', body, ctxOpts(ctx)),
 
   call: (ctx: QueueContext, id: string) =>
     api.post<QueueToken>(`/queue-tokens/${id}/call`, undefined, ctxOpts(ctx)),

@@ -36,6 +36,7 @@ import {
   serviceDateFromDb,
   serviceDateToDb,
 } from './queue-service-date.js';
+import { MAX_ADVANCE_BOOKING_HOURS, MAX_PARTY_SIZE } from './queue-tokens.dto.js';
 import type {
   ListQueueTokensQueryDto,
   RegisterQueueTokenDto,
@@ -276,6 +277,22 @@ export class QueueTokensService {
   // ───────────────────────────────────────────────────────────────────────────
 
   async register(ctx: QueueActorContext, dto: RegisterQueueTokenDto): Promise<QueueTokenView> {
+    // The split is the input; the total is derived here, once, so no caller can
+    // send a party_size that disagrees with it. The database CHECK is the
+    // backstop if a future writer forgets.
+    const adults = dto.adults;
+    const kids = dto.kids ?? 0;
+    const partySize = adults + kids;
+    if (partySize < 1) {
+      throw new BadRequestException('A party needs at least one guest');
+    }
+    if (partySize > MAX_PARTY_SIZE) {
+      throw new BadRequestException(
+        `A queue party may not exceed ${MAX_PARTY_SIZE} guests; use Banquet for larger events`,
+      );
+    }
+    const advanceBookingAt = this.parseAdvanceBooking(dto.advance_booking_at);
+
     const token = await this.mutate(async (tx) => {
       // Re-read the branch inside the transaction: it is the source of the
       // timezone, and a branch deactivated between guard and commit must not
@@ -315,7 +332,10 @@ export class QueueTokensService {
           service_date: serviceDateToDb(serviceDate),
           token_number: tokenNumber,
           status: INITIAL_QUEUE_STATUS,
-          party_size: dto.party_size,
+          adults,
+          kids,
+          party_size: partySize,
+          advance_booking_at: advanceBookingAt,
         },
         include: TOKEN_INCLUDE,
       });
@@ -329,13 +349,44 @@ export class QueueTokensService {
         action: 'register',
         service_date: serviceDate,
         token_number: tokenNumber,
-        party_size: dto.party_size,
+        party_size: partySize,
+        adults,
+        kids,
+        is_advance_booking: advanceBookingAt !== null,
         has_customer: customerId !== null,
       });
       return created;
     });
 
     return this.emit(ctx, QUEUE_EVENT_TYPES.REGISTERED, token);
+  }
+
+  /**
+   * An advance booking must be in the FUTURE and within the service horizon.
+   *
+   * A time in the past is almost always a client sending a wall clock without
+   * an offset, and silently accepting it would put a guest in a queue slot
+   * that has already gone. Beyond the horizon it is a banquet enquiry, which
+   * has its own module.
+   */
+  private parseAdvanceBooking(value: string | undefined): Date | null {
+    if (value === undefined) return null;
+
+    const at = new Date(value);
+    if (Number.isNaN(at.getTime())) {
+      throw new BadRequestException('advance_booking_at must be a valid instant');
+    }
+
+    const now = Date.now();
+    if (at.getTime() <= now) {
+      throw new BadRequestException('advance_booking_at must be in the future');
+    }
+    if (at.getTime() - now > MAX_ADVANCE_BOOKING_HOURS * 3_600_000) {
+      throw new BadRequestException(
+        `advance_booking_at may be at most ${MAX_ADVANCE_BOOKING_HOURS} hours ahead`,
+      );
+    }
+    return at;
   }
 
   /**
@@ -741,7 +792,12 @@ export class QueueTokensService {
       service_date: serviceDateFromDb(token.service_date),
       token_number: token.token_number,
       status: token.status,
+      adults: token.adults,
+      kids: token.kids,
       party_size: token.party_size,
+      advance_booking_at: token.advance_booking_at
+        ? token.advance_booking_at.toISOString()
+        : null,
       assigned_table_id: token.assigned_table_id,
       assigned_table: token.assigned_table
         ? { id: token.assigned_table.id, label: token.assigned_table.label }

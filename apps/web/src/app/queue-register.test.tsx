@@ -30,7 +30,10 @@ import RegisterPage from './(staff)/(app)/queue/register/page';
 const token = (over: Record<string, unknown> = {}) => ({
   id: 't-1',
   token_number: 12,
+  adults: 2,
+  kids: 0,
   party_size: 2,
+  advance_booking_at: null,
   customer: null,
   ...over,
 });
@@ -56,7 +59,7 @@ describe('Customer Register', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Add to queue' }));
 
     await waitFor(() => expect(register).toHaveBeenCalledTimes(1));
-    expect(register.mock.calls[0][1]).toEqual({ party_size: 2 });
+    expect(register.mock.calls[0][1]).toEqual({ adults: 2 });
     expect(createCustomer).not.toHaveBeenCalled();
   });
 
@@ -67,27 +70,55 @@ describe('Customer Register', () => {
     expect(screen.getByText(/Added to the queue/)).toBeTruthy();
   });
 
-  it('adjusts party size with the stepper and the field', async () => {
+  it('adjusts adults with the stepper and the field', async () => {
     render(<RegisterPage />);
-    fireEvent.click(screen.getByRole('button', { name: 'Increase party size' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Increase party size' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Increase adults' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Increase adults' }));
     fireEvent.click(screen.getByRole('button', { name: 'Add to queue' }));
-    await waitFor(() => expect(register.mock.calls[0][1]).toEqual({ party_size: 4 }));
+    await waitFor(() => expect(register.mock.calls[0][1]).toEqual({ adults: 4 }));
 
     register.mockClear();
     fireEvent.click(screen.getByRole('button', { name: 'Register another party' }));
-    fireEvent.change(screen.getByLabelText('Party size'), { target: { value: '8' } });
+    fireEvent.change(screen.getByLabelText('Adults'), { target: { value: '8' } });
     fireEvent.click(screen.getByRole('button', { name: 'Add to queue' }));
-    await waitFor(() => expect(register.mock.calls[0][1]).toEqual({ party_size: 8 }));
+    await waitFor(() => expect(register.mock.calls[0][1]).toEqual({ adults: 8 }));
   });
 
-  it('never lets party size leave 1–100', () => {
+  // Kids are optional, so a party with none sends no `kids` at all rather than
+  // a zero the server would have defaulted anyway.
+  it('sends kids only when there are some, and shows the derived total', async () => {
     render(<RegisterPage />);
-    const field = screen.getByLabelText('Party size') as HTMLInputElement;
-    fireEvent.change(field, { target: { value: '0' } });
-    expect(field.value).toBe('1');
-    fireEvent.change(field, { target: { value: '999' } });
-    expect(field.value).toBe('100');
+    fireEvent.change(screen.getByLabelText('Kids'), { target: { value: '3' } });
+    expect(screen.getByText(/5 guests in total/)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add to queue' }));
+    await waitFor(() => expect(register.mock.calls[0][1]).toEqual({ adults: 2, kids: 3 }));
+  });
+
+  // The TOTAL is the server's to compute; the screen must never send one.
+  it('never sends a party_size of its own', async () => {
+    render(<RegisterPage />);
+    fireEvent.change(screen.getByLabelText('Kids'), { target: { value: '2' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Add to queue' }));
+
+    await waitFor(() => expect(register).toHaveBeenCalled());
+    expect(register.mock.calls[0][1]).not.toHaveProperty('party_size');
+  });
+
+  it('never lets the counts leave their bounds', () => {
+    render(<RegisterPage />);
+    const adults = screen.getByLabelText('Adults') as HTMLInputElement;
+    fireEvent.change(adults, { target: { value: '0' } });
+    expect(adults.value).toBe('1');
+    fireEvent.change(adults, { target: { value: '999' } });
+    expect(adults.value).toBe('100');
+
+    // Kids may legitimately be zero, where adults may not.
+    const kids = screen.getByLabelText('Kids') as HTMLInputElement;
+    fireEvent.change(kids, { target: { value: '-4' } });
+    expect(kids.value).toBe('0');
+    fireEvent.change(kids, { target: { value: '999' } });
+    expect(kids.value).toBe('100');
   });
 
   it('links an existing customer chosen from the lookup', async () => {
@@ -99,7 +130,7 @@ describe('Customer Register', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Add to queue' }));
 
     await waitFor(() => expect(register).toHaveBeenCalled());
-    expect(register.mock.calls[0][1]).toEqual({ party_size: 2, customer_id: 'c-1' });
+    expect(register.mock.calls[0][1]).toEqual({ adults: 2, customer_id: 'c-1' });
   });
 
   it('filters the lookup and hides inactive customers', async () => {
@@ -123,7 +154,7 @@ describe('Customer Register', () => {
     await waitFor(() => expect(createCustomer).toHaveBeenCalledTimes(1));
     // A phone is never required.
     expect(createCustomer.mock.calls[0][1]).toEqual({ name: 'New Guest' });
-    expect(register.mock.calls[0][1]).toEqual({ party_size: 2, customer_id: 'c-new' });
+    expect(register.mock.calls[0][1]).toEqual({ adults: 2, customer_id: 'c-new' });
   });
 
   it('refuses to submit an empty new-customer name instead of registering silently', async () => {

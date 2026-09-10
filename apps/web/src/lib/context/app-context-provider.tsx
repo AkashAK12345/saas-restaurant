@@ -27,6 +27,13 @@ export interface AppContextState {
   branches: ContextBranch[];
   selectedCompanyId: string | null;
   selectedBranchId: string | null;
+  /**
+   * The selected branch in full — its name for the header chip, and its
+   * TIMEZONE, which any screen turning a wall clock into an instant needs.
+   * Reading it from here rather than the device is what stops a booking made
+   * in London landing hours out for a branch in Bengaluru.
+   */
+  selectedBranch: ContextBranch | null;
   /** Effective company-scoped permissions for the selected company. */
   companyPermissions: string[];
   /** Effective branch-scoped permissions for the selected branch. */
@@ -164,6 +171,8 @@ export function AppContextProvider({ children }: { children: ReactNode }) {
       branches: data?.company?.branches ?? [],
       selectedCompanyId: data?.company?.id ?? null,
       selectedBranchId: data?.branch?.id ?? null,
+      selectedBranch:
+        data?.company?.branches?.find((b) => b.id === data?.branch?.id) ?? null,
       companyPermissions: data?.company?.permissions ?? [],
       branchPermissions: data?.branch?.permissions ?? [],
       selectCompany,

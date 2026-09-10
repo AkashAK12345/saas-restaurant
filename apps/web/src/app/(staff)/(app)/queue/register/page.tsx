@@ -5,6 +5,8 @@ import { useAppContext } from '@/lib/context/app-context-provider';
 import { hasPermission } from '@/lib/auth/permissions';
 import { queueApi } from '@/lib/queue/api';
 import type { Customer, QueueToken } from '@/lib/queue/types';
+import { PartyFields, type PartyValue } from '@/components/queue/party-fields';
+import { branchLocalToInstant } from '@/lib/queue/branch-time';
 import styles from './register.module.css';
 
 type Mode = 'walkin' | 'existing' | 'new';
@@ -30,7 +32,10 @@ const MODES: Array<{ id: Mode; label: string }> = [
  * rather than worked around with a new endpoint.
  */
 export default function RegisterPage() {
-  const { selectedCompanyId, selectedBranchId, companyPermissions, branchPermissions } = useAppContext();
+  const { selectedCompanyId, selectedBranchId, selectedBranch, companyPermissions, branchPermissions } =
+    useAppContext();
+  // The branch's own zone, so a booking time means what the host typed.
+  const timezone = selectedBranch?.timezone ?? 'UTC';
   const ctx = useMemo(
     () =>
       selectedCompanyId && selectedBranchId
@@ -44,7 +49,10 @@ export default function RegisterPage() {
   const mayCreateCustomers = hasPermission(companyPermissions, 'customers.create');
 
   const [mode, setMode] = useState<Mode>('walkin');
-  const [partySize, setPartySize] = useState(2);
+  const [party, setParty] = useState<PartyValue>({ adults: 2, kids: 0 });
+  // A wall clock, read in the BRANCH's zone when it is sent. Empty means the
+  // party is joining the live queue now, which is the common case.
+  const [advanceLocal, setAdvanceLocal] = useState('');
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [customerId, setCustomerId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
@@ -88,7 +96,8 @@ export default function RegisterPage() {
   const reset = () => {
     setIssued(null);
     setError(null);
-    setPartySize(2);
+    setParty({ adults: 2, kids: 0 });
+    setAdvanceLocal('');
     setCustomerId(null);
     setSearch('');
     setNewName('');
@@ -115,8 +124,21 @@ export default function RegisterPage() {
         setCustomers((list) => [created, ...list]);
       }
 
+      let advanceBookingAt: string | undefined;
+      if (advanceLocal) {
+        // Interpreted in the branch's timezone, never the device's.
+        const instant = branchLocalToInstant(advanceLocal, timezone);
+        if (!instant) throw new Error('That booking time is not a valid date and time.');
+        if (instant.getTime() <= Date.now()) {
+          throw new Error('An advance booking must be in the future.');
+        }
+        advanceBookingAt = instant.toISOString();
+      }
+
       const token = await queueApi.register(ctx, {
-        party_size: partySize,
+        adults: party.adults,
+        ...(party.kids > 0 ? { kids: party.kids } : {}),
+        ...(advanceBookingAt ? { advance_booking_at: advanceBookingAt } : {}),
         ...(linkedCustomerId ? { customer_id: linkedCustomerId } : {}),
       });
       setIssued(token);
@@ -139,6 +161,7 @@ export default function RegisterPage() {
         <p>
           {issued.customer?.name ?? 'Walk-in'} · {issued.party_size}{' '}
           {issued.party_size === 1 ? 'guest' : 'guests'}
+          {issued.kids > 0 ? ` (${issued.adults} adults, ${issued.kids} kids)` : ''}
         </p>
         <button type="button" className={styles.submit} onClick={reset}>
           Register another party
@@ -171,48 +194,24 @@ export default function RegisterPage() {
           </div>
         ) : null}
 
-        <fieldset className={styles.fieldset}>
-          <legend className={styles.legend}>Party size</legend>
-          <div className={styles.stepper}>
-            <button
-              type="button"
-              className={styles.step}
-              aria-label="Decrease party size"
-              onClick={() => setPartySize((n) => Math.max(1, n - 1))}
-              disabled={partySize <= 1}
-            >
-              −
-            </button>
-            <span className={styles.partySize} aria-hidden="true">
-              {partySize}
-            </span>
-            <label className="sr-only" htmlFor="party-size">
-              Party size
-            </label>
-            <input
-              id="party-size"
-              className={styles.partyInput}
-              type="number"
-              inputMode="numeric"
-              min={1}
-              max={100}
-              value={partySize}
-              onChange={(e) => {
-                const n = Number.parseInt(e.target.value, 10);
-                setPartySize(Number.isFinite(n) ? Math.min(100, Math.max(1, n)) : 1);
-              }}
-            />
-            <button
-              type="button"
-              className={styles.step}
-              aria-label="Increase party size"
-              onClick={() => setPartySize((n) => Math.min(100, n + 1))}
-              disabled={partySize >= 100}
-            >
-              +
-            </button>
-          </div>
-        </fieldset>
+        <PartyFields value={party} onChange={setParty} disabled={busy} />
+
+        <div className={styles.advance}>
+          <label className={styles.advanceLabel} htmlFor="advance-booking">
+            Advance booking time <span className={styles.optional}>(optional)</span>
+          </label>
+          <input
+            id="advance-booking"
+            className={styles.advanceInput}
+            type="datetime-local"
+            value={advanceLocal}
+            disabled={busy}
+            onChange={(event) => setAdvanceLocal(event.target.value)}
+          />
+          <p className={styles.advanceHint}>
+            Leave empty to join the queue now. Times are {timezone}.
+          </p>
+        </div>
 
         <fieldset className={styles.fieldset}>
           <legend className={styles.legend}>Customer (optional)</legend>

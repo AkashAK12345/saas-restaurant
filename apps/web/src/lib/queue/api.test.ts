@@ -55,7 +55,7 @@ describe('queueApi', () => {
   });
 
   it('never sends a status field — status is not client-settable', async () => {
-    await queueApi.register(CTX, { party_size: 3 });
+    await queueApi.register(CTX, { adults: 3 });
     await queueApi.seat(CTX, 't1', 'table-1');
     for (const [, init] of fetchMock.mock.calls) {
       const body = (init as RequestInit).body;
@@ -64,12 +64,12 @@ describe('queueApi', () => {
   });
 
   it('registers a walk-in without a customer, and with one when given', async () => {
-    await queueApi.register(CTX, { party_size: 2 });
-    expect(JSON.parse(lastCall().init.body as string)).toEqual({ party_size: 2 });
+    await queueApi.register(CTX, { adults: 2 });
+    expect(JSON.parse(lastCall().init.body as string)).toEqual({ adults: 2 });
 
-    await queueApi.register(CTX, { party_size: 2, customer_id: 'c-1' });
+    await queueApi.register(CTX, { adults: 2, customer_id: 'c-1' });
     expect(JSON.parse(lastCall().init.body as string)).toEqual({
-      party_size: 2,
+      adults: 2,
       customer_id: 'c-1',
     });
   });

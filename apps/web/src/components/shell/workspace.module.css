@@ -1,0 +1,88 @@
+/*
+ * The dashboard's module launcher.
+ *
+ * Cards are large deliberately: this is the first thing a member of staff
+ * touches on a podium tablet, often in a hurry and often one-handed.
+ */
+
+.heading {
+  margin: 0 0 var(--gap);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr));
+  gap: var(--gap);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  height: 100%;
+  padding: var(--gap);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+  color: var(--color-text);
+  text-decoration: none;
+}
+
+.card:hover {
+  border-color: var(--tile-fg, var(--color-primary));
+  text-decoration: none;
+}
+
+.tile {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  margin-bottom: 6px;
+  border-radius: var(--radius-sm);
+  background: var(--tile-bg, var(--color-surface-muted));
+  color: var(--tile-fg, var(--color-text-muted));
+}
+
+.name {
+  font-size: var(--text-lg);
+  font-weight: 700;
+}
+
+.blurb {
+  color: var(--color-text-muted);
+  font-size: 0.8125rem;
+  line-height: 1.35;
+}
+
+/* Same accent mapping as the navigation, so a module looks identical here. */
+.card[data-accent='terracotta'] {
+  --tile-bg: var(--accent-terracotta-bg);
+  --tile-fg: var(--accent-terracotta-fg);
+}
+.card[data-accent='blue'] {
+  --tile-bg: var(--accent-blue-bg);
+  --tile-fg: var(--accent-blue-fg);
+}
+.card[data-accent='green'] {
+  --tile-bg: var(--accent-green-bg);
+  --tile-fg: var(--accent-green-fg);
+}
+.card[data-accent='amber'] {
+  --tile-bg: var(--accent-amber-bg);
+  --tile-fg: var(--accent-amber-fg);
+}
+.card[data-accent='purple'] {
+  --tile-bg: var(--accent-purple-bg);
+  --tile-fg: var(--accent-purple-fg);
+}

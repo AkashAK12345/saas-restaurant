@@ -92,6 +92,7 @@ describe('Phase 10 Reports & Dashboard (e2e)', () => {
         service_date: new Date(`${serviceDate}T00:00:00.000Z`),
         token_number: n,
         status,
+        adults: 2,
         party_size: 2,
         created_at: createdAt,
         seated_at: seatedAt,

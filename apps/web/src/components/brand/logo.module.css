@@ -1,0 +1,36 @@
+.image {
+  display: block;
+  object-fit: contain;
+}
+
+/*
+ * The typographic fallback. It is not a substitute for the artwork — it exists
+ * so a missing or slow asset shows the company's name rather than a broken
+ * image on a screen a guest can see.
+ */
+.fallback {
+  display: inline-flex;
+  align-items: center;
+  color: var(--color-brand);
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.fallbackFull {
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35em;
+}
+
+.fallbackName {
+  font-family: Georgia, 'Times New Roman', serif;
+}
+
+.fallbackTagline {
+  font-size: 0.42em;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  color: var(--color-brand-muted);
+}

@@ -25,7 +25,11 @@ export interface QueueTokenPublicView {
   service_date: string;
   token_number: number;
   status: QueueTokenStatus;
+  adults: number;
+  kids: number;
   party_size: number;
+  /** Set when the guest asked for a later table rather than the live queue. */
+  advance_booking_at: string | null;
   assigned_table_id: string | null;
   assigned_table: { id: string; label: string } | null;
   called_at: Date | null;

@@ -6,6 +6,7 @@ import { AuthProvider } from '@/lib/auth/auth-provider';
 export const metadata: Metadata = {
   title: 'SAMCO',
   description: 'SAMCO restaurant & hospitality management',
+  icons: { icon: '/brand/samco-mark.png', apple: '/brand/samco-mark.png' },
 };
 
 /**

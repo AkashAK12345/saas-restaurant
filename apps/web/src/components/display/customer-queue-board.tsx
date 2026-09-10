@@ -3,6 +3,7 @@
 import type { StreamStatus } from '@/lib/realtime/sse-client';
 import type { QueueCustomerBoard } from '@/lib/queue/types';
 import styles from './display.module.css';
+import { Logo } from '@/components/brand/logo';
 
 const DOT: Record<StreamStatus, string> = {
   idle: styles.dotWaiting,
@@ -40,6 +41,7 @@ export function CustomerQueueBoard({
   return (
     <div className={styles.screen}>
       <header className={styles.header}>
+        <Logo variant="mark" height={40} className={styles.logo} />
         <h1 className={styles.title}>Now serving</h1>
         {branchName ? <span className={styles.branch}>{branchName}</span> : null}
       </header>

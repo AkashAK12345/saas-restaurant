@@ -13,6 +13,7 @@ const ctx = {
   branches: [{ id: 'br-1', name: 'HQ', status: 'ACTIVE', timezone: 'UTC', has_roles: true }],
   selectedCompanyId: 'co-A',
   selectedBranchId: 'br-1',
+  selectedBranch: { id: 'br-1', name: 'HQ', status: 'ACTIVE', timezone: 'UTC', has_roles: true },
   companyPermissions: ['customers.view'],
   branchPermissions: ['tables.view'],
   selectCompany: vi.fn(),
@@ -35,20 +36,36 @@ describe('AppShell', () => {
     expect(screen.getByText('content')).toBeDefined();
   });
 
-  it('exposes company/branch pickers driven by server-provided options', () => {
+  it('names the current branch on the chip, from server-provided context', () => {
     render(<AppShell><p /></AppShell>);
-    const companySelects = screen.getAllByRole('combobox', { name: 'Company' });
-    expect(companySelects.length).toBeGreaterThan(0);
-    fireEvent.change(companySelects[0], { target: { value: 'co-A' } });
-    expect(ctx.selectCompany).toHaveBeenCalledWith('co-A');
+    const chip = screen.getByRole('button', { name: /HQ/ });
+    expect(chip.getAttribute('aria-expanded')).toBe('false');
+    expect(chip.getAttribute('aria-haspopup')).toBe('true');
   });
 
-  it('the context drawer toggle is a real ≥44px touch control with aria state', () => {
+  it('opens a picker whose options are the ones the server returned', () => {
     render(<AppShell><p /></AppShell>);
-    const toggle = screen.getByRole('button', { name: 'Context' });
-    expect(toggle.getAttribute('aria-expanded')).toBe('false');
-    fireEvent.click(toggle);
-    expect(screen.getByRole('button', { name: 'Close' }).getAttribute('aria-expanded')).toBe('true');
+    fireEvent.click(screen.getByRole('button', { name: /HQ/ }));
+
+    // Company list and branch list both come from /auth/context, so the chip
+    // can only ever offer somewhere this user already has a role.
+    fireEvent.change(screen.getByRole('combobox', { name: 'Company' }), {
+      target: { value: 'co-A' },
+    });
+    expect(ctx.selectCompany).toHaveBeenCalledWith('co-A');
+
+    fireEvent.click(screen.getByRole('button', { name: /UTC/ }));
+    expect(ctx.selectBranch).toHaveBeenCalledWith('br-1');
+  });
+
+  it('closes the picker on Escape, so it cannot get stuck open on a tablet', () => {
+    render(<AppShell><p /></AppShell>);
+    const chip = screen.getByRole('button', { name: /HQ/ });
+    fireEvent.click(chip);
+    expect(chip.getAttribute('aria-expanded')).toBe('true');
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(chip.getAttribute('aria-expanded')).toBe('false');
   });
 
   it('shows context errors with a retry, and a live loading status', () => {

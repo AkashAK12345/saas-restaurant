@@ -1,3 +1,17 @@
+/*
+ * Navigation.
+ *
+ * Each destination carries an accent, set as `data-accent` on the link, and
+ * the rules below map that to the tile's tint. Doing it here rather than in
+ * the component keeps colour decisions in CSS, where the theme lives — and it
+ * means the whole palette can be re-tuned in globals.css without touching a
+ * line of TSX.
+ *
+ * The accent is decoration. The CURRENT page is marked by `aria-current`,
+ * which every user gets, and reinforced with weight and a filled tile — never
+ * by hue alone.
+ */
+
 .list {
   list-style: none;
   margin: 0;
@@ -9,40 +23,123 @@
 .side .list {
   flex-direction: column;
   padding: var(--gap);
+  gap: 2px;
 }
 
 .bottom .list {
   flex-direction: row;
   justify-content: space-around;
-  padding: 4px 8px;
+  padding: 6px 4px;
+  gap: 0;
   overflow-x: auto;
 }
 
 .link {
   display: flex;
   align-items: center;
+  gap: 10px;
   min-height: var(--tap-min);
-  padding: 0 14px;
+  padding: 6px 12px;
   border-radius: var(--radius-sm);
   color: var(--color-text);
   font-weight: 500;
   white-space: nowrap;
 }
+
 .link:hover {
   background: var(--color-surface-muted);
   text-decoration: none;
 }
+
+/* The rounded tile the glyph sits in. */
+.tile {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  background: var(--tile-bg, var(--color-surface-muted));
+  color: var(--tile-fg, var(--color-text-muted));
+}
+
+.label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Accents ─────────────────────────────────────────────────────────────── */
+
+.link[data-accent='terracotta'] {
+  --tile-bg: var(--accent-terracotta-bg);
+  --tile-fg: var(--accent-terracotta-fg);
+}
+.link[data-accent='blue'] {
+  --tile-bg: var(--accent-blue-bg);
+  --tile-fg: var(--accent-blue-fg);
+}
+.link[data-accent='green'] {
+  --tile-bg: var(--accent-green-bg);
+  --tile-fg: var(--accent-green-fg);
+}
+.link[data-accent='amber'] {
+  --tile-bg: var(--accent-amber-bg);
+  --tile-fg: var(--accent-amber-fg);
+}
+.link[data-accent='purple'] {
+  --tile-bg: var(--accent-purple-bg);
+  --tile-fg: var(--accent-purple-fg);
+}
+
+/* ── Current page ────────────────────────────────────────────────────────── */
+
 .active {
-  background: var(--color-primary);
-  color: var(--color-primary-contrast);
+  background: var(--tile-bg);
+  color: var(--tile-fg);
+  font-weight: 700;
 }
+
 .active:hover {
-  background: var(--color-primary);
+  background: var(--tile-bg);
 }
+
+/* Inside the filled row the tile would disappear, so it inverts. */
+.active .tile {
+  background: var(--tile-fg);
+  color: var(--color-surface);
+}
+
+/* ── Bottom bar (phone / portrait tablet) ────────────────────────────────── */
 
 .bottom .link {
   flex-direction: column;
   justify-content: center;
-  font-size: 0.85rem;
-  padding: 0 10px;
+  gap: 2px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  padding: 4px 6px;
+  min-width: 60px;
+}
+
+.bottom .tile {
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--color-text-muted);
+}
+
+.bottom .link:hover {
+  background: transparent;
+}
+
+.bottom .active {
+  background: transparent;
+  color: var(--tile-fg);
+}
+
+.bottom .active .tile {
+  background: var(--tile-bg);
+  color: var(--tile-fg);
 }

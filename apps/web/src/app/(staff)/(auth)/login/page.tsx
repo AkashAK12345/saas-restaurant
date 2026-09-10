@@ -4,6 +4,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth/auth-provider';
 import { ApiError } from '@/lib/api/client';
+import { Logo } from '@/components/brand/logo';
 import styles from './login.module.css';
 
 export default function LoginPage() {
@@ -37,6 +38,9 @@ export default function LoginPage() {
 
   return (
     <form onSubmit={onSubmit} className={styles.form} noValidate>
+      <div className={styles.brand}>
+        <Logo variant="full" height={96} />
+      </div>
       <h1>Sign in</h1>
 
       <label className={styles.field}>

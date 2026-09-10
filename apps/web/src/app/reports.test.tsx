@@ -381,7 +381,13 @@ describe('report export', () => {
     render(<ReportPage />);
     await screen.findByRole('table');
     fireEvent.change(screen.getByLabelText('Status'), { target: { value: 'SEATED' } });
-    await waitFor(() => expect(apiMock.run).toHaveBeenCalledTimes(3));
+    // Wait for the filtered query to reach the server rather than counting
+    // calls: an exact count would encode whatever refetching the page happens
+    // to do today, which is how the double-fetch bug hid here in the first
+    // place.
+    await waitFor(() =>
+      expect(apiMock.run.mock.calls.at(-1)?.[2]).toMatchObject({ options: { status: 'SEATED' } }),
+    );
 
     fireEvent.click(screen.getByRole('button', { name: 'Export PDF' }));
 
@@ -455,12 +461,16 @@ describe('dashboard', () => {
     expect(screen.getByText('3')).toBeTruthy();
   });
 
-  it('RF-28. asks for no dashboard without dashboard.view', () => {
+  it('RF-28. asks for no dashboard without dashboard.view, but still offers the modules', () => {
     branchPermissions = ['queue.view'];
     render(<HomePage />);
 
     expect(apiMock.dashboard).not.toHaveBeenCalled();
-    expect(screen.getByText(/use the navigation to open a module/i)).toBeTruthy();
+    // No widgets, but not a dead end: the workspace launcher shows exactly the
+    // modules this permission set can open, and nothing else.
+    expect(screen.getByRole('heading', { name: /your workspace/i })).toBeTruthy();
+    expect(screen.getByRole('link', { name: /queue/i })).toBeTruthy();
+    expect(screen.queryByRole('link', { name: /banquet/i })).toBeNull();
   });
 
   it('RF-29. asks for nothing until a branch is selected', () => {

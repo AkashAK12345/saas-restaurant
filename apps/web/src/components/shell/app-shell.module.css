@@ -1,42 +1,84 @@
+/*
+ * Application chrome.
+ *
+ * Phone-first, because that is where staff actually stand: a podium tablet in
+ * portrait is only a little wider. Everything in the top bar is allowed to
+ * SHRINK — `min-width: 0` plus ellipsis — so the bar never forces the page
+ * sideways on a narrow screen.
+ */
+
 .root {
   min-height: 100dvh;
   display: grid;
   grid-template-rows: var(--topbar-height) 1fr var(--bottombar-height);
   grid-template-columns: 1fr;
   grid-template-areas:
-    "top"
-    "main"
-    "bottom";
+    'top'
+    'main'
+    'bottom';
+  background: var(--color-bg);
 }
 
 .topbar {
   grid-area: top;
   display: flex;
   align-items: center;
-  gap: var(--gap);
+  gap: 10px;
   padding: 0 var(--gap);
   background: var(--color-surface);
   border-bottom: 1px solid var(--color-border);
   position: sticky;
   top: 0;
   z-index: 10;
+  /* A grid item is content-width by default; without this the bar's own
+     contents can push the whole app wider than the viewport. */
+  min-width: 0;
 }
 
 .brand {
-  font-weight: 700;
-  letter-spacing: 0.06em;
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  min-height: var(--tap-min);
+  padding-right: 4px;
+  color: var(--color-brand);
+}
+
+.brand:hover {
+  text-decoration: none;
+  opacity: 0.85;
 }
 
 .topContext {
-  display: none;
+  display: flex;
   flex: 1;
+  min-width: 0;
+}
+
+/* Square icon-style buttons, matching the rounded chrome. */
+.drawerToggle,
+.logout {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  min-width: var(--tap-min);
+  min-height: var(--tap-min);
+  padding: 0 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text);
+  cursor: pointer;
 }
 
 .drawerToggle {
   margin-left: auto;
-  padding: 0 14px;
+}
+
+.drawerToggle:hover,
+.logout:hover {
   background: var(--color-surface-muted);
-  border: 1px solid var(--color-border);
 }
 
 .drawer {
@@ -45,6 +87,7 @@
   padding: var(--gap);
   background: var(--color-surface);
   border-bottom: 1px solid var(--color-border);
+  border-radius: 0 0 var(--radius) var(--radius);
   z-index: 5;
 }
 
@@ -52,16 +95,17 @@
   display: flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
 }
+
 .userName {
   display: none;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--color-text-muted);
-  font-size: 0.9rem;
-}
-.logout {
-  padding: 0 14px;
-  background: transparent;
-  border: 1px solid var(--color-border);
+  font-size: 0.875rem;
 }
 
 .sidenav {
@@ -90,6 +134,7 @@
   bottom: 0;
   background: var(--color-surface);
   border-top: 1px solid var(--color-border);
+  z-index: 10;
 }
 
 .error {
@@ -97,8 +142,10 @@
   margin-bottom: var(--gap);
   background: var(--color-danger-bg);
   color: var(--color-danger);
+  border: 1px solid var(--color-danger);
   border-radius: var(--radius);
 }
+
 .loading {
   color: var(--color-text-muted);
 }
@@ -109,13 +156,16 @@
     grid-template-rows: var(--topbar-height) 1fr;
     grid-template-columns: var(--nav-width) 1fr;
     grid-template-areas:
-      "top top"
-      "side main";
+      'top top'
+      'side main';
   }
-  .topContext { display: block; }
-  .drawerToggle { display: none; }
-  .drawer { display: none; }
-  .userName { display: inline; }
-  .sidenav { display: block; }
-  .bottomnav { display: none; }
+  .userName {
+    display: inline;
+  }
+  .sidenav {
+    display: block;
+  }
+  .bottomnav {
+    display: none;
+  }
 }

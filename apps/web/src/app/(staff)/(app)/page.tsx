@@ -7,6 +7,8 @@ import { useAuth } from '@/lib/auth/auth-provider';
 import { hasPermission } from '@/lib/auth/permissions';
 import { reportsApi } from '@/lib/reports/api';
 import { WidgetCard } from '@/components/reports/widget-card';
+import { WorkspaceGrid } from '@/components/shell/workspace-grid';
+import { branchDateLabel, greetingFor } from '@/components/shell/greeting';
 import type { DashboardResponse } from '@/lib/reports/types';
 import styles from '@/components/reports/reports.module.css';
 
@@ -23,7 +25,8 @@ import styles from '@/components/reports/reports.module.css';
  */
 export default function HomePage() {
   const { user } = useAuth();
-  const { selectedCompanyId, selectedBranchId, branchPermissions } = useAppContext();
+  const { selectedCompanyId, selectedBranchId, branchPermissions, companyPermissions } =
+    useAppContext();
 
   const ctx = useMemo(
     () =>
@@ -62,7 +65,12 @@ export default function HomePage() {
     })();
   }, [ctx, mayViewDashboard, load]);
 
-  const greeting = `Welcome${user?.first_name ? `, ${user.first_name}` : ''}`;
+  // Until the dashboard answers we do not know the branch's zone, so the
+  // greeting starts on the device clock and settles on the branch's.
+  const timezone = dashboard?.timezone;
+  const greeting = `${greetingFor(timezone ?? 'UTC')}${user?.first_name ? `, ${user.first_name}` : ''}`;
+  const dateLabel = branchDateLabel(timezone ?? 'UTC');
+  const permissions = Array.from(new Set([...companyPermissions, ...branchPermissions]));
 
   if (!selectedCompanyId) {
     return (
@@ -85,8 +93,11 @@ export default function HomePage() {
   if (!mayViewDashboard) {
     return (
       <section className={styles.page}>
-        <h1 className={styles.title}>{greeting}</h1>
-        <p className={styles.notice}>Use the navigation to open a module.</p>
+        <header>
+          <h1 className={styles.title}>{greeting}</h1>
+          <p className={styles.zone}>{dateLabel}</p>
+        </header>
+        <WorkspaceGrid permissions={permissions} hasBranch={!!selectedBranchId} />
       </section>
     );
   }
@@ -96,7 +107,7 @@ export default function HomePage() {
       <header className={styles.header}>
         <div>
           <h1 className={styles.title}>{greeting}</h1>
-          {dashboard ? <p className={styles.zone}>Branch time: {dashboard.timezone}</p> : null}
+          <p className={styles.zone}>{dateLabel}</p>
         </div>
         <div className={styles.actions}>
           <button
@@ -140,6 +151,8 @@ export default function HomePage() {
           ))}
         </div>
       ) : null}
+
+      <WorkspaceGrid permissions={permissions} hasBranch={!!selectedBranchId} />
     </section>
   );
 }

@@ -5,6 +5,7 @@ import styles from './display-layout.module.css';
 
 export const metadata: Metadata = {
   title: 'SAMCO Display',
+  icons: { icon: '/brand/samco-mark.png', apple: '/brand/samco-mark.png' },
 };
 
 /**

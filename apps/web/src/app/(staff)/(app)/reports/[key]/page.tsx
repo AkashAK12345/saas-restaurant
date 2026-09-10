@@ -41,9 +41,14 @@ export default function ReportPage() {
 
   // Dates are BRANCH-LOCAL calendar days, and the branch's timezone is not
   // known until the server answers. So the first run sends no dates at all and
-  // lets the API pick its default window in the branch's own zone; the pickers
-  // are then seeded from what it actually used. Guessing here with the
-  // viewer's clock would show "today" a day out for half the world.
+  // lets the API pick its default window in the branch's own zone, and the
+  // pickers DISPLAY what it used. Guessing here with the viewer's clock would
+  // show "today" a day out for half the world.
+  //
+  // These hold only what the USER chose; empty means "server default". They are
+  // deliberately never written back from the response: doing that changed the
+  // query and fired a second, identical request, which left the page loading —
+  // and its buttons disabled — after the table had already appeared.
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [options, setOptions] = useState<Record<string, string>>({});
@@ -71,9 +76,6 @@ export default function ReportPage() {
         const res = await reportsApi.run(ctx, reportKey, query);
         if (cancelled) return;
         setReport(res);
-        // Adopt the server's window once, so the pickers show real dates.
-        if (!from) setFrom(res.filters.from);
-        if (!to) setTo(res.filters.to);
       } catch (e) {
         if (!cancelled) {
           setReport(null);
@@ -86,7 +88,7 @@ export default function ReportPage() {
     return () => {
       cancelled = true;
     };
-  }, [ctx, reportKey, query, from, to]);
+  }, [ctx, reportKey, query]);
 
   const runExport = useCallback(
     async (format: ExportFormat) => {
@@ -155,7 +157,7 @@ export default function ReportPage() {
             id="report-from"
             className={styles.input}
             type="date"
-            value={from}
+            value={from || report?.filters.from || ''}
             onChange={(event) => {
               setFrom(event.target.value);
               setOffset(0);
@@ -171,7 +173,7 @@ export default function ReportPage() {
             id="report-to"
             className={styles.input}
             type="date"
-            value={to}
+            value={to || report?.filters.to || ''}
             onChange={(event) => {
               setTo(event.target.value);
               setOffset(0);

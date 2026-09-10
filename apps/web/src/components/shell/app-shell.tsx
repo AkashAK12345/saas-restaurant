@@ -1,10 +1,12 @@
 'use client';
 
-import { useMemo, useState, type ReactNode } from 'react';
+import { useMemo, type ReactNode } from 'react';
+import Link from 'next/link';
 import { useAuth } from '@/lib/auth/auth-provider';
 import { useAppContext } from '@/lib/context/app-context-provider';
 import { Nav } from './nav';
-import { ContextSwitcher } from './context-switcher';
+import { BranchChip } from './branch-chip';
+import { Logo } from '@/components/brand/logo';
 import styles from './app-shell.module.css';
 
 /**
@@ -21,7 +23,6 @@ import styles from './app-shell.module.css';
 export function AppShell({ children }: { children: ReactNode }) {
   const { user, logout } = useAuth();
   const ctx = useAppContext();
-  const [drawerOpen, setDrawerOpen] = useState(false);
 
   const permissions = useMemo(
     () => Array.from(new Set([...ctx.companyPermissions, ...ctx.branchPermissions])),
@@ -32,19 +33,12 @@ export function AppShell({ children }: { children: ReactNode }) {
   return (
     <div className={styles.root}>
       <header className={styles.topbar}>
-        <div className={styles.brand}>SAMCO</div>
+        <Link className={styles.brand} href="/" aria-label="SAMCO home">
+          <Logo variant="mark" height={30} decorative />
+        </Link>
         <div className={styles.topContext}>
-          <ContextSwitcher />
+          <BranchChip />
         </div>
-        <button
-          type="button"
-          className={styles.drawerToggle}
-          aria-expanded={drawerOpen}
-          aria-controls="context-drawer"
-          onClick={() => setDrawerOpen((o) => !o)}
-        >
-          {drawerOpen ? 'Close' : 'Context'}
-        </button>
         <div className={styles.user}>
           <span className={styles.userName}>{user?.email}</span>
           <button type="button" className={styles.logout} onClick={() => void logout()}>
@@ -52,10 +46,6 @@ export function AppShell({ children }: { children: ReactNode }) {
           </button>
         </div>
       </header>
-
-      <div id="context-drawer" className={styles.drawer} hidden={!drawerOpen}>
-        <ContextSwitcher />
-      </div>
 
       <aside className={styles.sidenav}>
         <Nav permissions={permissions} hasBranch={hasBranch} variant="side" />
