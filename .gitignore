@@ -4,3 +4,10 @@ dist/
 *.log
 .env
 .DS_Store
+
+# Browser acceptance (Playwright) artifacts and its isolated builds
+apps/web/test-results/
+apps/web/playwright-report/
+apps/web/blob-report/
+apps/web/.next-e2e/
+apps/api/.e2e-dist/

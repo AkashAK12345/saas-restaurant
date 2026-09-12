@@ -130,6 +130,10 @@
 
 .bottomnav {
   grid-area: bottom;
+  /* Same trap as .content: as a grid item it would otherwise take the nav
+     list's intrinsic width — eleven links for a manager is ~680px — and widen
+     the whole app on a phone. Pinned to 0 so the list scrolls inside the bar. */
+  min-width: 0;
   position: sticky;
   bottom: 0;
   background: var(--color-surface);

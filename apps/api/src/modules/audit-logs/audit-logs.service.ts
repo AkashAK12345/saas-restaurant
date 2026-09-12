@@ -75,6 +75,11 @@ const SENSITIVE_KEY_FRAGMENTS = [
   'hash',
 ];
 
+// Exact keys that merely CONTAIN a fragment above but carry no secret. A queue
+// token number is the public ticket shown on the waiting-room screen; redacting
+// it would strip the one field that says which party an entry is about.
+const NON_SENSITIVE_KEYS = new Set(['token_number']);
+
 const REDACTED = '[REDACTED]';
 
 @Injectable()
@@ -108,7 +113,10 @@ export class AuditLogService {
     const out: Record<string, unknown> = {};
     for (const [key, val] of Object.entries(value as Record<string, unknown>)) {
       const lowered = key.toLowerCase();
-      if (SENSITIVE_KEY_FRAGMENTS.some((frag) => lowered.includes(frag))) {
+      if (
+        !NON_SENSITIVE_KEYS.has(lowered) &&
+        SENSITIVE_KEY_FRAGMENTS.some((frag) => lowered.includes(frag))
+      ) {
         out[key] = REDACTED;
       } else {
         out[key] = this.sanitizePayload(val, seen);

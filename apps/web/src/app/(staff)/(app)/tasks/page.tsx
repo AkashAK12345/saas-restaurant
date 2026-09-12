@@ -263,9 +263,13 @@ export default function TasksPage() {
       ) : null}
 
       {tasks.length === 0 ? (
-        <p className={styles.empty}>
-          Nothing here. {preset === 'all' ? 'No tasks yet.' : 'Try another filter.'}
-        </p>
+        // No empty-state claim when the board failed to load: the alert above
+        // says why, and "nothing here" would be untrue.
+        error ? null : (
+          <p className={styles.empty}>
+            Nothing here. {preset === 'all' ? 'No tasks yet.' : 'Try another filter.'}
+          </p>
+        )
       ) : (
         <>
           <p className={styles.meta}>

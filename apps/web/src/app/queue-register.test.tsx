@@ -95,6 +95,22 @@ describe('Customer Register', () => {
     await waitFor(() => expect(register.mock.calls[0][1]).toEqual({ adults: 2, kids: 3 }));
   });
 
+  // "1 kids" shipped once; the split is shown only when there are kids, and
+  // each count agrees with its own noun.
+  it('pluralises the adults/kids split on the confirmation', async () => {
+    register.mockResolvedValueOnce(token({ adults: 2, kids: 1, party_size: 3 }));
+    const { unmount } = render(<RegisterPage />);
+    fireEvent.click(screen.getByRole('button', { name: 'Add to queue' }));
+    expect(await screen.findByText(/\(2 adults, 1 kid\)/)).toBeTruthy();
+    expect(screen.queryByText(/1 kids/)).toBeNull();
+    unmount();
+
+    register.mockResolvedValueOnce(token({ adults: 1, kids: 2, party_size: 3 }));
+    render(<RegisterPage />);
+    fireEvent.click(screen.getByRole('button', { name: 'Add to queue' }));
+    expect(await screen.findByText(/\(1 adult, 2 kids\)/)).toBeTruthy();
+  });
+
   // The TOTAL is the server's to compute; the screen must never send one.
   it('never sends a party_size of its own', async () => {
     render(<RegisterPage />);

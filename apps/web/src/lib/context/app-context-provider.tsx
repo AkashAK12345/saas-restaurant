@@ -114,7 +114,13 @@ export function AppContextProvider({ children }: { children: ReactNode }) {
           setSelectedCompanyId(null);
           writeStored(COMPANY_KEY, null);
         }
-        if (selectedBranchId && !ctx.branch) {
+        // A branch of the user's company where they hold no role is not theirs
+        // to work in: the server still names it, marked has_roles=false, and
+        // would refuse every request made there. Treat it like a stale pick.
+        const branchReachable = ctx.branch
+          ? (ctx.company?.branches ?? []).some((b) => b.id === ctx.branch!.id && b.has_roles)
+          : false;
+        if (selectedBranchId && !branchReachable) {
           setSelectedBranchId(null);
           writeStored(BRANCH_KEY, null);
         }
@@ -168,7 +174,8 @@ export function AppContextProvider({ children }: { children: ReactNode }) {
       loading: status === 'loading' || (authenticated && current === null),
       error: current?.error ?? null,
       companies: data?.companies ?? [],
-      branches: data?.company?.branches ?? [],
+      // Only branches the user can actually work in are offered.
+      branches: (data?.company?.branches ?? []).filter((b) => b.has_roles),
       selectedCompanyId: data?.company?.id ?? null,
       selectedBranchId: data?.branch?.id ?? null,
       selectedBranch:

@@ -102,6 +102,20 @@ describe('routine schedule', () => {
       expect(dueOccurrences(daily('09:00'), KOLKATA, now, 0)).toHaveLength(1);
     });
 
+    it('never reaches behind the day the routine was created', () => {
+      // Created at 10:00 IST on the 15th. That day's 09:00 slot still counts;
+      // the three days before the routine existed do not.
+      const now = new Date('2027-06-15T04:30:00.000Z');
+      const due = dueOccurrences(daily('09:00'), KOLKATA, now, 3, '2027-06-15');
+      expect(due.map((o) => o.date)).toEqual(['2027-06-15']);
+    });
+
+    it('a routine older than its creation bound still catches up to it', () => {
+      const now = new Date('2027-06-15T04:00:00.000Z');
+      const due = dueOccurrences(daily('09:00'), KOLKATA, now, 3, '2027-06-13');
+      expect(due.map((o) => o.date)).toEqual(['2027-06-13', '2027-06-14', '2027-06-15']);
+    });
+
     it('skips days a weekly routine does not run on', () => {
       const now = new Date('2027-06-15T04:00:00.000Z'); // Tue 09:30 IST
       const due = dueOccurrences(weekly('09:00', [1]), KOLKATA, now, 7);

@@ -56,6 +56,9 @@ export default function BanquetBookingsPage() {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [statusFilter, setStatusFilter] = useState<BanquetBookingStatus | ''>('');
   const [loading, setLoading] = useState(true);
+  // The empty state is a claim that there is nothing to show; it may only be
+  // made once a list has actually loaded, never after a refused or failed load.
+  const [listed, setListed] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -79,6 +82,7 @@ export default function BanquetBookingsPage() {
         ...(statusFilter ? { status: statusFilter } : {}),
       });
       setBookings(page.data);
+      setListed(true);
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load bookings');
@@ -335,7 +339,7 @@ export default function BanquetBookingsPage() {
         </form>
       ) : null}
 
-      {bookings.length === 0 ? (
+      {!listed ? null : bookings.length === 0 ? (
         <p className={styles.empty}>No bookings yet.</p>
       ) : (
         <ul className={styles.list}>

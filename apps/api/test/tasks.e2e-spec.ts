@@ -708,6 +708,16 @@ describe('Phase 9 Tasks & Routines (e2e)', () => {
       expect(tasks.some((t) => t.routine_occurrence_date?.toISOString().slice(0, 10) === today)).toBe(false);
     });
 
+    it('TR-8b. a routine created today never back-fills the days before it existed', async () => {
+      // The look-back exists to catch up on MISSED days. A routine made just now
+      // missed none: only today's (already due) slot may appear.
+      const routine = (await makeRoutine()).body;
+      await asManager(request(http).post('/api/v1/routines/materialize')).send();
+      const tasks = await prisma.task.findMany({ where: { routine_id: routine.id } });
+      const today = branchLocalDate(new Date(), 'Asia/Kolkata');
+      expect(tasks.map((t) => t.routine_occurrence_date?.toISOString().slice(0, 10))).toEqual([today]);
+    });
+
     it('TR-9. rejects a duplicate name and a cross-branch assignee/template', async () => {
       const routine = (await makeRoutine({ name: 'Unique routine' })).body;
       expect(routine.id).toBeDefined();

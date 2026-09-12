@@ -219,6 +219,17 @@ describe('AuditLogService', () => {
       expect(p.sessionToken).toBe('[REDACTED]');
     });
 
+    it('keeps a queue token_number, which is a public ticket and not a secret', async () => {
+      await service.create({
+        ...baseParams(),
+        payload: { token_number: 7, access_token: 'a', nested: { token: 'b' } },
+      });
+      const p = storedPayload();
+      expect(p.token_number).toBe(7);
+      expect(p.access_token).toBe('[REDACTED]');
+      expect(p.nested.token).toBe('[REDACTED]');
+    });
+
     it('matches key fragments case-insensitively', async () => {
       await service.create({
         ...baseParams(),

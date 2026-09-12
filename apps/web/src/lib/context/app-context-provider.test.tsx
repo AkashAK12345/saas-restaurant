@@ -93,6 +93,42 @@ describe('AppContextProvider', () => {
     expect(window.sessionStorage.getItem('samco.ctx.branch')).toBe('br-1');
   });
 
+  // The server lists every branch of the company and flags the ones the user
+  // holds a role at. Offering the others only led to a screen of refusals.
+  const twoBranches = (branchId: string | null) => ({
+    ...base,
+    company: {
+      ...base.companies[0],
+      permissions: ['queue.view'],
+      branches: [
+        { id: 'br-1', name: 'HQ', status: 'ACTIVE', timezone: 'UTC', has_roles: true },
+        { id: 'br-2', name: 'Annex', status: 'ACTIVE', timezone: 'UTC', has_roles: false },
+      ],
+    },
+    branch: branchId
+      ? { id: branchId, name: branchId, status: 'ACTIVE', timezone: 'UTC', permissions: branchId === 'br-1' ? ['queue.view'] : [] }
+      : null,
+  });
+
+  it('offers only branches where the user holds a role', async () => {
+    window.sessionStorage.setItem('samco.ctx.company', 'co-A');
+    apiGet.mockImplementation(async (_p: string, o: { branchId: string | null }) => twoBranches(o.branchId));
+    render(<AppContextProvider><Probe /></AppContextProvider>);
+    await waitFor(() => expect(screen.getByTestId('company').textContent).toBe('co-A'));
+    expect(screen.getByTestId('branches').textContent).toBe('br-1');
+  });
+
+  it('drops a remembered branch where the user holds no role', async () => {
+    window.sessionStorage.setItem('samco.ctx.company', 'co-A');
+    window.sessionStorage.setItem('samco.ctx.branch', 'br-2');
+    apiGet.mockImplementation(async (_p: string, o: { branchId: string | null }) => twoBranches(o.branchId));
+    render(<AppContextProvider><Probe /></AppContextProvider>);
+    await waitFor(() => expect(apiGet).toHaveBeenLastCalledWith('/auth/context', { companyId: 'co-A', branchId: null }));
+    await waitFor(() => expect(screen.getByTestId('loading').textContent).toBe('false'));
+    expect(screen.getByTestId('branch').textContent).toBe('-');
+    expect(window.sessionStorage.getItem('samco.ctx.branch')).toBeNull();
+  });
+
   it('a company the SERVER does not grant (404) is dropped, never shown as selected', async () => {
     apiGet.mockImplementation(async (_p: string, o: { companyId: string | null }) => {
       if (o.companyId === 'co-X') throw new ApiError(404, { statusCode: 404, message: 'Not Found' }, 'nf');

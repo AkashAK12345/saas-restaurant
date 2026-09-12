@@ -212,6 +212,14 @@ describe('Task dashboard', () => {
     expect(within(card).getByText(/Unassigned/)).toBeTruthy();
   });
 
+  // A refused or failed load must not be dressed up as an empty board.
+  it('shows why the board failed to load, and never claims there is nothing', async () => {
+    apiMock.list.mockRejectedValue(new Error('Forbidden'));
+    render(<TasksPage />);
+    expect((await screen.findByRole('alert')).textContent).toMatch('Forbidden');
+    expect(screen.queryByText(/Nothing here/)).toBeNull();
+  });
+
   it('filters SERVER-side, not in the browser', async () => {
     render(<TasksPage />);
     await screen.findByText('Clean the grease trap');
@@ -494,6 +502,13 @@ describe('Routine management', () => {
     expect(screen.queryByText(/cron|interval|scheduler/i)).toBeNull();
   });
 
+  it('a refused load shows the refusal, not "No routines yet."', async () => {
+    apiMock.listRoutines.mockRejectedValue(new Error('Forbidden'));
+    render(<RoutinesPage />);
+    expect((await screen.findByRole('alert')).textContent).toMatch('Forbidden');
+    expect(screen.queryByText('No routines yet.')).toBeNull();
+  });
+
   it('creates a weekly routine with weekdays', async () => {
     render(<RoutinesPage />);
     await screen.findByText('Opening checks');
@@ -570,6 +585,13 @@ describe('Checklist templates', () => {
     expect(await screen.findByText('Unlock the doors')).toBeTruthy();
     expect(screen.getByText('Required')).toBeTruthy();
     expect(screen.getByText('Optional')).toBeTruthy();
+  });
+
+  it('a refused load shows the refusal, not "No checklists yet."', async () => {
+    apiMock.listChecklists.mockRejectedValue(new Error('Forbidden'));
+    render(<ChecklistsPage />);
+    expect((await screen.findByRole('alert')).textContent).toMatch('Forbidden');
+    expect(screen.queryByText('No checklists yet.')).toBeNull();
   });
 
   it('creates a template, treating a trailing "?" as optional', async () => {

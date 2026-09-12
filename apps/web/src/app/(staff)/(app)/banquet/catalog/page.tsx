@@ -32,6 +32,9 @@ export default function BanquetCatalogPage() {
   const [halls, setHalls] = useState<BanquetHall[]>([]);
   const [packages, setPackages] = useState<BanquetPackage[]>([]);
   const [loading, setLoading] = useState(true);
+  // The empty state is a claim that there is nothing to show; it may only be
+  // made once a list has actually loaded, never after a refused or failed load.
+  const [listed, setListed] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -45,6 +48,7 @@ export default function BanquetCatalogPage() {
       const [h, p] = await Promise.all([banquetApi.listHalls(ctx), banquetApi.listPackages(ctx)]);
       setHalls(h.data);
       setPackages(p.data);
+      setListed(true);
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load the catalogue');
@@ -163,7 +167,7 @@ export default function BanquetCatalogPage() {
             </form>
           ) : null}
 
-          {halls.length === 0 ? (
+          {!listed ? null : halls.length === 0 ? (
             <p className={styles.empty}>No halls yet.</p>
           ) : (
             <ul className={styles.list}>
@@ -286,7 +290,7 @@ export default function BanquetCatalogPage() {
             </form>
           ) : null}
 
-          {packages.length === 0 ? (
+          {!listed ? null : packages.length === 0 ? (
             <p className={styles.empty}>No packages yet.</p>
           ) : (
             <ul className={styles.list}>

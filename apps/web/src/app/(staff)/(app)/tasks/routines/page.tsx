@@ -32,6 +32,9 @@ export default function RoutinesPage() {
   const [checklists, setChecklists] = useState<ChecklistTemplate[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  // The empty state is a claim that there is nothing to show; it may only be
+  // made once a list has actually loaded, never after a refused or failed load.
+  const [listed, setListed] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -53,6 +56,7 @@ export default function RoutinesPage() {
         tasksApi.listChecklists(ctx).catch(() => null),
       ]);
       setRoutines(r.data);
+      setListed(true);
       if (c) setChecklists(c.data.filter((x) => x.status === 'ACTIVE'));
       setLoadError(null);
     } catch (e) {
@@ -272,7 +276,7 @@ export default function RoutinesPage() {
         </form>
       ) : null}
 
-      {routines.length === 0 ? (
+      {!listed ? null : routines.length === 0 ? (
         <p className={styles.empty}>No routines yet.</p>
       ) : (
         <ul className={styles.list}>

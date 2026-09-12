@@ -1,8 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
-import type { ReactNode } from 'react';
+import { usePathname, useRouter } from 'next/navigation';
+import { useEffect, type ReactNode } from 'react';
 import { useAppContext } from '@/lib/context/app-context-provider';
 import { hasPermission } from '@/lib/auth/permissions';
 import styles from '@/components/banquet/banquet.module.css';
@@ -20,7 +20,23 @@ const TABS = [
 
 export default function BanquetLayout({ children }: { children: ReactNode }) {
   const pathname = usePathname();
+  const router = useRouter();
   const { selectedBranchId, branchPermissions, loading } = useAppContext();
+  const tabs = TABS.filter((t) => hasPermission(branchPermissions, t.permission));
+
+  // The main navigation's Banquet entry and the home workspace card both open
+  // /banquet — the bookings list. Someone allowed into the banquet area but
+  // not its bookings (a chef: kitchen only) would land on a refusal, with the
+  // one section they can use tucked away in a tab. Send them to the first
+  // section they may open instead. Navigation only: the API still refuses
+  // bookings to them.
+  const landing =
+    !loading && selectedBranchId && pathname === '/banquet' && tabs.length > 0 && !tabs.some((t) => t.href === '/banquet')
+      ? tabs[0]
+      : null;
+  useEffect(() => {
+    if (landing) router.replace(landing.href);
+  }, [landing, router]);
 
   if (loading) {
     return (
@@ -39,7 +55,13 @@ export default function BanquetLayout({ children }: { children: ReactNode }) {
     );
   }
 
-  const tabs = TABS.filter((t) => hasPermission(branchPermissions, t.permission));
+  if (landing) {
+    return (
+      <p role="status" aria-live="polite">
+        Opening {landing.label}…
+      </p>
+    );
+  }
 
   return (
     <section>

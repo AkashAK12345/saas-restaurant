@@ -8,6 +8,7 @@ import {
   RoutineStatus,
 } from '@samco/database';
 import { PrismaService } from '../../core/database/prisma.service.js';
+import { toBranchLocal } from '../../common/scheduler/branch-time.js';
 import { AuditLogService } from '../audit-logs/audit-logs.service.js';
 import type { Paginated } from '../../common/pagination.dto.js';
 import type { TaskActorContext } from './tasks-context.js';
@@ -259,6 +260,8 @@ export class RoutinesService {
         branch.timezone,
         now,
         MATERIALIZE_LOOKBACK_DAYS,
+        // Never catch up on days before the routine existed.
+        toBranchLocal(routine.created_at, branch.timezone).date,
       );
       for (const occurrence of occurrences) {
         const made = await this.materializeOne(ctx, routine, occurrence.date, occurrence.scheduledFor);

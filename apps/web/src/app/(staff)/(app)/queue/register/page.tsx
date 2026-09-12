@@ -161,7 +161,9 @@ export default function RegisterPage() {
         <p>
           {issued.customer?.name ?? 'Walk-in'} · {issued.party_size}{' '}
           {issued.party_size === 1 ? 'guest' : 'guests'}
-          {issued.kids > 0 ? ` (${issued.adults} adults, ${issued.kids} kids)` : ''}
+          {issued.kids > 0
+            ? ` (${issued.adults} ${issued.adults === 1 ? 'adult' : 'adults'}, ${issued.kids} ${issued.kids === 1 ? 'kid' : 'kids'})`
+            : ''}
         </p>
         <button type="button" className={styles.submit} onClick={reset}>
           Register another party

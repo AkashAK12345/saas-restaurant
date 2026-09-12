@@ -67,6 +67,10 @@ export function addDays(date: string, days: number): string {
  * a month should not suddenly materialise thirty tasks the first time anyone
  * opens the dashboard. It catches up over the recent window and no further.
  *
+ * `firstDate`, when given, is the earliest branch-local date that may be
+ * returned — the day the routine came into existence. A routine created today
+ * owes nothing for yesterday, so the look-back must never reach behind it.
+ *
  * Returned oldest first, so tasks are created in the order they were due.
  */
 export function dueOccurrences(
@@ -74,12 +78,15 @@ export function dueOccurrences(
   timeZone: string,
   now: Date,
   lookbackDays: number,
+  firstDate?: string,
 ): RoutineOccurrence[] {
   const today = toBranchLocal(now, timeZone).date;
   const out: RoutineOccurrence[] = [];
 
   for (let back = lookbackDays; back >= 0; back--) {
     const date = addDays(today, -back);
+    // "YYYY-MM-DD" strings compare in calendar order.
+    if (firstDate && date < firstDate) continue;
     if (!occursOn(schedule, date, timeZone)) continue;
 
     const scheduledFor = branchLocalToInstant(date, schedule.timeOfDay, timeZone);

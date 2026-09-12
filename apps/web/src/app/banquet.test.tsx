@@ -16,6 +16,10 @@ const apiMock = vi.hoisted(() => ({
   startItem: vi.fn(),
   readyItem: vi.fn(),
   streamTicket: vi.fn(),
+  listBookings: vi.fn(),
+  listHalls: vi.fn(),
+  listPackages: vi.fn(),
+  customers: vi.fn(),
 }));
 /**
  * Forwards every call to the hoisted spies without freezing their identity.
@@ -46,10 +50,11 @@ vi.mock('@/lib/context/app-context-provider', () => ({
 }));
 
 let pathname = '/banquet';
+const router = vi.hoisted(() => ({ push: vi.fn(), replace: vi.fn() }));
 vi.mock('next/navigation', () => ({
   usePathname: () => pathname,
   useParams: () => ({ id: 'bk-1' }),
-  useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
+  useRouter: () => router,
 }));
 
 const displayApiMock = vi.hoisted(() => ({
@@ -70,6 +75,8 @@ vi.mock('@/lib/display/display-api', async () => {
 import BookingDetailPage from './(staff)/(app)/banquet/[id]/page';
 import BanquetLayout from './(staff)/(app)/banquet/layout';
 import KitchenPage from './(staff)/(app)/banquet/kitchen/page';
+import BookingsPage from './(staff)/(app)/banquet/page';
+import CatalogPage from './(staff)/(app)/banquet/catalog/page';
 import ChefDisplayPage from './(display)/display/banquet/page';
 import { deviceSession } from '@/lib/display/device-session';
 
@@ -343,6 +350,56 @@ describe('Banquet sub-navigation', () => {
     expect(screen.getByRole('link', { name: 'Bookings' }).getAttribute('aria-current')).toBe('page');
   });
 
+  // The main nav and the home card open /banquet (bookings). A chef may use
+  // the kitchen only, and used to land on a refusal instead.
+  it('sends someone who may only use the kitchen from /banquet to the kitchen', () => {
+    router.replace.mockReset();
+    branchPermissions = ['banquet.kds.view', 'banquet.kds.manage'];
+    render(
+      <BanquetLayout>
+        <p>child</p>
+      </BanquetLayout>,
+    );
+    expect(router.replace).toHaveBeenCalledWith('/banquet/kitchen');
+    expect(screen.queryByText('child')).toBeNull();
+    expect(screen.getByRole('status').textContent).toBe('Opening Kitchen…');
+  });
+
+  it('keeps someone who may see bookings on /banquet', () => {
+    router.replace.mockReset();
+    render(
+      <BanquetLayout>
+        <p>child</p>
+      </BanquetLayout>,
+    );
+    expect(router.replace).not.toHaveBeenCalled();
+    expect(screen.getByText('child')).toBeTruthy();
+  });
+
+  it('never redirects away from another banquet page, or without any banquet permission', () => {
+    router.replace.mockReset();
+    branchPermissions = ['banquet.kds.view'];
+    pathname = '/banquet/kitchen';
+    const { unmount } = render(
+      <BanquetLayout>
+        <p>kitchen</p>
+      </BanquetLayout>,
+    );
+    expect(screen.getByText('kitchen')).toBeTruthy();
+    unmount();
+
+    // No banquet section at all: the page itself shows the refusal.
+    branchPermissions = [];
+    pathname = '/banquet';
+    render(
+      <BanquetLayout>
+        <p>refused page</p>
+      </BanquetLayout>,
+    );
+    expect(screen.getByText('refused page')).toBeTruthy();
+    expect(router.replace).not.toHaveBeenCalled();
+  });
+
   it('drops the kitchen for someone without banquet.kds.view', () => {
     branchPermissions = ['banquet.view'];
     render(
@@ -507,5 +564,47 @@ describe('Chef display', () => {
     deviceSession.set({ credential: CREDENTIAL, branchId: 'br-1' });
     render(<ChefDisplayPage />);
     expect(await screen.findByText('No events today')).toBeTruthy();
+  });
+});
+
+// ── refused loads ────────────────────────────────────────────────────────────
+
+/**
+ * Someone who reaches a banquet screen without the permission gets a 403. The
+ * page once showed that AND its empty state — "No bookings yet." — which told
+ * them there was nothing booked when they simply may not see it.
+ */
+describe('Banquet lists when the load is refused', () => {
+  const emptyPage = { data: [], meta: { total: 0, limit: 100, offset: 0 } };
+  beforeEach(() => {
+    for (const fn of Object.values(apiMock)) fn.mockReset();
+    apiMock.listHalls.mockResolvedValue(emptyPage);
+    apiMock.listPackages.mockResolvedValue(emptyPage);
+    apiMock.customers.mockResolvedValue(emptyPage);
+    branchPermissions = ['banquet.view', 'banquet.create'];
+    companyPermissions = ['customers.view'];
+    selectedBranchId = 'br-1';
+    pathname = '/banquet';
+  });
+
+  it('bookings: shows the refusal and makes no empty claim', async () => {
+    apiMock.listBookings.mockRejectedValue(new Error('Forbidden'));
+    render(<BookingsPage />);
+    expect((await screen.findByRole('alert')).textContent).toMatch('Forbidden');
+    expect(screen.queryByText('No bookings yet.')).toBeNull();
+  });
+
+  it('bookings: a genuinely empty list still says so', async () => {
+    apiMock.listBookings.mockResolvedValue(emptyPage);
+    render(<BookingsPage />);
+    expect(await screen.findByText('No bookings yet.')).toBeTruthy();
+  });
+
+  it('catalogue: shows the refusal and claims neither list is empty', async () => {
+    apiMock.listHalls.mockRejectedValue(new Error('Forbidden'));
+    render(<CatalogPage />);
+    expect((await screen.findByRole('alert')).textContent).toMatch('Forbidden');
+    expect(screen.queryByText('No halls yet.')).toBeNull();
+    expect(screen.queryByText('No packages yet.')).toBeNull();
   });
 });

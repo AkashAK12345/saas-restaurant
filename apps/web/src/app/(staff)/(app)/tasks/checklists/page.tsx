@@ -28,6 +28,9 @@ export default function ChecklistsPage() {
   const [templates, setTemplates] = useState<ChecklistTemplate[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  // The empty state is a claim that there is nothing to show; it may only be
+  // made once a list has actually loaded, never after a refused or failed load.
+  const [listed, setListed] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -38,6 +41,7 @@ export default function ChecklistsPage() {
     if (!ctx) return;
     try {
       setTemplates((await tasksApi.listChecklists(ctx)).data);
+      setListed(true);
       setLoadError(null);
     } catch (e) {
       setLoadError(e instanceof Error ? e.message : 'Failed to load checklists');
@@ -156,7 +160,7 @@ export default function ChecklistsPage() {
         </form>
       ) : null}
 
-      {templates.length === 0 ? (
+      {!listed ? null : templates.length === 0 ? (
         <p className={styles.empty}>No checklists yet.</p>
       ) : (
         <ul className={styles.list}>

@@ -1,4 +1,4 @@
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   IsArray,
@@ -29,9 +29,18 @@ import { MAX_GUEST_COUNT, MAX_PRICE_PER_GUEST_MINOR } from './banquet-money.js';
  * Nothing here accepts a status — lifecycle changes are explicit operations.
  */
 
+/**
+ * Names are trimmed before validation, so a name made only of spaces is empty
+ * and refused by @IsNotEmpty — the staff screens already trim, but the API is
+ * the boundary. (The global ValidationPipe runs with transform: true, so the
+ * trimmed value is also what gets stored.)
+ */
+const trimmed = ({ value }: { value: unknown }) => (typeof value === 'string' ? value.trim() : value);
+
 // ── Halls ───────────────────────────────────────────────────────────────────
 
 export class CreateHallDto {
+  @Transform(trimmed)
   @IsString()
   @IsNotEmpty()
   @MaxLength(100)
@@ -44,6 +53,7 @@ export class CreateHallDto {
 }
 
 export class UpdateHallDto {
+  @Transform(trimmed)
   @IsOptional()
   @IsString()
   @IsNotEmpty()
@@ -64,6 +74,7 @@ export class UpdateHallDto {
 // ── Packages ────────────────────────────────────────────────────────────────
 
 export class PackageItemDto {
+  @Transform(trimmed)
   @IsString()
   @IsNotEmpty()
   @MaxLength(160)
@@ -71,6 +82,7 @@ export class PackageItemDto {
 }
 
 export class CreatePackageDto {
+  @Transform(trimmed)
   @IsString()
   @IsNotEmpty()
   @MaxLength(120)
@@ -99,6 +111,7 @@ export class CreatePackageDto {
 }
 
 export class UpdatePackageDto {
+  @Transform(trimmed)
   @IsOptional()
   @IsString()
   @IsNotEmpty()
