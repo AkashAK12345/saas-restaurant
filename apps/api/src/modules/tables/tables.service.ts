@@ -104,6 +104,19 @@ export class TablesService {
   ) {
     await this.getTable(tableId, branchId);
 
+    // A table a seated party is sitting at cannot be taken out of service:
+    // the party would hold a table the podium no longer knows about. Release
+    // it first (a queue operation), then deactivate.
+    if (dto.status === 'INACTIVE') {
+      const occupant = await this.prisma.queueToken.findFirst({
+        where: { assigned_table_id: tableId, status: 'SEATED' },
+        select: { id: true },
+      });
+      if (occupant) {
+        throw new ConflictException('This table is occupied by a seated party; release it before deactivating');
+      }
+    }
+
     const data: Prisma.TableUpdateInput = {};
     if (dto.label !== undefined) data.label = dto.label;
     if (dto.capacity !== undefined) data.capacity = dto.capacity;

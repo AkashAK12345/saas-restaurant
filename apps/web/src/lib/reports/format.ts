@@ -3,17 +3,21 @@ import type { ReportValueType } from './types';
 /**
  * Turning a report value into text.
  *
+ * SAMCO IS READ IN INDIA: numbers and amounts use Indian digit grouping
+ * (1,00,000), dates print dd/MM/yyyy and times use the en-IN clock.
+ *
  * MONEY ARRIVES IN INTEGER MINOR UNITS and is divided by 100 in exactly ONE
  * place on the frontend: `formatMoney` below. Nothing else in the web app
  * divides a stored amount, so a rounding bug has one home rather than one per
  * screen.
  *
  * DATES ARE ALREADY BRANCH-LOCAL. The server resolved every calendar date in
- * the branch's own timezone before the value left it; a `date` string is
- * printed as-is rather than being fed to `new Date()`, which would re-apply
- * the viewer's offset and move the day.
+ * the branch's own timezone before the value left it; a `date` label is
+ * re-ordered as text rather than being fed to `new Date()`, which would
+ * re-apply the viewer's offset and move the day.
  */
 const MINOR_UNITS_PER_MAJOR = 100;
+const LOCALE = 'en-IN';
 
 export function formatMoney(minor: number | string | null | undefined, currency?: string): string {
   if (minor === null || minor === undefined || minor === '') return '—';
@@ -21,7 +25,7 @@ export function formatMoney(minor: number | string | null | undefined, currency?
   if (!Number.isFinite(amount)) return '—';
   if (currency) {
     try {
-      return new Intl.NumberFormat(undefined, { style: 'currency', currency }).format(amount);
+      return new Intl.NumberFormat(LOCALE, { style: 'currency', currency }).format(amount);
     } catch {
       // An unrecognised code is still a real amount; show it with the label.
       return `${amount.toFixed(2)} ${currency}`;
@@ -46,17 +50,31 @@ export function formatDuration(seconds: number | string | null | undefined): str
   return `${minutes}m ${String(total % 60).padStart(2, '0')}s`;
 }
 
+/** A branch-local calendar label ("2026-03-10") as dd/MM/yyyy, without parsing it. */
+export function formatDateLabel(label: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(label);
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : label;
+}
+
 /** An instant, shown in the BRANCH's zone rather than the viewer's. */
 export function formatInstant(value: unknown, timezone: string): string {
   if (value === null || value === undefined || value === '') return '—';
   const date = value instanceof Date ? value : new Date(String(value));
   if (Number.isNaN(date.getTime())) return String(value);
   try {
-    return new Intl.DateTimeFormat(undefined, {
+    const day = new Intl.DateTimeFormat(LOCALE, {
       timeZone: timezone,
-      dateStyle: 'medium',
-      timeStyle: 'short',
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
     }).format(date);
+    const time = new Intl.DateTimeFormat(LOCALE, {
+      timeZone: timezone,
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true,
+    }).format(date);
+    return `${day}, ${time}`;
   } catch {
     return date.toISOString();
   }
@@ -77,13 +95,13 @@ export function formatValue(
     case 'percent':
       return `${Number(value)}%`;
     case 'number':
-      return new Intl.NumberFormat().format(Number(value));
+      return new Intl.NumberFormat(LOCALE).format(Number(value));
     case 'datetime':
       return formatInstant(value, options.timezone);
     case 'date':
-      // Already a branch-local calendar date. Printing it verbatim is the
+      // Already a branch-local calendar date. Re-ordering the text is the
       // whole point; parsing it would shift the day for half the world.
-      return String(value);
+      return formatDateLabel(String(value));
     default:
       return String(value);
   }

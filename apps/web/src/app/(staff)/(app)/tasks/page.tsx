@@ -7,7 +7,7 @@ import { tasksApi, type TaskFilters } from '@/lib/tasks/api';
 import { useTaskBoard } from '@/lib/tasks/use-task-board';
 import { TaskCard } from '@/components/tasks/task-card';
 import type { StreamStatus } from '@/lib/realtime/sse-client';
-import type { ChecklistTemplate, Task, TaskStatus } from '@/lib/tasks/types';
+import type { ChecklistTemplate, StaffRef, Task, TaskStatus } from '@/lib/tasks/types';
 import styles from '@/components/tasks/tasks.module.css';
 
 const DOT: Record<StreamStatus, string> = {
@@ -48,10 +48,14 @@ export default function TasksPage() {
 
   const may = {
     create: hasPermission(branchPermissions, 'tasks.create'),
+    assign: hasPermission(branchPermissions, 'tasks.assign'),
     start: hasPermission(branchPermissions, 'tasks.start'),
     complete: hasPermission(branchPermissions, 'tasks.complete'),
     cancel: hasPermission(branchPermissions, 'tasks.cancel'),
   };
+  // The branch task stream carries everyone's tasks; a viewer limited to their
+  // own is refused it, so their board reads over REST only.
+  const live = hasPermission(branchPermissions, 'tasks.view');
 
   const [preset, setPreset] = useState<Preset>('open');
   const filters = useMemo<TaskFilters>(
@@ -59,7 +63,7 @@ export default function TasksPage() {
     [preset],
   );
 
-  const { tasks, total, loading, error, stream, refresh } = useTaskBoard(ctx, filters);
+  const { tasks, total, loading, error, stream, refresh } = useTaskBoard(ctx, filters, { live });
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -69,6 +73,27 @@ export default function TasksPage() {
   const [dueAt, setDueAt] = useState('');
   const [checklistId, setChecklistId] = useState('');
   const [checklists, setChecklists] = useState<ChecklistTemplate[]>([]);
+  const [description, setDescription] = useState('');
+  const [assigneeId, setAssigneeId] = useState('');
+  const [staff, setStaff] = useState<StaffRef[] | null>(null);
+
+  // The assignee picker offers exactly the people the API accepts; loaded
+  // once the form opens, and only for someone allowed to assign.
+  useEffect(() => {
+    if (!ctx || !showForm || !may.assign || staff !== null) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const people = await tasksApi.assignableStaff(ctx);
+        if (!cancelled) setStaff(people);
+      } catch {
+        if (!cancelled) setStaff([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [ctx, showForm, may.assign, staff]);
 
   // Checklists are company-scoped reference data; fetched once the operator
   // opens the form rather than on every dashboard load.
@@ -135,7 +160,7 @@ export default function TasksPage() {
         <span className={styles.spacer} />
         <span className={styles.stream} role="status" aria-live="polite">
           <span className={`${styles.dot} ${DOT[stream]}`} aria-hidden="true" />
-          {stream === 'open' ? 'Live' : 'Reconnecting…'}
+          {!live ? 'Updates when refreshed' : stream === 'open' ? 'Live' : 'Reconnecting…'}
         </span>
         <button type="button" className={styles.action} onClick={() => void refresh()} disabled={busy}>
           Refresh
@@ -177,12 +202,16 @@ export default function TasksPage() {
               await tasksApi.create(ctx!, {
                 title: title.trim(),
                 priority,
+                ...(description.trim() ? { description: description.trim() } : {}),
                 ...(dueAt ? { due_at: new Date(dueAt).toISOString() } : {}),
+                ...(assigneeId ? { assignee_id: assigneeId } : {}),
                 ...(checklistId ? { checklist_template_id: checklistId } : {}),
               });
               setTitle('');
+              setDescription('');
               setDueAt('');
               setPriority('NORMAL');
+              setAssigneeId('');
               setChecklistId('');
               setShowForm(false);
             }, 'Task created.');
@@ -225,6 +254,39 @@ export default function TasksPage() {
                 className={styles.input}
                 value={dueAt}
                 onChange={(e) => setDueAt(e.target.value)}
+              />
+            </div>
+          </div>
+          <div className={`${styles.grid} ${may.assign ? styles.grid3 : ''}`}>
+            {may.assign ? (
+              <div>
+                <label className={styles.label} htmlFor="t-assignee">
+                  Assign to (optional)
+                </label>
+                <select
+                  id="t-assignee"
+                  className={styles.select}
+                  value={assigneeId}
+                  onChange={(e) => setAssigneeId(e.target.value)}
+                >
+                  <option value="">Nobody yet</option>
+                  {(staff ?? []).map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : null}
+            <div style={{ gridColumn: may.assign ? 'span 2' : undefined }}>
+              <label className={styles.label} htmlFor="t-notes">
+                Notes (optional)
+              </label>
+              <textarea
+                id="t-notes"
+                className={styles.textarea}
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
               />
             </div>
           </div>

@@ -7,8 +7,10 @@ import type { QueueBoard } from './types';
 const board = (waiting: number): QueueBoard => ({
   branch_id: 'br-1',
   service_date: '2026-09-07',
-  counts: { waiting, called: 0, seated: 0, no_show: 0, cancelled: 0 },
+  counts: { scheduled: 0, waiting, called: 0, seated: 0, no_show: 0, cancelled: 0 },
+  totals: { parties: waiting, adults: waiting, kids: 0 },
   next_waiting: null,
+  scheduled: [],
   waiting: [],
   called: [],
   seated: [],

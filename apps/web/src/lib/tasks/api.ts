@@ -2,11 +2,16 @@ import { api } from '@/lib/api/client';
 import type { StreamTicketResponse } from '@/lib/api/types';
 import type { Paginated } from '@/lib/queue/types';
 import type {
+  ChecklistItemKind,
   ChecklistTemplate,
   MaterializeResult,
+  ReferenceChecklist,
   Routine,
+  RoutineLog,
   RoutineFrequency,
+  StaffRef,
   Task,
+  TaskComment,
   TaskDetail,
   TaskPriority,
   TaskStatus,
@@ -82,8 +87,24 @@ export const tasksApi = {
   cancel: (ctx: TaskContext, id: string) =>
     api.post<TaskDetail>(`/tasks/${id}/cancel`, undefined, branch(ctx)),
 
-  setChecklistItem: (ctx: TaskContext, id: string, itemId: string, isDone: boolean) =>
-    api.patch<TaskDetail>(`/tasks/${id}/checklist/${itemId}`, { is_done: isDone }, branch(ctx)),
+  /** Tick/untick, or answer a typed item (the value is required to mark one done). */
+  setChecklistItem: (ctx: TaskContext, id: string, itemId: string, isDone: boolean, value?: string) =>
+    api.patch<TaskDetail>(
+      `/tasks/${id}/checklist/${itemId}`,
+      value !== undefined && isDone ? { is_done: isDone, value } : { is_done: isDone },
+      branch(ctx),
+    ),
+
+  /** Transposed compliance log for a routine over branch-local dates. */
+  routineLog: (ctx: TaskContext, routineId: string, from: string, to: string) =>
+    api.get<RoutineLog>(`/routines/${routineId}/log${qs({ from, to })}`, branch(ctx)),
+
+  /** Who a task at this branch may be handed to — the same set the API accepts. */
+  assignableStaff: (ctx: TaskContext) => api.get<StaffRef[]>('/tasks/assignable-staff', branch(ctx)),
+
+  comments: (ctx: TaskContext, id: string) => api.get<TaskComment[]>(`/tasks/${id}/comments`, branch(ctx)),
+  addComment: (ctx: TaskContext, id: string, body: string) =>
+    api.post<TaskComment>(`/tasks/${id}/comments`, { body }, branch(ctx)),
 
   summary: (ctx: TaskContext, params: { from?: string; to?: string } = {}) =>
     api.get<TaskSummary>(`/tasks/summary${qs(params)}`, branch(ctx)),
@@ -98,6 +119,7 @@ export const tasksApi = {
       description?: string;
       frequency: RoutineFrequency;
       time_of_day: string;
+      due_time?: string;
       weekdays?: number[];
       priority?: TaskPriority;
       checklist_template_id?: string;
@@ -119,8 +141,15 @@ export const tasksApi = {
     api.get<Paginated<ChecklistTemplate>>(`/checklists${qs({ limit })}`, company(ctx)),
   createChecklist: (
     ctx: TaskContext,
-    body: { name: string; description?: string; items: Array<{ label: string; is_required?: boolean }> },
+    body: {
+      name: string;
+      description?: string;
+      items: Array<{ label: string; is_required?: boolean; kind?: ChecklistItemKind }>;
+    },
   ) => api.post<ChecklistTemplate>('/checklists', body, company(ctx)),
+  referenceLibrary: (ctx: TaskContext) => api.get<ReferenceChecklist[]>('/checklists/library', company(ctx)),
+  installReference: (ctx: TaskContext, key: string) =>
+    api.post<ChecklistTemplate>(`/checklists/library/${encodeURIComponent(key)}`, undefined, company(ctx)),
   updateChecklist: (ctx: TaskContext, id: string, body: Record<string, unknown>) =>
     api.patch<ChecklistTemplate>(`/checklists/${id}`, body, company(ctx)),
 

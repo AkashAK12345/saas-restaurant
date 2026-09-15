@@ -465,6 +465,7 @@ describe('Phase 10 Reports & Dashboard (e2e)', () => {
       const keys = res.body.data.map((d: any) => d.key);
       expect(keys).toEqual([
         'banquet.bookings',
+        'banquet.outstanding',
         'banquet.payments',
         'queue.summary',
         'queue.tokens',
@@ -933,6 +934,143 @@ describe('Phase 10 Reports & Dashboard (e2e)', () => {
       expect(body).not.toContain('Priya');
       expect(body).not.toContain('+919000000001');
       expect(body).not.toMatch(/password|secret/i);
+    });
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // CONFORMANCE: ALL BRANCHES, DRILL-DOWN, OUTSTANDING, COMPLIANCE, PAGING
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  describe('All branches dashboard', () => {
+    const all = (token: string, companyId?: string) => {
+      const req = request(http).get('/api/v1/dashboard/all-branches').set('Authorization', `Bearer ${token}`);
+      if (companyId) req.set('X-Company-ID', companyId);
+      return req;
+    };
+
+    it('RP-55. sums counts and money across every branch the caller may open — and only those', async () => {
+      const res = await all(tokenAnalystA, companyA.id);
+      expect(res.status).toBe(200);
+      expect(res.body.scope).toBe('all_branches');
+      expect(res.body.branches.map((b: any) => b.name)).toEqual(['Alpha Main', 'Alpha Second']);
+
+      const tasks = res.body.widgets.find((w: any) => w.key === 'tasks.open');
+      expect(tasks.branches.map((b: any) => b.branch_name)).toEqual(['Alpha Main', 'Alpha Second']);
+      const perBranchOpen = tasks.branches.map(
+        (b: any) => b.metrics.find((m: any) => m.key === 'open').value as number,
+      );
+      expect(tasks.metrics.find((m: any) => m.key === 'open').value).toBe(
+        perBranchOpen.reduce((a: number, b: number) => a + b, 0),
+      );
+
+      const banquet = res.body.widgets.find((w: any) => w.key === 'banquet.overview');
+      expect(banquet.metrics.find((m: any) => m.key === 'outstanding_INR')).toMatchObject({
+        value: 10_000_000,
+        currency: 'INR',
+      });
+
+      // Averages, rates and durations are never added up across branches.
+      for (const widget of res.body.widgets) {
+        for (const metric of widget.metrics) {
+          expect([widget.key, metric.key, ['number', 'money'].includes(metric.type)]).toEqual([
+            widget.key,
+            metric.key,
+            true,
+          ]);
+        }
+      }
+      expect(JSON.stringify(res.body)).not.toContain(companyB.id);
+    });
+
+    it('RP-56. a caller with dashboard access at one branch sees that branch alone', async () => {
+      const res = await all(tokenQueueOnlyA, companyA.id);
+      expect(res.status).toBe(200);
+      expect(res.body.branches.map((b: any) => b.id)).toEqual([branchA.id]);
+      expect(res.body.widgets.map((w: any) => w.key)).toEqual(['queue.today']);
+    });
+
+    it('RP-57. refuses without dashboard access anywhere, for a foreign company, and without a company', async () => {
+      expect((await all(tokenPlainA, companyA.id)).status).toBe(403);
+      expect((await all(tokenAnalystB, companyA.id)).status).toBe(403);
+      expect((await all(tokenAnalystA)).status).toBe(400);
+      expect((await request(http).get('/api/v1/dashboard/all-branches').set('X-Company-ID', companyA.id)).status).toBe(401);
+    });
+  });
+
+  describe('Drill-down, outstanding balances, compliance and paging', () => {
+    it('RP-58. booking and payment rows carry the id their drill-down opens', async () => {
+      const bookings = await data('banquet.bookings');
+      expect(bookings.body.drilldown).toEqual({ id_key: 'booking_id', path: '/banquet/:id' });
+      expect(bookings.body.rows[0].booking_id).toBe(bookingA.id);
+      expect(bookings.body.branch_name).toBe('Alpha Main');
+
+      const payments = await data('banquet.payments');
+      expect(payments.body.rows[0].booking_id).toBe(bookingA.id);
+
+      // A queue token has no screen of its own, so it offers no drill-down.
+      expect((await data('queue.tokens')).body.drilldown).toBeNull();
+    });
+
+    it('RP-59. the outstanding report lists only live events that still owe, from the payment history', async () => {
+      const settled = await prisma.banquetBooking.create({
+        data: {
+          company_id: companyA.id,
+          branch_id: branchA.id,
+          customer_id: bookingA.customer_id,
+          hall_id: bookingA.hall_id,
+          starts_at: new Date('2026-03-10T13:00:00.000Z'),
+          ends_at: new Date('2026-03-10T16:00:00.000Z'),
+          guest_count: 10,
+          status: BanquetBookingStatus.CONFIRMED,
+          package_name: 'Silver',
+          price_per_guest_minor: 100,
+          currency: 'INR',
+          total_amount_minor: 1000,
+        },
+      });
+      await prisma.banquetPayment.create({
+        data: {
+          booking_id: settled.id,
+          company_id: companyA.id,
+          branch_id: branchA.id,
+          amount_minor: 1000,
+          currency: 'INR',
+          paid_at: new Date('2026-03-10T08:00:00.000Z'),
+        },
+      });
+
+      const res = await data('banquet.outstanding');
+      expect(res.status).toBe(200);
+      expect(res.body.rows.map((r: any) => r.booking_id)).toEqual([bookingA.id]);
+      expect(res.body.rows[0]).toMatchObject({
+        total_amount_minor: 15_000_000,
+        paid_amount_minor: 5_000_000,
+        balance_minor: 10_000_000,
+      });
+      expect(res.body.metrics.find((m: any) => m.key === 'balance_INR').value).toBe(10_000_000);
+
+      // Same domain rule as every banquet report.
+      const refused = await as(
+        request(http).get('/api/v1/reports/banquet.outstanding/data'),
+        tokenQueueOnlyA,
+        companyA.id,
+        branchA.id,
+      ).query(range);
+      expect(refused.status).toBe(403);
+    });
+
+    it('RP-60. routine adherence separates on-time from late completion', async () => {
+      const res = await data('tasks.routines');
+      expect(res.status).toBe(200);
+      expect(res.body.columns.map((c: any) => c.key)).toEqual(
+        expect.arrayContaining(['on_time', 'late', 'missed']),
+      );
+      expect(res.body.metrics.map((m: any) => m.key)).toEqual(expect.arrayContaining(['late', 'on_time_rate']));
+    });
+
+    it('RP-61. refuses a page offset deeper than the cap', async () => {
+      expect((await data('queue.tokens', { offset: 100_001 })).status).toBe(400);
+      expect((await data('queue.tokens', { offset: 100_000 })).status).toBe(200);
     });
   });
 

@@ -8,6 +8,7 @@ const apiMock = vi.hoisted(() => ({
   run: vi.fn(),
   export: vi.fn(),
   dashboard: vi.fn(),
+  dashboardAllBranches: vi.fn(),
 }));
 
 const saveFileMock = vi.hoisted(() => vi.fn());
@@ -29,10 +30,13 @@ vi.mock('@/lib/reports/api', () => ({
 let branchPermissions: string[] = [];
 let selectedBranchId: string | null = 'br-1';
 let selectedCompanyId: string | null = 'co-1';
+let contextBranches: Array<{ id: string; name: string; timezone: string; status: string; has_roles: boolean }> = [];
 vi.mock('@/lib/context/app-context-provider', () => ({
   useAppContext: () => ({
     selectedCompanyId,
     selectedBranchId,
+    selectedBranch: { id: 'br-1', name: 'Alpha Main', timezone: 'Asia/Kolkata', status: 'ACTIVE', has_roles: true },
+    branches: contextBranches,
     companyPermissions: [],
     branchPermissions,
     loading: false,
@@ -134,6 +138,7 @@ beforeEach(() => {
   branchPermissions = ['reports.view', 'reports.export', 'dashboard.view', 'queue.view'];
   selectedCompanyId = 'co-1';
   selectedBranchId = 'br-1';
+  contextBranches = [];
   routeKey = 'queue.tokens';
   apiMock.list.mockImplementation(async () => ({
     data: [
@@ -207,9 +212,18 @@ describe('report formatting', () => {
   });
 
   // Parsing a branch-local calendar date would re-apply the viewer's offset
-  // and silently move the day.
-  it('RF-5. prints a branch-local date verbatim', () => {
-    expect(formatValue('2026-03-10', 'date')).toBe('2026-03-10');
+  // and silently move the day; it is re-ordered as text into dd/MM/yyyy.
+  it('RF-5. prints a branch-local date as dd/MM/yyyy without moving the day', () => {
+    expect(formatValue('2026-03-10', 'date')).toBe('10/03/2026');
+    expect(formatValue('2026-12-31', 'date', { timezone: 'Pacific/Kiritimati' })).toBe('31/12/2026');
+  });
+
+  it('RF-5b. shows an instant on the branch clock in en-IN', () => {
+    // 18:45Z is 00:15 the next day in Kolkata.
+    expect(formatValue('2026-03-10T18:45:00.000Z', 'datetime', { timezone: 'Asia/Kolkata' })).toMatch(
+      /^11\/03\/2026, 12:15\s?am$/i,
+    );
+    expect(formatValue(150_000, 'number')).toBe('1,50,000');
   });
 
   it('RF-6. shifts calendar dates without a timezone getting involved', () => {
@@ -290,7 +304,40 @@ describe('report view', () => {
 
   it('RF-13. shows the branch timezone the dates belong to', async () => {
     render(<ReportPage />);
-    expect(await screen.findByText(/2026-03-01 to 2026-03-10 · Asia\/Kolkata/)).toBeTruthy();
+    expect(await screen.findByText(/01\/03\/2026 to 10\/03\/2026 · Asia\/Kolkata/)).toBeTruthy();
+  });
+
+  it('RF-13b. Run asks the server again even when nothing in the form changed', async () => {
+    render(<ReportPage />);
+    await screen.findByRole('table');
+    await waitFor(() => expect((screen.getByRole('button', { name: 'Run' }) as HTMLButtonElement).disabled).toBe(false));
+    apiMock.run.mockClear();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Run' }));
+    await waitFor(() => expect(apiMock.run).toHaveBeenCalledTimes(1));
+  });
+
+  it('RF-13c. links a row to its record when the report declares a drill-down', async () => {
+    apiMock.run.mockImplementation(async () =>
+      reportResponse({
+        key: 'banquet.bookings',
+        columns: [
+          { key: 'starts_at', label: 'Event', type: 'datetime' },
+          { key: 'customer_name', label: 'Customer', type: 'string' },
+        ],
+        option_specs: [],
+        drilldown: { id_key: 'booking_id', path: '/banquet/:id' },
+        rows: [
+          { booking_id: 'bk-42', starts_at: '2026-03-10T06:00:00.000Z', customer_name: 'Priya' },
+          { booking_id: '../../admin', starts_at: '2026-03-10T07:00:00.000Z', customer_name: 'Odd id' },
+        ],
+      }),
+    );
+    render(<ReportPage />);
+    await screen.findByRole('table');
+    const links = screen.getAllByRole('link').filter((l) => l.getAttribute('href')?.startsWith('/banquet/'));
+    expect(links.map((l) => l.getAttribute('href'))).toEqual(['/banquet/bk-42']);
+    expect(links[0].textContent).toMatch(/^10\/03\/2026, 11:30\s?am$/i);
   });
 
   it('RF-14. offers only the filters the report declared', async () => {
@@ -487,6 +534,70 @@ describe('dashboard', () => {
     });
     render(<HomePage />);
     expect((await screen.findByRole('alert')).textContent ?? '').toMatch('Forbidden');
+  });
+
+  it('RF-30b. a period preset asks the server for that branch-local window', async () => {
+    render(<HomePage />);
+    await screen.findByRole('heading', { name: 'Queue today' });
+    // The default is the server's own 30-day window: no dates are guessed.
+    expect(apiMock.dashboard.mock.calls[0].slice(1)).toEqual([undefined, undefined]);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Last 7 days' }));
+    await waitFor(() => expect(apiMock.dashboard).toHaveBeenCalledTimes(2));
+    const [, from, to] = apiMock.dashboard.mock.calls[1] as [unknown, string, string];
+    expect(from).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    expect((Date.parse(to) - Date.parse(from)) / 86_400_000).toBe(6);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Today' }));
+    await waitFor(() => expect(apiMock.dashboard).toHaveBeenCalledTimes(3));
+    const [, dayFrom, dayTo] = apiMock.dashboard.mock.calls[2] as [unknown, string, string];
+    expect(dayFrom).toBe(dayTo);
+  });
+
+  it('RF-30c. offers All branches only with more than one branch, and shows the sums with a per-branch breakdown', async () => {
+    const { unmount } = render(<HomePage />);
+    await screen.findByRole('heading', { name: 'Queue today' });
+    expect(screen.queryByRole('button', { name: 'All branches' })).toBeNull();
+    unmount();
+
+    contextBranches = [
+      { id: 'br-1', name: 'Alpha Main', timezone: 'Asia/Kolkata', status: 'ACTIVE', has_roles: true },
+      { id: 'br-2', name: 'Alpha Second', timezone: 'Asia/Kolkata', status: 'ACTIVE', has_roles: true },
+    ];
+    apiMock.dashboardAllBranches.mockResolvedValue({
+      scope: 'all_branches',
+      company_id: 'co-1',
+      generated_at: '',
+      filters: { from: null, to: null },
+      branches: [
+        { id: 'br-1', name: 'Alpha Main', timezone: 'Asia/Kolkata' },
+        { id: 'br-2', name: 'Alpha Second', timezone: 'Asia/Kolkata' },
+      ],
+      widgets: [
+        {
+          key: 'queue.today',
+          title: 'Queue today',
+          domain: 'queue',
+          display: 'metrics',
+          live: true,
+          metrics: [{ key: 'waiting', label: 'Waiting', value: 7, type: 'number' }],
+          not_summed: ['Longest wait'],
+          branches: [
+            { branch_id: 'br-1', branch_name: 'Alpha Main', metrics: [{ key: 'waiting', label: 'Waiting', value: 3, type: 'number' }] },
+            { branch_id: 'br-2', branch_name: 'Alpha Second', metrics: [{ key: 'waiting', label: 'Waiting', value: 4, type: 'number' }] },
+          ],
+        },
+      ],
+    });
+    render(<HomePage />);
+    await screen.findByRole('heading', { name: 'Queue today' });
+    fireEvent.click(screen.getByRole('button', { name: 'All branches' }));
+
+    await waitFor(() => expect(apiMock.dashboardAllBranches).toHaveBeenCalledWith({ companyId: 'co-1', branchId: 'br-1' }, undefined, undefined));
+    expect(await screen.findByText(/Totals across 2 branches: Alpha Main, Alpha Second/)).toBeTruthy();
+    expect(screen.getByText('7')).toBeTruthy();
+    expect(screen.getByText(/Not added across branches: Longest wait/)).toBeTruthy();
+    expect(screen.getByText('Alpha Second')).toBeTruthy();
   });
 });
 

@@ -114,8 +114,20 @@ export class BranchesService {
           name: dto.name,
           timezone: dto.timezone,
           status: dto.status,
+          gstin: dto.gstin,
+          fssai_license: dto.fssai_license,
+          banquet_gst_rate_bps: dto.banquet_gst_rate_bps,
         },
       });
+
+      // The tax settings change what future bills charge, so their old and
+      // new values are recorded, not just the fact that they changed.
+      const changes: Record<string, { from: unknown; to: unknown }> = {};
+      for (const key of ['gstin', 'fssai_license', 'banquet_gst_rate_bps', 'status', 'timezone'] as const) {
+        if (dto[key] !== undefined && dto[key] !== branch[key]) {
+          changes[key] = { from: branch[key], to: dto[key] };
+        }
+      }
 
       await this.auditLogService.create(
         {
@@ -125,7 +137,7 @@ export class BranchesService {
           eventType: AuditEventType.UPDATE,
           entityType: 'BRANCH',
           entityId: branch.id,
-          payload: { changed_fields: Object.keys(dto) },
+          payload: { changed_fields: Object.keys(dto), changes },
         },
         tx,
       );

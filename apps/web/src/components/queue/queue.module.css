@@ -113,6 +113,7 @@
   background: var(--color-surface-muted);
   color: var(--color-text-muted);
 }
+.badgeScheduled { background: var(--color-surface-muted); color: var(--color-text); border: 1px dashed var(--color-border); }
 .badgeWaiting { background: var(--color-warning-bg); color: var(--color-text); }
 .badgeCalled { background: color-mix(in srgb, var(--color-primary) 18%, transparent); color: var(--color-primary); }
 .badgeSeated { background: color-mix(in srgb, var(--color-success) 18%, transparent); color: var(--color-success); }
@@ -154,6 +155,27 @@
   color: var(--color-danger);
   border-color: color-mix(in srgb, var(--color-danger) 45%, var(--color-border));
 }
+
+.contactRow {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.contactRow .action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+  color: var(--color-text);
+  border-radius: var(--radius-sm);
+}
+
+.totals {
+  margin: 0 0 var(--gap);
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.totals strong { color: var(--color-text); }
 
 .tableRow {
   display: flex;

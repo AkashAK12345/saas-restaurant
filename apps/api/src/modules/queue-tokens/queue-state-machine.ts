@@ -5,34 +5,45 @@ import { QueueTokenStatus } from '@samco/database';
  * legal. QueueTokensService consults this before every mutation; nothing else
  * writes `status`.
  *
- *   WAITING ─▶ CALLED ─▶ SEATED
- *      │          ├────▶ NO_SHOW
- *      └──────────┴────▶ CANCELLED
+ *   SCHEDULED ─▶ WAITING ─▶ CALLED ─▶ SEATED
+ *       │           ▲          ├────▶ NO_SHOW
+ *       │           └── skip ──┤
+ *       └───────────┴──────────┴────▶ CANCELLED
  *
- * SEATED, NO_SHOW and CANCELLED are terminal. There is deliberately no
- * "recall" transition (CALLED ─▶ WAITING or CALLED ─▶ CALLED): the repository
- * carries no product definition of recall, so re-announcing a party is left
- * to the podium operator calling the next token rather than being invented
- * here. If the product introduces recall, the exact transition belongs in
- * this table, with its own tests, not as an ad-hoc status write.
+ * SCHEDULED is an advance booking that has not surfaced yet. It becomes
+ * WAITING when staff check the party in, or automatically at the booked time.
+ *
+ * CALLED ─▶ WAITING is SKIP: the party did not respond and goes back to the
+ * waiting list (behind everyone not yet called — see QueueTokensService). The
+ * reference product names this state "skipped"; it is modelled as an event on
+ * a transition rather than a separate status because a skipped party is, in
+ * every operational sense, waiting again.
+ *
+ * SEATED, NO_SHOW and CANCELLED are terminal.
  */
 export const QUEUE_TRANSITIONS: Readonly<
   Record<QueueTokenStatus, readonly QueueTokenStatus[]>
 > = {
+  [QueueTokenStatus.SCHEDULED]: [QueueTokenStatus.WAITING, QueueTokenStatus.CANCELLED],
   [QueueTokenStatus.WAITING]: [QueueTokenStatus.CALLED, QueueTokenStatus.CANCELLED],
   [QueueTokenStatus.CALLED]: [
     QueueTokenStatus.SEATED,
     QueueTokenStatus.NO_SHOW,
     QueueTokenStatus.CANCELLED,
+    QueueTokenStatus.WAITING,
   ],
   [QueueTokenStatus.SEATED]: [],
   [QueueTokenStatus.NO_SHOW]: [],
   [QueueTokenStatus.CANCELLED]: [],
 };
 
+/** A walk-in joins the live queue. */
 export const INITIAL_QUEUE_STATUS = QueueTokenStatus.WAITING;
 
-/** Statuses a token can still hold a place in the queue from. */
+/** An advance booking is held until its time. */
+export const INITIAL_SCHEDULED_STATUS = QueueTokenStatus.SCHEDULED;
+
+/** Statuses a token can still hold a place in the live queue from. */
 export const ACTIVE_QUEUE_STATUSES: readonly QueueTokenStatus[] = [
   QueueTokenStatus.WAITING,
   QueueTokenStatus.CALLED,

@@ -4,8 +4,23 @@ import ExcelJS from 'exceljs';
 import {
   EXPORT_MAX_ROWS,
   ReportExportService,
+  indianDate,
+  indianDateTime,
   isExportFormat,
 } from './report-export.service.js';
+
+describe('Indian date presentation', () => {
+  it('turns a branch-local label into dd/MM/yyyy without shifting the day', () => {
+    expect(indianDate('2026-03-01')).toBe('01/03/2026');
+    expect(indianDate('not-a-date')).toBe('not-a-date');
+  });
+
+  it('shows an instant on the branch clock, crossing midnight where the branch does', () => {
+    // 18:45Z on 15 March is 00:15 on 16 March in Kolkata, still 15 March in UTC.
+    expect(indianDateTime('2026-03-15T18:45:00.000Z', 'Asia/Kolkata')).toMatch(/^16\/03\/2026, 12:15\s?am$/i);
+    expect(indianDateTime('2026-03-15T18:45:00.000Z', 'UTC')).toMatch(/^15\/03\/2026, 6:45\s?pm$/i);
+  });
+});
 import type { ReportResponse } from './report-contract.js';
 
 function makeReport(overrides: Partial<ReportResponse> = {}): ReportResponse {
@@ -17,6 +32,8 @@ function makeReport(overrides: Partial<ReportResponse> = {}): ReportResponse {
     kind: 'rows',
     generated_at: '2026-03-15T09:00:00.000Z',
     timezone: 'Asia/Kolkata',
+    branch_name: 'Alpha Main',
+    drilldown: null,
     filters: {
       branch_id: '22222222-2222-4222-8222-222222222222',
       from: '2026-03-01',
@@ -154,8 +171,22 @@ describe('ReportExportService', () => {
 
       expect(flat).toContain('Banquet payments');
       expect(flat).toContain('banquet.payments');
-      expect(flat).toContain('2026-03-01 to 2026-03-31 (Asia/Kolkata)');
-      expect(flat).toContain('2026-03-15T09:00:00.000Z');
+      // A person reads the branch's name and Indian dates, not a uuid and ISO.
+      expect(flat).toContain('Branch|Alpha Main');
+      expect(flat).toContain('01/03/2026 to 31/03/2026 (Asia/Kolkata)');
+      // 09:00Z is 2:30 pm in Kolkata.
+      expect(flat).toMatch(/Generated\|15\/03\/2026, 2:30\s?pm/i);
+    });
+
+    it("writes an instant as the BRANCH's wall clock in a dd/mm/yyyy date column", async () => {
+      const { sheet, rows } = await readSheet((await service.render(makeReport(), 'xlsx')).body);
+      const header = rows.findIndex((r) => r[0] === 'Paid' && r[1] === 'Method');
+      const cell = rows[header + 1][0] as Date;
+      // 05:30Z on 2 March is 11:00 in Kolkata; Excel has no zone, so the cell
+      // holds that wall clock.
+      expect(cell).toBeInstanceOf(Date);
+      expect(cell.toISOString()).toBe('2026-03-02T11:00:00.000Z');
+      expect(sheet.getColumn(1).numFmt).toBe('dd/mm/yyyy hh:mm');
     });
 
     it('formats money columns so the sheet reads as currency', async () => {

@@ -4,6 +4,7 @@ import { AllExceptionsFilter } from './core/filters/all-exceptions.filter.js';
 import { ValidationPipe, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { buildCorsOptions } from './core/cors.js';
+import { securityHeaders, trustProxySetting } from './core/security-headers.js';
 
 async function bootstrap() {
   const logger = new Logger('Bootstrap');
@@ -31,6 +32,17 @@ async function bootstrap() {
   );
 
   const configService = app.get(ConfigService);
+
+  // Response hardening and proxy trust. See core/security-headers.ts for why
+  // each is set the way it is.
+  const http = app.getHttpAdapter().getInstance() as {
+    disable(setting: string): void;
+    set(setting: string, value: unknown): void;
+  };
+  http.disable('x-powered-by');
+  const trustProxy = trustProxySetting(configService.get<string>('TRUST_PROXY'));
+  if (trustProxy !== undefined) http.set('trust proxy', trustProxy);
+  app.use(securityHeaders({ hsts: configService.get<string>('NODE_ENV') === 'production' }));
 
   // The browser app runs on its own origin; without an allowlist every request
   // from it is blocked before it leaves the browser. See core/cors.ts.

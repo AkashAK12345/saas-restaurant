@@ -62,7 +62,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
     label: 'Tasks',
     icon: 'tasks',
     accent: 'purple',
-    permissions: [PERMISSION_KEYS.TASKS_VIEW],
+    permissions: [PERMISSION_KEYS.TASKS_VIEW, PERMISSION_KEYS.TASKS_VIEW_OWN],
     requiresBranch: true,
   },
   {
@@ -102,4 +102,13 @@ export const NAV_ITEMS: readonly NavItem[] = [
     accent: 'terracotta',
     permissions: [PERMISSION_KEYS.AUDIT_LOGS_VIEW],
   },
+  {
+    href: '/settings/branches',
+    label: 'Branches',
+    icon: 'tables',
+    accent: 'amber',
+    permissions: [PERMISSION_KEYS.BRANCHES_VIEW],
+  },
+  // Signed-in devices is the caller's own account page, reached from the
+  // header beside "Sign out" (app-shell.tsx) rather than from workspace nav.
 ];

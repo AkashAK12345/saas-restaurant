@@ -1,10 +1,11 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { AuditEventType, Prisma } from '@samco/database';
+import { AuditEventType, ChecklistItemKind, Prisma } from '@samco/database';
 import { PrismaService } from '../../core/database/prisma.service.js';
 import { AuditLogService } from '../audit-logs/audit-logs.service.js';
 import type { Paginated } from '../../common/pagination.dto.js';
 import type { TaskCompanyContext } from './tasks-context.js';
-import type { ChecklistTemplateView } from './tasks-views.js';
+import type { ChecklistTemplateView, ReferenceChecklistView } from './tasks-views.js';
+import { REFERENCE_CHECKLISTS } from './reference-checklists.js';
 import type { CreateChecklistTemplateDto, UpdateChecklistTemplateDto } from './tasks.dto.js';
 
 const TEMPLATE_INCLUDE = {
@@ -81,6 +82,7 @@ export class ChecklistTemplatesService {
               create: dto.items.map((item, index) => ({
                 label: item.label,
                 position: index,
+                kind: item.kind ?? ChecklistItemKind.CHECK,
                 is_required: item.is_required ?? true,
               })),
             },
@@ -128,6 +130,7 @@ export class ChecklistTemplatesService {
                 template_id: templateId,
                 label: item.label,
                 position: index,
+                kind: item.kind ?? ChecklistItemKind.CHECK,
                 is_required: item.is_required ?? true,
               },
             });
@@ -150,6 +153,44 @@ export class ChecklistTemplatesService {
       }
       throw e;
     }
+  }
+
+  // ── Reference library ─────────────────────────────────────────────────────
+
+  /** The starter definitions, marked where the company already has one by that name. */
+  async library(companyId: string): Promise<ReferenceChecklistView[]> {
+    const existing = await this.prisma.checklistTemplate.findMany({
+      where: { company_id: companyId, name: { in: REFERENCE_CHECKLISTS.map((r) => r.name) } },
+      select: { name: true },
+    });
+    const names = new Set(existing.map((e) => e.name));
+    return REFERENCE_CHECKLISTS.map((r) => ({
+      key: r.key,
+      name: r.name,
+      description: r.description,
+      items: r.items.map((i) => ({ ...i, kind: i.kind as ChecklistItemKind })),
+      installed: names.has(r.name),
+    }));
+  }
+
+  /**
+   * Install one reference definition as an ordinary, editable company
+   * template — through the same create path, audit and uniqueness rule as a
+   * template written by hand.
+   */
+  async installReference(ctx: TaskCompanyContext, key: string): Promise<ChecklistTemplateView> {
+    const reference = REFERENCE_CHECKLISTS.find((r) => r.key === key);
+    if (!reference) throw new NotFoundException('No reference checklist with that key');
+    const view = await this.create(ctx, {
+      name: reference.name,
+      description: reference.description,
+      items: reference.items.map((i) => ({
+        label: i.label,
+        kind: i.kind as ChecklistItemKind,
+        is_required: i.is_required,
+      })),
+    });
+    return view;
   }
 
   private audit(
@@ -184,6 +225,7 @@ export class ChecklistTemplatesService {
         id: i.id,
         label: i.label,
         position: i.position,
+        kind: i.kind,
         is_required: i.is_required,
       })),
       created_at: template.created_at,

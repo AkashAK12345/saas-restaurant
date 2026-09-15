@@ -217,6 +217,105 @@
   flex-wrap: wrap;
 }
 
+/* ── totals tiles (admin) and waiting tiles (customer) ─────────────────── */
+
+.tiles {
+  display: grid;
+  gap: clamp(10px, 1.5vw, 20px);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.tile {
+  display: grid;
+  gap: 4px;
+  justify-items: center;
+  padding: clamp(10px, 1.5vw, 18px);
+  border-radius: 14px;
+  background: #171b21;
+  border: 1px solid #2e343d;
+}
+
+.tileValue {
+  font-size: clamp(1.8rem, 4vw, 3.2rem);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+
+.tileLabel {
+  color: #9aa3b0;
+  font-size: clamp(0.85rem, 1.3vw, 1.1rem);
+  text-align: center;
+}
+
+.waitingTiles {
+  display: grid;
+  gap: 10px;
+  align-content: start;
+}
+
+.waitingTitle {
+  color: #9aa3b0;
+  font-size: clamp(1rem, 1.8vw, 1.5rem);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.waitingList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: clamp(8px, 1vw, 14px);
+  grid-template-columns: repeat(auto-fill, minmax(min(110px, 28vw), 1fr));
+}
+
+.waitingTile {
+  display: grid;
+  place-items: center;
+  padding: clamp(10px, 1.5vw, 18px) 8px;
+  border-radius: 12px;
+  background: #1f242c;
+  font-size: clamp(1.6rem, 3.4vw, 2.8rem);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── wall-screen controls (presentation only) ───────────────────────────── */
+
+.controls {
+  position: fixed;
+  top: 10px;
+  right: 10px;
+  z-index: 5;
+  display: flex;
+  gap: 8px;
+  opacity: 0.35;
+  transition: opacity 0.2s;
+}
+.controls:hover,
+.controls:focus-within {
+  opacity: 1;
+}
+
+.control {
+  min-height: 40px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid #2e343d;
+  background: #171b21;
+  color: #cfd6e2;
+  cursor: pointer;
+}
+
+/* Compact density: more of the queue fits a smaller or busier screen. */
+.compact .servingNumber { font-size: clamp(2.6rem, 7vw, 5.5rem); }
+.compact .servingCard { padding: clamp(10px, 1.6vw, 22px); }
+.compact .waitingTile { font-size: clamp(1.1rem, 2.2vw, 1.8rem); padding: 8px 6px; }
+.compact .adminRow { padding: 6px 10px; }
+.compact .adminNumber { font-size: clamp(1.1rem, 1.8vw, 1.5rem); }
+.compact .tileValue { font-size: clamp(1.3rem, 2.6vw, 2.2rem); }
+
 /* ── pairing ────────────────────────────────────────────────────────────── */
 
 .pair {

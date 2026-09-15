@@ -101,10 +101,32 @@ export const PERMISSION_KEYS = {
   BANQUET_PAYMENT_CREATE: 'banquet.payment.create',
   BANQUET_EVENT_PLAN_MANAGE: 'banquet.event_plan.manage',
   BANQUET_KDS_MANAGE: 'banquet.kds.manage',
+  // Pricing after the snapshot. Separately permissioned because discounts are
+  // where revenue leaks: a line or per-head discount is routine, an admin
+  // (lump-sum) discount is an override.
+  BANQUET_CHARGE_MANAGE: 'banquet.charge.manage',
+  BANQUET_DISCOUNT_APPLY: 'banquet.discount.apply',
+  BANQUET_DISCOUNT_ADMIN: 'banquet.discount.admin',
+  /** Second-person confirmation that a recorded payment was received. */
+  BANQUET_PAYMENT_VERIFY: 'banquet.payment.verify',
+  /**
+   * Change a booking whose event has already started. The reference system
+   * reserves this for its Super Admin; SAMCO expresses it as a grantable key
+   * (is_superadmin bypasses nothing — see PermissionGuard).
+   */
+  BANQUET_BOOKING_EDIT_PAST: 'banquet.booking.edit_past',
 
   // ── Tasks & Routines (Phase 9) ───────────────────────────────────────────
   // TASKS_VIEW (above, from T0-B) still gates every task read and the `tasks`
   // stream. Each key below maps to exactly one implemented operation.
+  /**
+   * The narrower read: only tasks the caller is assigned to or raised. A role
+   * holding TASKS_VIEW sees the whole branch (the reference system's "admin"
+   * mode); one holding only this key sees its own work ("staff" mode); one
+   * holding neither sees nothing ("none"). Added alongside TASKS_VIEW rather
+   * than narrowing it, so no existing role loses sight of anything.
+   */
+  TASKS_VIEW_OWN: 'tasks.view_own',
   TASKS_CREATE: 'tasks.create',
   TASKS_UPDATE: 'tasks.update',
   TASKS_ASSIGN: 'tasks.assign',
@@ -422,6 +444,42 @@ export const SYSTEM_PERMISSIONS: Array<{
     name: PERMISSION_KEYS.BANQUET_KDS_MANAGE,
     module: 'banquet',
     description: 'Advance kitchen preparation state for banquet items',
+  },
+  {
+    name: PERMISSION_KEYS.BANQUET_CHARGE_MANAGE,
+    module: 'banquet',
+    description: 'Add or withdraw extra charges (decoration, DJ, extra service) on a booking',
+  },
+  {
+    name: PERMISSION_KEYS.BANQUET_DISCOUNT_APPLY,
+    module: 'banquet',
+    description: 'Add or withdraw line and per-head discounts on a booking',
+  },
+  {
+    name: PERMISSION_KEYS.BANQUET_DISCOUNT_ADMIN,
+    module: 'banquet',
+    description: 'Add or withdraw an admin (lump-sum override) discount on a booking',
+  },
+  {
+    name: PERMISSION_KEYS.BANQUET_PAYMENT_VERIFY,
+    module: 'banquet',
+    description:
+      'Verify that a recorded banquet payment was received. The person who recorded a ' +
+      'payment can never verify it.',
+  },
+  {
+    name: PERMISSION_KEYS.BANQUET_BOOKING_EDIT_PAST,
+    module: 'banquet',
+    description:
+      'Edit or re-price a banquet booking whose event has already started (a ' +
+      'revenue-integrity control)',
+  },
+  {
+    name: PERMISSION_KEYS.TASKS_VIEW_OWN,
+    module: 'tasks',
+    description:
+      'View only the tasks assigned to or raised by you at a branch. tasks.view ' +
+      'is the wider key and shows every task in the branch.',
   },
   {
     name: PERMISSION_KEYS.TASKS_CREATE,

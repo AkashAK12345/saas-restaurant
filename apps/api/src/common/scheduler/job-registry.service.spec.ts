@@ -12,6 +12,53 @@ function build(enabled = true) {
 
 const tick = () => new Promise((r) => setTimeout(r, 0));
 
+describe('JobRegistry with a cross-process lock', () => {
+  const withLock = (held: boolean) => {
+    const scheduler = new SchedulerRegistry();
+    const config = { get: () => 'false' } as unknown as ConfigService; // timers off; run() by hand
+    const lock = {
+      runExclusive: vi.fn(async (_name: string, fn: () => Promise<void>) => {
+        if (held) return false;
+        await fn();
+        return true;
+      }),
+    };
+    return { registry: new JobRegistry(scheduler, config, lock), lock };
+  };
+
+  it('runs the handler inside the lock and counts the run', async () => {
+    const { registry, lock } = withLock(false);
+    const handler = vi.fn();
+    registry.registerInterval({ name: 'locked.job', everyMs: 1_000, handler });
+    await registry.run('locked.job');
+    expect(lock.runExclusive).toHaveBeenCalledWith('locked.job', expect.any(Function));
+    expect(handler).toHaveBeenCalledOnce();
+    expect(registry.status('locked.job')).toMatchObject({ runs: 1, skippedLocked: 0, failures: 0 });
+  });
+
+  it('skips — without failing — when another process holds the lock', async () => {
+    const { registry } = withLock(true);
+    const handler = vi.fn();
+    registry.registerInterval({ name: 'busy.job', everyMs: 1_000, handler });
+    await registry.run('busy.job');
+    expect(handler).not.toHaveBeenCalled();
+    expect(registry.status('busy.job')).toMatchObject({ runs: 0, skippedLocked: 1, failures: 0 });
+  });
+
+  it('still contains a handler failure raised inside the lock', async () => {
+    const { registry } = withLock(false);
+    registry.registerInterval({
+      name: 'bad.locked',
+      everyMs: 1_000,
+      handler: () => {
+        throw new Error('boom');
+      },
+    });
+    await expect(registry.run('bad.locked')).resolves.toBeUndefined();
+    expect(registry.status('bad.locked')).toMatchObject({ failures: 1, lastError: 'boom', running: false });
+  });
+});
+
 describe('JobRegistry', () => {
   let cleanup: Array<() => void> = [];
   afterEach(() => {

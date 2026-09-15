@@ -14,6 +14,7 @@ import styles from '@/components/banquet/banquet.module.css';
  */
 const TABS = [
   { href: '/banquet', label: 'Bookings', permission: 'banquet.view' },
+  { href: '/banquet/calendar', label: 'Calendar', permission: 'banquet.view' },
   { href: '/banquet/catalog', label: 'Halls & packages', permission: 'banquet.view' },
   { href: '/banquet/kitchen', label: 'Kitchen', permission: 'banquet.kds.view' },
 ] as const;

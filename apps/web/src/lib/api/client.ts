@@ -269,6 +269,8 @@ export const api = {
   /** For replace-style upserts, e.g. a booking's single event plan. */
   put: <T>(path: string, body?: unknown, opts: Omit<RequestOptions, 'method' | 'body'> = {}) =>
     apiRequest<T>(path, { ...opts, method: 'PUT', body }),
+  delete: <T>(path: string, opts: Omit<RequestOptions, 'method' | 'body'> = {}) =>
+    apiRequest<T>(path, { ...opts, method: 'DELETE' }),
   /** For unauthenticated endpoints (login). */
   public: <T>(path: string, opts: RequestOptions = {}) => rawRequest<T>(path, { ...opts, auth: false }),
 };

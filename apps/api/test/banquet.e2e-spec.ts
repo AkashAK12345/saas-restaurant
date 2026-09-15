@@ -47,6 +47,11 @@ const MANAGER_PERMS = [
   'banquet.event_plan.manage',
   'banquet.kds.view',
   'banquet.kds.manage',
+  'banquet.charge.manage',
+  'banquet.discount.apply',
+  'banquet.discount.admin',
+  'banquet.payment.verify',
+  'banquet.booking.edit_past',
   'customers.view',
   'customers.create',
   'display_devices.create',
@@ -426,7 +431,7 @@ describe('Phase 8 Banquet Management (e2e)', () => {
       }
     });
 
-    it('BB-7. drafts may be edited and re-price from the snapshot; other states may not', async () => {
+    it('BB-7. live bookings may be edited and re-price from the snapshot; closed ones may not', async () => {
       const draft = await createBooking({ guest_count: 80 });
       const edited = await asManager(
         request(http).patch(`/api/v1/banquet/bookings/${draft.body.id}`),
@@ -435,10 +440,18 @@ describe('Phase 8 Banquet Management (e2e)', () => {
       expect(edited.body.guest_count).toBe(100);
       expect(edited.body.total_amount_minor).toBe(12_500_000);
 
+      // A confirmed event's head count still moves (conformance: SRS §5.3.3).
       await asManager(request(http).post(`/api/v1/banquet/bookings/${draft.body.id}/confirm`)).send();
-      const late = await asManager(
+      const confirmedEdit = await asManager(
         request(http).patch(`/api/v1/banquet/bookings/${draft.body.id}`),
       ).send({ guest_count: 120 });
+      expect(confirmedEdit.status).toBe(200);
+      expect(confirmedEdit.body.total_amount_minor).toBe(15_000_000);
+
+      await asManager(request(http).post(`/api/v1/banquet/bookings/${draft.body.id}/complete`)).send();
+      const late = await asManager(
+        request(http).patch(`/api/v1/banquet/bookings/${draft.body.id}`),
+      ).send({ guest_count: 130 });
       expect(late.status).toBe(409);
     });
 
@@ -1445,11 +1458,498 @@ describe('Phase 8 Banquet Management (e2e)', () => {
   });
 
   // ═══════════════════════════════════════════════════════════════════════════
+  // CONFORMANCE: PRICING, PAYMENTS, SLOTS, PAST-DATE CONTROL
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  describe('Pricing, payments, slots and past-date control', () => {
+    // clerkA: day-to-day banquet desk — no admin discount, no past edits.
+    // verifierA: can only read and verify payments.
+    // cookA: kitchen board only.
+    const CLERK_PERMS = [
+      'banquet.view',
+      'banquet.booking.create',
+      'banquet.booking.update',
+      'banquet.booking.confirm',
+      'banquet.booking.cancel',
+      'banquet.payment.create',
+      'banquet.charge.manage',
+      'banquet.discount.apply',
+      'banquet.payment.verify',
+    ];
+    let tokenClerk: string, tokenVerifier: string, tokenCook: string;
+    const asClerk = (req: request.Test) => as(req, tokenClerk, companyA.id, branchA.id);
+    const asVerifier = (req: request.Test) => as(req, tokenVerifier, companyA.id, branchA.id);
+    const url = (path: string) => `/api/v1/banquet${path}`;
+
+    beforeAll(async () => {
+      const names = [...new Set([...CLERK_PERMS, 'banquet.kds.view'])];
+      const perms = await prisma.permission.findMany({ where: { name: { in: names } } });
+      expect(perms).toHaveLength(names.length);
+      const id = new Map(perms.map((p) => [p.name, p.id]));
+      const role = async (name: string, keys: string[]) => {
+        const r = await prisma.role.create({ data: { company_id: companyA.id, name } });
+        await prisma.rolePermission.createMany({
+          data: keys.map((k) => ({ role_id: r.id, permission_id: id.get(k)! })),
+        });
+        return r;
+      };
+      const clerkRole = await role('Banquet Clerk', CLERK_PERMS);
+      const verifierRole = await role('Payment Verifier', ['banquet.view', 'banquet.payment.verify']);
+      const cookRole = await role('Cook', ['banquet.kds.view']);
+
+      const hash = await bcrypt.hash(PASSWORD, SALT);
+      const user = async (email: string, roleId: string) => {
+        const u = await prisma.user.create({ data: { email, password_hash: hash } });
+        await prisma.companyMembership.create({
+          data: { user_id: u.id, company_id: companyA.id, status: MembershipStatus.ACTIVE },
+        });
+        await prisma.userBranchRole.create({ data: { user_id: u.id, branch_id: branchA.id, role_id: roleId } });
+        const res = await request(http).post('/api/v1/auth/login').send({ email, password: PASSWORD });
+        return res.body.accessToken as string;
+      };
+      tokenClerk = await user('b-clerk-a@test.com', clerkRole.id);
+      tokenVerifier = await user('b-verifier-a@test.com', verifierRole.id);
+      tokenCook = await user('b-cook-a@test.com', cookRole.id);
+    });
+
+    afterEach(async () => {
+      await prisma.branch.update({
+        where: { id: branchA.id },
+        data: { banquet_gst_rate_bps: 0, gstin: null, fssai_license: null },
+      });
+    });
+
+    it('BQ-1. snapshots the branch GST rate as CGST + SGST; no-GST mode on request', async () => {
+      await prisma.branch.update({ where: { id: branchA.id }, data: { banquet_gst_rate_bps: 500 } });
+      const taxed = await createBooking({ guest_count: 80 });
+      expect(taxed.status).toBe(201);
+      expect(taxed.body.gst_rate_bps).toBe(500);
+      expect(taxed.body.total_amount_minor).toBe(10_500_000);
+      expect(taxed.body.invoice).toMatchObject({
+        taxable_minor: 10_000_000,
+        cgst_minor: 250_000,
+        sgst_minor: 250_000,
+        total_minor: 10_500_000,
+      });
+
+      // A later rate change never rewrites an existing booking.
+      await prisma.branch.update({ where: { id: branchA.id }, data: { banquet_gst_rate_bps: 1800 } });
+      const reread = await asManager(request(http).get(url(`/bookings/${taxed.body.id}`)));
+      expect(reread.body.total_amount_minor).toBe(10_500_000);
+
+      const untaxed = await createBooking({ guest_count: 80, apply_gst: false });
+      expect(untaxed.body.gst_rate_bps).toBe(0);
+      expect(untaxed.body.total_amount_minor).toBe(10_000_000);
+
+      // The rate itself is never client-supplied.
+      expect((await createBooking({ gst_rate_bps: 0 })).status).toBe(400);
+    });
+
+    it('BQ-2. extra pax, extra charges and three separately-permissioned discounts', async () => {
+      const b = await createBooking({ guest_count: 80, extra_pax: 20 });
+      expect(b.body.total_amount_minor).toBe(12_500_000);
+      const add = (req: (r: request.Test) => request.Test, body: Record<string, unknown>) =>
+        req(request(http).post(url(`/bookings/${b.body.id}/adjustments`))).send(body);
+
+      const charge = await add(asClerk, { kind: 'EXTRA_CHARGE', description: 'Decoration', amount_minor: 500_000 });
+      expect(charge.status).toBe(201);
+      expect(charge.body.total_amount_minor).toBe(13_000_000);
+
+      const perHead = await add(asClerk, { kind: 'PER_HEAD_DISCOUNT', description: '₹10 a plate', amount_minor: 1_000 });
+      expect(perHead.body.total_amount_minor).toBe(12_900_000); // 100 plates × 1,000
+
+      const clerkAdmin = await add(asClerk, { kind: 'ADMIN_DISCOUNT', description: 'Override', amount_minor: 900_000 });
+      expect(clerkAdmin.status).toBe(403);
+
+      const admin = await add(asManager, { kind: 'ADMIN_DISCOUNT', description: 'Override', amount_minor: 900_000 });
+      expect(admin.status).toBe(201);
+      expect(admin.body.total_amount_minor).toBe(12_000_000);
+      expect(admin.body.invoice).toMatchObject({
+        base_minor: 10_000_000,
+        extra_pax_minor: 2_500_000,
+        extra_charges_minor: 500_000,
+        per_head_discount_minor: 100_000,
+        admin_discount_minor: 900_000,
+        taxable_minor: 12_000_000,
+      });
+      const adminLine = admin.body.adjustments.find((a: any) => a.kind === 'ADMIN_DISCOUNT');
+
+      // The clerk cannot withdraw an admin discount either.
+      const clerkReverse = await asClerk(
+        request(http).post(url(`/bookings/${b.body.id}/adjustments/${adminLine.id}/reverse`)),
+      ).send();
+      expect(clerkReverse.status).toBe(403);
+
+      const reversed = await asManager(
+        request(http).post(url(`/bookings/${b.body.id}/adjustments/${adminLine.id}/reverse`)),
+      ).send();
+      expect(reversed.status).toBe(201);
+      expect(reversed.body.total_amount_minor).toBe(12_900_000);
+      expect(reversed.body.adjustments.find((a: any) => a.id === adminLine.id)).toMatchObject({ active: false });
+
+      const again = await asManager(
+        request(http).post(url(`/bookings/${b.body.id}/adjustments/${adminLine.id}/reverse`)),
+      ).send();
+      expect(again.status).toBe(409);
+
+      // Discounts may not exceed the bill; bad shapes are 400.
+      expect((await add(asManager, { kind: 'ADMIN_DISCOUNT', description: 'x', amount_minor: 99_000_000 })).status).toBe(409);
+      for (const body of [
+        { kind: 'REFUND', description: 'x', amount_minor: 1 },
+        { kind: 'EXTRA_CHARGE', description: 'x', amount_minor: -5 },
+        { kind: 'EXTRA_CHARGE', description: 'x', amount_minor: 10.5 },
+        { kind: 'EXTRA_CHARGE', description: '   ', amount_minor: 1 },
+      ]) {
+        const res = await add(asManager, body);
+        expect([JSON.stringify(body), res.status]).toEqual([JSON.stringify(body), 400]);
+      }
+
+      const audits = await prisma.auditLog.findMany({
+        where: { entity_type: 'BANQUET_BOOKING_ADJUSTMENT', branch_id: branchA.id },
+      });
+      const payloads = audits.map((a) => a.payload as any).filter((p) => p.booking_id === b.body.id);
+      expect(payloads.map((p) => p.action).sort()).toEqual(
+        ['add_adjustment', 'add_adjustment', 'add_adjustment', 'reverse_adjustment'].sort(),
+      );
+      expect(payloads.find((p) => p.kind === 'ADMIN_DISCOUNT' && p.action === 'add_adjustment').changes).toEqual({
+        total_amount_minor: { from: 12_900_000, to: 12_000_000 },
+      });
+    });
+
+    it('BQ-3. pricing lines and verifications are append-only in the database', async () => {
+      const b = await confirmed();
+      const withLine = await asManager(request(http).post(url(`/bookings/${b.id}/adjustments`))).send({
+        kind: 'EXTRA_CHARGE',
+        description: 'DJ',
+        amount_minor: 1000,
+      });
+      const lineId = withLine.body.adjustments[0].id;
+      await expect(
+        prisma.banquetBookingAdjustment.update({ where: { id: lineId }, data: { amount_minor: 1 } }),
+      ).rejects.toThrow(/append-only/);
+      await expect(prisma.banquetBookingAdjustment.delete({ where: { id: lineId } })).rejects.toThrow(/append-only/);
+
+      const paid = await asManager(request(http).post(url(`/bookings/${b.id}/payments`))).send({
+        amount_minor: 1000,
+        currency: 'INR',
+      });
+      await asVerifier(request(http).post(url(`/payments/${paid.body.payment.id}/verify`))).send({});
+      const v = await prisma.banquetPaymentVerification.findFirstOrThrow({ where: { payment_id: paid.body.payment.id } });
+      await expect(
+        prisma.banquetPaymentVerification.update({ where: { id: v.id }, data: { note: 'x' } }),
+      ).rejects.toThrow(/append-only/);
+    });
+
+    it('BQ-4. money already taken can never be exceeded by a price change — even outside the service', async () => {
+      const b = await confirmed(); // total 10,000,000
+      await asManager(request(http).post(url(`/bookings/${b.id}/payments`))).send({
+        amount_minor: 9_000_000,
+        currency: 'INR',
+      });
+      const discount = await asManager(request(http).post(url(`/bookings/${b.id}/adjustments`))).send({
+        kind: 'ADMIN_DISCOUNT',
+        description: 'Too generous',
+        amount_minor: 2_000_000,
+      });
+      expect(discount.status).toBe(409);
+      const shrink = await asManager(request(http).patch(url(`/bookings/${b.id}`))).send({ guest_count: 40 });
+      expect(shrink.status).toBe(409);
+
+      const after = await asManager(request(http).get(url(`/bookings/${b.id}`)));
+      expect(after.body.total_amount_minor).toBe(10_000_000);
+      expect(after.body.adjustments).toHaveLength(0);
+      expect(after.body.paid_minor).toBe(9_000_000);
+      expect(after.body.payment_status).toBe('PARTIAL');
+
+      await expect(
+        prisma.banquetBooking.update({ where: { id: b.id }, data: { total_amount_minor: 1 } }),
+      ).rejects.toThrow(/banquet_bookings_paid_within_total/);
+    });
+
+    it('BQ-5. a started event can only be changed with banquet.booking.edit_past', async () => {
+      const past = await asManager(request(http).post(url('/bookings'))).send({
+        customer_id: customerA.id,
+        hall_id: hallA.id,
+        package_id: packageA.id,
+        guest_count: 50,
+        starts_at: '2020-02-01T06:00:00.000Z',
+        ends_at: '2020-02-01T12:00:00.000Z',
+      });
+      expect(past.status).toBe(201);
+      await asManager(request(http).post(url(`/bookings/${past.body.id}/confirm`))).send();
+
+      const clerkEdit = await asClerk(request(http).patch(url(`/bookings/${past.body.id}`))).send({ guest_count: 55 });
+      expect(clerkEdit.status).toBe(403);
+      const clerkCharge = await asClerk(request(http).post(url(`/bookings/${past.body.id}/adjustments`))).send({
+        kind: 'EXTRA_CHARGE',
+        description: 'Late add',
+        amount_minor: 100,
+      });
+      expect(clerkCharge.status).toBe(403);
+
+      const unchanged = await asManager(request(http).get(url(`/bookings/${past.body.id}`)));
+      expect(unchanged.body.guest_count).toBe(50);
+      expect(unchanged.body.adjustments).toHaveLength(0);
+
+      const managerEdit = await asManager(request(http).patch(url(`/bookings/${past.body.id}`))).send({ guest_count: 55 });
+      expect(managerEdit.status).toBe(200);
+      const audit = await prisma.auditLog.findFirst({
+        where: { entity_id: past.body.id, entity_type: 'BANQUET_BOOKING' },
+        orderBy: { created_at: 'desc' },
+      });
+      expect(audit!.payload).toMatchObject({
+        action: 'update_booking',
+        past_event: true,
+        changes: { guest_count: { from: 50, to: 55 } },
+      });
+
+      // A future event needs nothing extra.
+      const future = await createBooking();
+      expect((await asClerk(request(http).patch(url(`/bookings/${future.body.id}`))).send({ guest_count: 81 })).status).toBe(200);
+    });
+
+    it('BQ-6. payments carry a server-decided stage and are verified by a second person, once', async () => {
+      const b = await confirmed();
+      const advance = await asManager(request(http).post(url(`/bookings/${b.id}/payments`))).send({
+        amount_minor: 2_500_000,
+        currency: 'INR',
+        kind: 'FINAL',
+      });
+      expect(advance.status).toBe(400); // the stage is not client-supplied
+
+      const first = await asManager(request(http).post(url(`/bookings/${b.id}/payments`))).send({
+        amount_minor: 2_500_000,
+        currency: 'INR',
+      });
+      expect(first.body.payment.kind).toBe('ADVANCE');
+      const final = await asManager(request(http).post(url(`/bookings/${b.id}/payments`))).send({
+        amount_minor: 7_500_000,
+        currency: 'INR',
+      });
+      expect(final.body.payment.kind).toBe('FINAL');
+
+      const own = await asManager(request(http).post(url(`/payments/${first.body.payment.id}/verify`))).send({});
+      expect(own.status).toBe(403);
+
+      const noPermission = await as(
+        request(http).post(url(`/payments/${first.body.payment.id}/verify`)),
+        tokenViewerA,
+        companyA.id,
+        branchA.id,
+      ).send({});
+      expect(noPermission.status).toBe(403);
+
+      const verified = await asVerifier(request(http).post(url(`/payments/${first.body.payment.id}/verify`))).send({
+        note: 'Matched bank statement',
+      });
+      expect(verified.status).toBe(201);
+      expect(verified.body.verification).toMatchObject({ note: 'Matched bank statement' });
+
+      const twice = await asVerifier(request(http).post(url(`/payments/${first.body.payment.id}/verify`))).send({});
+      expect(twice.status).toBe(409);
+
+      // Other tenants cannot even find it.
+      const crossCompany = await as(
+        request(http).post(url(`/payments/${first.body.payment.id}/verify`)),
+        tokenManagerB,
+        companyB.id,
+        branchB.id,
+      ).send({});
+      expect(crossCompany.status).toBe(404);
+
+      const detail = await asManager(request(http).get(url(`/bookings/${b.id}`)));
+      expect(detail.body.payment_status).toBe('PAID');
+      expect(detail.body.payments.map((p: any) => [p.kind, p.verification !== null])).toEqual([
+        ['ADVANCE', true],
+        ['FINAL', false],
+      ]);
+    });
+
+    it('BQ-7. simultaneous verifications of one payment: exactly one is recorded', async () => {
+      const b = await confirmed();
+      const paid = await asManager(request(http).post(url(`/bookings/${b.id}/payments`))).send({
+        amount_minor: 1000,
+        currency: 'INR',
+      });
+      const results = await Promise.all(
+        Array.from({ length: 5 }, () =>
+          asVerifier(request(http).post(url(`/payments/${paid.body.payment.id}/verify`))).send({}),
+        ),
+      );
+      expect(results.filter((r) => r.status === 201)).toHaveLength(1);
+      expect(results.filter((r) => r.status === 409)).toHaveLength(4);
+      expect(await prisma.banquetPaymentVerification.count({ where: { payment_id: paid.body.payment.id } })).toBe(1);
+    });
+
+    it('BQ-8. list tabs, payment state, search and payment-date filters', async () => {
+      const hall = await prisma.banquetHall.create({ data: { branch_id: branchA.id, name: 'Sapphire Filter Hall', capacity: 300 } });
+      const draft = await createBooking({ hall_id: hall.id });
+      const owing = await confirmed({ hall_id: hall.id });
+      const settled = await confirmed({ hall_id: hall.id });
+      await asManager(request(http).post(url(`/bookings/${settled.id}/payments`))).send({
+        amount_minor: settled.total_amount_minor,
+        currency: 'INR',
+        paid_at: '2026-03-15T10:00:00.000Z',
+      });
+      await asManager(request(http).post(url(`/bookings/${owing.id}/payments`))).send({
+        amount_minor: 1000,
+        currency: 'INR',
+        paid_at: '2026-02-10T10:00:00.000Z',
+      });
+
+      const ids = async (query: Record<string, unknown>) => {
+        const res = await asManager(request(http).get(url('/bookings'))).query({ hall_id: hall.id, limit: 100, ...query });
+        expect(res.status).toBe(200);
+        return res.body.data.map((b: any) => b.id).sort();
+      };
+      expect(await ids({ tab: 'drafts' })).toEqual([draft.body.id]);
+      expect(await ids({ tab: 'upcoming' })).toEqual([owing.id, settled.id].sort());
+      expect(await ids({ payment: 'pending' })).toEqual([owing.id]);
+      expect(await ids({ payment: 'paid' })).toEqual([settled.id]);
+      expect(await ids({ payment: 'unverified' })).toEqual([owing.id, settled.id].sort());
+      expect(await ids({ date_field: 'final', from: '2026-03-01T00:00:00.000Z', to: '2026-03-31T23:59:59.000Z' })).toEqual([settled.id]);
+      expect(await ids({ date_field: 'advance', from: '2026-02-01T00:00:00.000Z', to: '2026-02-28T23:59:59.000Z' })).toEqual([owing.id]);
+
+      const bySearch = await asManager(request(http).get(url('/bookings'))).query({ q: 'sapphire filter', limit: 100 });
+      expect(bySearch.body.data.map((b: any) => b.id).sort()).toEqual([draft.body.id, owing.id, settled.id].sort());
+      const byCustomer = await asManager(request(http).get(url('/bookings'))).query({ q: 'meera', hall_id: hall.id });
+      expect(byCustomer.body.meta.total).toBe(3);
+
+      expect((await asManager(request(http).get(url('/bookings'))).query({ tab: 'everything' })).status).toBe(400);
+      expect((await asManager(request(http).get(url('/bookings'))).query({ payment: 'refunded' })).status).toBe(400);
+    });
+
+    it('BQ-9. hall slots and the hall × slot × date availability calendar', async () => {
+      const hall = await asManager(request(http).post(url('/halls'))).send({ name: 'Slot Hall', capacity: 150 });
+      expect(hall.status).toBe(201);
+      const slot = (body: Record<string, unknown>) =>
+        asManager(request(http).post(url(`/halls/${hall.body.id}/slots`))).send(body);
+      expect((await slot({ name: 'Lunch', start_time: '11:00', end_time: '16:00' })).status).toBe(201);
+      expect((await slot({ name: 'Dinner', start_time: '19:00', end_time: '23:30', position: 1 })).status).toBe(201);
+      expect((await slot({ name: 'Lunch', start_time: '12:00', end_time: '15:00' })).status).toBe(409);
+      expect((await slot({ name: 'Zero', start_time: '12:00', end_time: '12:00' })).status).toBe(400);
+      expect((await slot({ name: 'Bad', start_time: '25:00', end_time: '12:00' })).status).toBe(400);
+      expect((await asClerk(request(http).post(url(`/halls/${hall.body.id}/slots`))).send({ name: 'X', start_time: '01:00', end_time: '02:00' })).status).toBe(403);
+
+      const listed = await asManager(request(http).get(url(`/halls/${hall.body.id}`)));
+      expect(listed.body.slots.map((s: any) => s.name)).toEqual(['Lunch', 'Dinner']);
+
+      const day = '2028-03-15';
+      const calendar = async () => {
+        const res = await asManager(request(http).get(url('/availability'))).query({ from: day, to: day, hall_id: hall.body.id });
+        expect(res.status).toBe(200);
+        return res.body.days[0].halls[0];
+      };
+      let h = await calendar();
+      expect(h.state).toBe('available');
+      expect(h.slots.map((s: any) => s.state)).toEqual(['available', 'available']);
+      // Branch-local (Asia/Kolkata) 11:00 is 05:30Z.
+      expect(h.slots[0].starts_at).toBe('2028-03-15T05:30:00.000Z');
+
+      const lunch = await confirmed({ hall_id: hall.body.id, starts_at: '2028-03-15T05:30:00.000Z', ends_at: '2028-03-15T10:30:00.000Z' });
+      const dinner = await createBooking({ hall_id: hall.body.id, starts_at: '2028-03-15T13:30:00.000Z', ends_at: '2028-03-15T18:00:00.000Z' });
+      h = await calendar();
+      expect(h.slots.map((s: any) => s.state)).toEqual(['booked', 'tentative']);
+      expect(h.state).toBe('partial');
+      expect(h.slots[0].booking_ids).toEqual([lunch.id]);
+      expect(JSON.stringify(h)).not.toContain('Meera');
+
+      await asManager(request(http).post(url(`/bookings/${dinner.body.id}/confirm`))).send();
+      h = await calendar();
+      expect(h.state).toBe('full');
+
+      // The calendar reserves nothing: the exclusion constraint still decides.
+      const competing = await createBooking({ hall_id: hall.body.id, starts_at: '2028-03-15T06:00:00.000Z', ends_at: '2028-03-15T08:00:00.000Z' });
+      const lost = await asManager(request(http).post(url(`/bookings/${competing.body.id}/confirm`))).send();
+      expect(lost.status).toBe(409);
+
+      const q = (query: Record<string, string>) => asManager(request(http).get(url('/availability'))).query(query);
+      expect((await q({ from: '2028-03-15', to: '2028-06-15' })).status).toBe(400);
+      expect((await q({ from: '2028-03-15', to: '2028-03-14' })).status).toBe(400);
+      expect((await q({ from: '2028-02-30', to: '2028-03-01' })).status).toBe(400);
+      expect((await q({ from: '2028-03-15', to: '2028-03-15', hall_id: hallA2.id })).status).toBe(404);
+      const whole = await q({ from: '2028-03-15', to: '2028-03-21' });
+      expect(whole.body.days).toHaveLength(7);
+      expect(whole.body.days[0].halls.every((x: any) => x.hall_id !== hallOff.id)).toBe(true);
+    });
+
+    it('BQ-10. a hall with upcoming confirmed events cannot be deactivated; renaming keeps booking snapshots', async () => {
+      const hall = await prisma.banquetHall.create({ data: { branch_id: branchA.id, name: 'Guarded Hall', capacity: 200 } });
+      const b = await confirmed({ hall_id: hall.id });
+      expect(b.hall_name).toBe('Guarded Hall');
+
+      const deactivate = await asManager(request(http).patch(url(`/halls/${hall.id}`))).send({ status: 'INACTIVE' });
+      expect(deactivate.status).toBe(409);
+
+      const renamed = await asManager(request(http).patch(url(`/halls/${hall.id}`))).send({ name: 'Renamed Hall' });
+      expect(renamed.status).toBe(200);
+      const booking = await asManager(request(http).get(url(`/bookings/${b.id}`)));
+      expect(booking.body.hall_name).toBe('Guarded Hall');
+      const audit = await prisma.auditLog.findFirst({ where: { entity_id: hall.id }, orderBy: { created_at: 'desc' } });
+      expect((audit!.payload as any).changes).toEqual({ name: { from: 'Guarded Hall', to: 'Renamed Hall' } });
+
+      await asManager(request(http).post(url(`/bookings/${b.id}/cancel`))).send({ reason: 'Client postponed' });
+      expect((await asManager(request(http).patch(url(`/halls/${hall.id}`))).send({ status: 'INACTIVE' })).status).toBe(200);
+    });
+
+    it('BQ-11. cancellation keeps the reason and every payment already taken', async () => {
+      const b = await confirmed();
+      await asManager(request(http).post(url(`/bookings/${b.id}/payments`))).send({ amount_minor: 5000, currency: 'INR' });
+      const cancelled = await asManager(request(http).post(url(`/bookings/${b.id}/cancel`))).send({ reason: 'Venue changed' });
+      expect(cancelled.status).toBe(200);
+      expect(cancelled.body.cancellation_reason).toBe('Venue changed');
+      expect(cancelled.body.payments).toHaveLength(1);
+      expect(cancelled.body.paid_minor).toBe(5000);
+      expect((await asManager(request(http).post(url(`/bookings/${b.id}/cancel`))).send({ reason: '' })).status).toBe(400);
+    });
+
+    it('BQ-12. the staff kitchen board shows who an event is for only to banquet.view holders', async () => {
+      await confirmed({ starts_at: '2027-09-02T06:00:00.000Z', ends_at: '2027-09-02T10:00:00.000Z' });
+      const board = (token: string) =>
+        as(request(http).get(url('/kds/board')), token, companyA.id, branchA.id).query({ service_date: '2027-09-02' });
+
+      const viewer = await board(tokenViewerA);
+      expect(viewer.status).toBe(200);
+      expect(viewer.body.bookings[0].customer_name).toBe('Meera Iyer');
+
+      const cook = await board(tokenCook);
+      expect(cook.status).toBe(200);
+      expect(cook.body.bookings.length).toBeGreaterThan(0);
+      expect(cook.body.bookings.every((x: any) => x.customer_name === null)).toBe(true);
+      expect(JSON.stringify(cook.body)).not.toContain('Meera');
+    });
+
+    it('BQ-13. the bill carries the branch GSTIN and FSSAI licence', async () => {
+      await prisma.branch.update({
+        where: { id: branchA.id },
+        data: { gstin: '27AAPFU0939F1ZV', fssai_license: '11521999000123', banquet_gst_rate_bps: 500 },
+      });
+      const b = await createBooking();
+      const bill = await asManager(request(http).get(url(`/bookings/${b.body.id}/bill`)));
+      expect(bill.status).toBe(200);
+      expect(bill.body.branch).toEqual({
+        id: branchA.id,
+        name: 'Alpha Main',
+        timezone: 'Asia/Kolkata',
+        gstin: '27AAPFU0939F1ZV',
+        fssai_license: '11521999000123',
+      });
+      expect(bill.body.booking.invoice.cgst_minor).toBe(250_000);
+
+      await expect(
+        prisma.branch.update({ where: { id: branchA.id }, data: { gstin: 'not-a-gstin' } }),
+      ).rejects.toThrow(/branches_gstin_shape/);
+    });
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
   // AUDIT
   // ═══════════════════════════════════════════════════════════════════════════
 
   describe('Audit', () => {
     it('BU-1. every banquet mutation is audited with company, branch and actor', async () => {
+      // Only this test's records: earlier tests act as other users too.
+      const startedAt = new Date();
       const draft = await createBooking();
       await asManager(request(http).patch(`/api/v1/banquet/bookings/${draft.body.id}`)).send({ guest_count: 90 });
       await asManager(request(http).post(`/api/v1/banquet/bookings/${draft.body.id}/confirm`)).send();
@@ -1465,7 +1965,11 @@ describe('Phase 8 Banquet Management (e2e)', () => {
       ).send();
 
       const audits = await prisma.auditLog.findMany({
-        where: { entity_type: { startsWith: 'BANQUET' }, branch_id: branchA.id },
+        where: {
+          entity_type: { startsWith: 'BANQUET' },
+          branch_id: branchA.id,
+          created_at: { gte: startedAt },
+        },
       });
       const actions = new Set(audits.map((a) => (a.payload as any).action));
       for (const expected of [

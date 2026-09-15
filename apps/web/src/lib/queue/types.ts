@@ -12,7 +12,7 @@
  *                     shared with screens hanging in the dining room.
  */
 
-export type QueueTokenStatus = 'WAITING' | 'CALLED' | 'SEATED' | 'NO_SHOW' | 'CANCELLED';
+export type QueueTokenStatus = 'SCHEDULED' | 'WAITING' | 'CALLED' | 'SEATED' | 'NO_SHOW' | 'CANCELLED';
 
 export type QueueTokenEventType =
   | 'REGISTERED'
@@ -21,7 +21,10 @@ export type QueueTokenEventType =
   | 'NO_SHOW'
   | 'CANCELLED'
   | 'TABLE_ASSIGNED'
-  | 'TABLE_RELEASED';
+  | 'TABLE_RELEASED'
+  | 'SKIPPED'
+  | 'CHECKED_IN'
+  | 'ACTIVATED';
 
 export interface QueueTokenPublic {
   id: string;
@@ -43,6 +46,9 @@ export interface QueueTokenPublic {
   seated_at: string | null;
   cancelled_at: string | null;
   no_show_at: string | null;
+  /** When a called party was last skipped back to the list. */
+  skipped_at: string | null;
+  skip_count: number;
   created_at: string;
   updated_at: string;
 }
@@ -66,6 +72,7 @@ export interface QueueTokenDetail extends QueueToken {
 }
 
 export interface QueueCounts {
+  scheduled: number;
   waiting: number;
   called: number;
   seated: number;
@@ -73,12 +80,22 @@ export interface QueueCounts {
   cancelled: number;
 }
 
+/** Guests still waiting, split — Total Waiting / Adults / Kids. */
+export interface QueueWaitingTotals {
+  parties: number;
+  adults: number;
+  kids: number;
+}
+
 /** GET /queue-tokens/board — the podium's working view. */
 export interface QueueBoard {
   branch_id: string;
   service_date: string;
   counts: QueueCounts;
+  totals: QueueWaitingTotals;
   next_waiting: QueueToken | null;
+  /** Advance bookings not yet surfaced, soonest first. */
+  scheduled: QueueToken[];
   waiting: QueueToken[];
   called: QueueToken[];
   seated: QueueToken[];
@@ -89,9 +106,29 @@ export interface QueueAdminBoard {
   branch_id: string;
   service_date: string;
   counts: QueueCounts;
+  totals: QueueWaitingTotals;
   waiting: QueueTokenPublic[];
   called: QueueTokenPublic[];
   seated: QueueTokenPublic[];
+}
+
+/** GET /queue-tokens/table-availability — occupancy on any service date. */
+export interface QueueTableAvailability {
+  id: string;
+  label: string;
+  capacity: number;
+  zone: string | null;
+  status: 'ACTIVE' | 'INACTIVE';
+  occupied_by: { token_id: string; token_number: number; service_date: string } | null;
+}
+
+/** GET /queue-tokens/:id/contact — fetched on demand, audited server-side. */
+export interface QueueTokenContact {
+  token_id: string;
+  customer_name: string;
+  phone: string;
+  tel_url: string;
+  whatsapp_url: string | null;
 }
 
 export interface QueueDisplayEntry {
@@ -107,6 +144,8 @@ export interface QueueCustomerBoard {
   now_serving: QueueDisplayEntry[];
   recently_seated: QueueDisplayEntry[];
   waiting_count: number;
+  /** Token numbers still waiting, in calling order. Numbers only. */
+  waiting_tokens: number[];
 }
 
 export interface Paginated<T> {
@@ -144,12 +183,16 @@ export const QUEUE_EVENTS = [
   'queue.token.cancelled',
   'queue.token.table_assigned',
   'queue.token.table_released',
+  'queue.token.skipped',
+  'queue.token.checked_in',
+  'queue.token.activated',
 ] as const;
 
 export type QueueEventName = (typeof QUEUE_EVENTS)[number];
 
 /** Human labels, used by every queue surface. */
 export const STATUS_LABEL: Record<QueueTokenStatus, string> = {
+  SCHEDULED: 'Scheduled',
   WAITING: 'Waiting',
   CALLED: 'Called',
   SEATED: 'Seated',

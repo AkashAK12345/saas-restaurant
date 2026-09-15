@@ -62,6 +62,8 @@ const token = (over: Partial<QueueToken> = {}): QueueToken => ({
   seated_at: null,
   cancelled_at: null,
   no_show_at: null,
+  skipped_at: null,
+  skip_count: 0,
   created_at: '2026-09-07T10:00:00.000Z',
   updated_at: '2026-09-07T10:00:00.000Z',
   ...over,
@@ -78,8 +80,10 @@ describe('Queue management view', () => {
     board = {
       branch_id: 'br-1',
       service_date: '2026-09-07',
-      counts: { waiting: 1, called: 1, seated: 1, no_show: 2, cancelled: 3 },
+      counts: { scheduled: 0, waiting: 1, called: 1, seated: 1, no_show: 2, cancelled: 3 },
+      totals: { parties: 1, adults: 2, kids: 0 },
       next_waiting: token({ id: 'w-1', token_number: 5 }),
+      scheduled: [],
       waiting: [token({ id: 'w-1', token_number: 5, customer: { id: 'c-1', name: 'Asha Rao' } })],
       called: [token({ id: 'c-9', token_number: 4, status: 'CALLED', called_at: '2026-09-07T10:05:00.000Z' })],
       seated: [
@@ -103,6 +107,26 @@ describe('Queue management view', () => {
     expect(screen.getByText('Asha Rao')).toBeTruthy();
     expect(screen.getByText('Table T1')).toBeTruthy();
     expect(screen.getByText('2026-09-07')).toBeTruthy();
+  });
+
+  it('shows advance bookings in their own section, only when there are any', () => {
+    render(<QueuePage />);
+    expect(screen.queryByRole('heading', { name: 'Scheduled' })).toBeNull();
+  });
+
+  it('lists a scheduled booking with its time', () => {
+    board = {
+      ...board!,
+      counts: { ...board!.counts, scheduled: 1 },
+      scheduled: [token({ id: 'sc-1', token_number: 8, status: 'SCHEDULED', advance_booking_at: '2026-09-07T13:30:00.000Z' })],
+    };
+    render(<QueuePage />);
+    expect(screen.getByRole('heading', { name: 'Scheduled' })).toBeTruthy();
+    expect(screen.getByText(/Booked for/)).toBeTruthy();
+    // The count is split across <strong>1</strong> and " scheduled".
+    expect(
+      screen.getByText((_, el) => el?.tagName === 'SPAN' && /^1\s*scheduled$/.test(el.textContent ?? '')),
+    ).toBeTruthy();
   });
 
   it('labels a party with no customer as a walk-in', () => {

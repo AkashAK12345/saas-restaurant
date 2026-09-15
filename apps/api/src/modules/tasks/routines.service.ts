@@ -1,4 +1,4 @@
-import { ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import {
   AuditEventType,
   BranchStatus,
@@ -8,12 +8,15 @@ import {
   RoutineStatus,
 } from '@samco/database';
 import { PrismaService } from '../../core/database/prisma.service.js';
-import { toBranchLocal } from '../../common/scheduler/branch-time.js';
+import { branchLocalToInstant, toBranchLocal } from '../../common/scheduler/branch-time.js';
 import { AuditLogService } from '../audit-logs/audit-logs.service.js';
 import type { Paginated } from '../../common/pagination.dto.js';
 import type { TaskActorContext } from './tasks-context.js';
-import type { RoutineView } from './tasks-views.js';
-import type { CreateRoutineDto, UpdateRoutineDto } from './tasks.dto.js';
+import type { RoutineLogView, RoutineView } from './tasks-views.js';
+import type { CreateRoutineDto, RoutineLogQueryDto, UpdateRoutineDto } from './tasks.dto.js';
+
+/** Longest window the transposed log answers at once (two months of columns). */
+export const ROUTINE_LOG_MAX_DAYS = 62;
 import {
   dueOccurrences,
   nextOccurrence,
@@ -90,6 +93,77 @@ export class RoutinesService {
     };
   }
 
+  /**
+   * The routine's transposed log for a branch-local date window: one row per
+   * checklist item, one column per occurrence date, each cell done/not and the
+   * answer given. Built from the tasks the routine generated, whose checklists
+   * are snapshots — so a later template edit never rewrites past columns.
+   */
+  async log(branchId: string, routineId: string, query: RoutineLogQueryDto): Promise<RoutineLogView> {
+    const isDate = (v: string) => {
+      const d = new Date(`${v}T00:00:00.000Z`);
+      return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === v;
+    };
+    if (!isDate(query.from) || !isDate(query.to)) {
+      throw new BadRequestException('from and to must be real calendar dates');
+    }
+    if (query.to < query.from) throw new BadRequestException('to must not be before from');
+    const days = Math.round((Date.parse(query.to) - Date.parse(query.from)) / 86_400_000) + 1;
+    if (days > ROUTINE_LOG_MAX_DAYS) {
+      throw new BadRequestException(`Ask for at most ${ROUTINE_LOG_MAX_DAYS} days at a time`);
+    }
+
+    const routine = await this.prisma.taskRoutine.findFirst({
+      where: { id: routineId, branch_id: branchId },
+      select: { id: true, name: true },
+    });
+    if (!routine) throw new NotFoundException();
+
+    const tasks = await this.prisma.task.findMany({
+      where: {
+        branch_id: branchId,
+        routine_id: routineId,
+        routine_occurrence_date: {
+          gte: new Date(`${query.from}T00:00:00.000Z`),
+          lte: new Date(`${query.to}T00:00:00.000Z`),
+        },
+      },
+      include: { checklist: { orderBy: { position: 'asc' } } },
+      orderBy: [{ routine_occurrence_date: 'asc' }, { id: 'asc' }],
+    });
+
+    const rows = new Map<string, RoutineLogView['rows'][number]>();
+    const occurrences: RoutineLogView['occurrences'] = [];
+    for (const task of tasks) {
+      const date = task.routine_occurrence_date!.toISOString().slice(0, 10);
+      occurrences.push({
+        date,
+        task_id: task.id,
+        status: task.status,
+        completed_at: task.completed_at,
+        late: !!(task.completed_at && task.due_at && task.completed_at > task.due_at),
+      });
+      for (const item of task.checklist) {
+        // Rows are keyed by label and kind: the same question asked on
+        // different days lines up in one row.
+        const key = `${item.kind}:${item.label}`;
+        const row = rows.get(key) ?? { label: item.label, kind: item.kind, cells: {} };
+        row.cells[date] = { done: item.is_done, value: item.value };
+        rows.set(key, row);
+      }
+    }
+
+    return {
+      routine_id: routine.id,
+      routine_name: routine.name,
+      from: query.from,
+      to: query.to,
+      dates: occurrences.map((o) => o.date),
+      occurrences,
+      rows: [...rows.values()],
+    };
+  }
+
   async get(routineId: string, branchId: string): Promise<RoutineView> {
     const routine = await this.prisma.taskRoutine.findFirst({
       where: { id: routineId, branch_id: branchId },
@@ -103,6 +177,7 @@ export class RoutinesService {
 
   async create(ctx: TaskActorContext, dto: CreateRoutineDto): Promise<RoutineView> {
     const weekdays = this.validateSchedule(dto.frequency, dto.weekdays);
+    this.validateDeadline(dto.time_of_day, dto.due_time ?? null);
 
     try {
       return await this.prisma.$transaction(async (tx) => {
@@ -122,6 +197,7 @@ export class RoutinesService {
             description: dto.description ?? null,
             frequency: dto.frequency,
             time_of_day: dto.time_of_day,
+            due_time: dto.due_time ?? null,
             weekdays,
             priority: dto.priority ?? 'NORMAL',
             checklist_template_id: dto.checklist_template_id ?? null,
@@ -155,11 +231,19 @@ export class RoutinesService {
         ? this.validateSchedule(frequency, dto.weekdays ?? current.weekdays)
         : undefined;
 
+    if (dto.time_of_day !== undefined || dto.due_time !== undefined) {
+      this.validateDeadline(
+        dto.time_of_day ?? current.time_of_day,
+        dto.due_time !== undefined ? dto.due_time : current.due_time,
+      );
+    }
+
     const data: Prisma.TaskRoutineUncheckedUpdateInput = {};
     if (dto.name !== undefined) data.name = dto.name;
     if (dto.description !== undefined) data.description = dto.description;
     if (dto.frequency !== undefined) data.frequency = dto.frequency;
     if (dto.time_of_day !== undefined) data.time_of_day = dto.time_of_day;
+    if (dto.due_time !== undefined) data.due_time = dto.due_time;
     if (weekdays !== undefined) data.weekdays = weekdays;
     if (dto.priority !== undefined) data.priority = dto.priority;
 
@@ -302,7 +386,12 @@ export class RoutinesService {
             title: routine.name,
             description: routine.description,
             priority: routine.priority,
-            due_at: scheduledFor,
+            // The submission deadline when the routine has one (same
+            // branch-local day); otherwise the moment it became due.
+            due_at:
+              routine.due_time && routine.branch
+                ? branchLocalToInstant(occurrenceDate, routine.due_time, routine.branch.timezone)
+                : scheduledFor,
             assignee_id: routine.default_assignee_id,
             source: 'ROUTINE',
             routine_id: routine.id,
@@ -316,9 +405,13 @@ export class RoutinesService {
         await this.auditLogService.create(
           {
             // A scheduler run has no human actor; a request-time run does.
+            // The tenant is always recorded: a task created by the scheduler
+            // belongs to a company and branch like any other, and an audit
+            // row without them is invisible to that company's audit log.
             actorUserId: ctx.actorUserId ?? null,
-            companyId: ctx.actorUserId ? ctx.companyId : null,
-            branchId: ctx.actorUserId ? ctx.branchId : null,
+            companyId: ctx.companyId,
+            branchId: ctx.branchId,
+            systemEvent: !ctx.actorUserId,
             eventType: AuditEventType.CREATE,
             entityType: 'TASK',
             entityId: createdTask.id,
@@ -327,6 +420,7 @@ export class RoutinesService {
               routine_id: routine.id,
               occurrence_date: occurrenceDate,
               scheduled_for: scheduledFor.toISOString(),
+              trigger: ctx.actorUserId ? 'manual' : 'scheduler',
             },
           },
           tx,
@@ -374,6 +468,16 @@ export class RoutinesService {
   }
 
   // ── Internals ─────────────────────────────────────────────────────────────
+
+  /**
+   * A deadline sits on the occurrence's own branch-local day, at or after the
+   * moment the occurrence appears. "HH:MM" strings compare in clock order.
+   */
+  private validateDeadline(timeOfDay: string, dueTime: string | null): void {
+    if (dueTime !== null && dueTime < timeOfDay) {
+      throw new ConflictException('The deadline cannot be earlier than the routine’s time of day');
+    }
+  }
 
   /** WEEKLY needs at least one weekday; DAILY must not carry any. */
   private validateSchedule(frequency: RoutineFrequency, weekdays?: number[]): number[] {
@@ -438,6 +542,7 @@ export class RoutinesService {
       description: routine.description,
       frequency: routine.frequency,
       time_of_day: routine.time_of_day,
+      due_time: routine.due_time,
       weekdays: routine.weekdays,
       priority: routine.priority,
       status: routine.status,

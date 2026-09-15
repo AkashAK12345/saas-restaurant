@@ -17,7 +17,7 @@ import {
   TableStatus,
 } from '@samco/database';
 import { PrismaService } from '../../core/database/prisma.service.js';
-import { AuditLogService } from '../audit-logs/audit-logs.service.js';
+import { AuditFailurePolicy, AuditLogService } from '../audit-logs/audit-logs.service.js';
 import {
   EVENT_BROKER,
   type EventBroker,
@@ -27,6 +27,7 @@ import { RealtimeChannel } from '../../common/realtime/channels.js';
 import type { Paginated } from '../../common/pagination.dto.js';
 import {
   INITIAL_QUEUE_STATUS,
+  INITIAL_SCHEDULED_STATUS,
   InvalidQueueTransitionError,
   assertTransition,
 } from './queue-state-machine.js';
@@ -48,8 +49,11 @@ import type {
   QueueCounts,
   QueueCustomerBoard,
   QueueDisplayEntry,
+  QueueTableAvailability,
+  QueueTokenContactView,
   QueueTokenPublicView,
   QueueTokenView,
+  QueueWaitingTotals,
 } from './queue-views.js';
 
 export type {
@@ -73,6 +77,17 @@ export interface QueueActorContext {
 }
 
 /**
+ * The context history and audit rows are written in. A null actor is the
+ * platform acting on the tenant's behalf (the scheduled-booking job).
+ */
+type QueueWriteContext = Pick<QueueActorContext, 'companyId' | 'branchId'> & {
+  actorUserId: string | null;
+};
+
+/** How many due scheduled bookings one activation run takes. */
+const ACTIVATION_BATCH = 200;
+
+/**
  * Realtime event types published on the `queue` channel. Consumers (podium,
  * customer display, admin display) key on these strings; the payload is
  * always a QueueTokenView.
@@ -85,6 +100,9 @@ export const QUEUE_EVENT_TYPES = {
   CANCELLED: 'queue.token.cancelled',
   TABLE_ASSIGNED: 'queue.token.table_assigned',
   TABLE_RELEASED: 'queue.token.table_released',
+  SKIPPED: 'queue.token.skipped',
+  CHECKED_IN: 'queue.token.checked_in',
+  ACTIVATED: 'queue.token.activated',
 } as const;
 
 const AUDIT_ENTITY = 'QUEUE_TOKEN';
@@ -170,29 +188,60 @@ export class QueueTokensService {
    */
   async board(branchId: string, serviceDate?: string): Promise<QueueBoard> {
     const { date, rows } = await this.boardRows(branchId, serviceDate);
-    const waiting = rows.filter((t) => t.status === QueueTokenStatus.WAITING);
+    const waiting = this.waitingInOrder(rows);
     return {
       branch_id: branchId,
       service_date: date,
       counts: this.countByStatus(rows),
-      // First-come, first-served: the lowest-numbered waiting token is next.
+      totals: this.waitingTotals(waiting),
+      // First-come, first-served, with skipped parties behind the rest.
       next_waiting: waiting.length ? this.toView(waiting[0]) : null,
+      scheduled: rows
+        .filter((t) => t.status === QueueTokenStatus.SCHEDULED)
+        .sort((a, b) => (a.advance_booking_at?.getTime() ?? 0) - (b.advance_booking_at?.getTime() ?? 0))
+        .map((t) => this.toView(t)),
       waiting: waiting.map((t) => this.toView(t)),
       called: this.calledFirstOut(rows).map((t) => this.toView(t)),
       seated: rows.filter((t) => t.status === QueueTokenStatus.SEATED).map((t) => this.toView(t)),
     };
   }
 
+  /**
+   * The waiting list in calling order. A party that has never been called is
+   * served in token order; a party that was called and SKIPPED goes behind
+   * all of those, in the order they were skipped. Without this a skipped
+   * party — still holding the lowest number — would be "next" again at once.
+   */
+  private waitingInOrder(rows: TokenRecord[]): TokenRecord[] {
+    return rows
+      .filter((t) => t.status === QueueTokenStatus.WAITING)
+      .sort((a, b) => {
+        const as = a.skipped_at?.getTime() ?? null;
+        const bs = b.skipped_at?.getTime() ?? null;
+        if (as === null && bs === null) return a.token_number - b.token_number;
+        if (as === null) return -1;
+        if (bs === null) return 1;
+        return as - bs;
+      });
+  }
+
+  private waitingTotals(waiting: TokenRecord[]): QueueWaitingTotals {
+    return waiting.reduce(
+      (acc, t) => ({ parties: acc.parties + 1, adults: acc.adults + t.adults, kids: acc.kids + t.kids }),
+      { parties: 0, adults: 0, kids: 0 },
+    );
+  }
+
   /** Admin display: the same picture as the podium board, minus customer names. */
   async adminBoard(branchId: string, serviceDate?: string): Promise<QueueAdminBoard> {
     const { date, rows } = await this.boardRows(branchId, serviceDate);
+    const waiting = this.waitingInOrder(rows);
     return {
       branch_id: branchId,
       service_date: date,
       counts: this.countByStatus(rows),
-      waiting: rows
-        .filter((t) => t.status === QueueTokenStatus.WAITING)
-        .map((t) => this.toPublicView(t)),
+      totals: this.waitingTotals(waiting),
+      waiting: waiting.map((t) => this.toPublicView(t)),
       called: this.calledFirstOut(rows).map((t) => this.toPublicView(t)),
       seated: rows
         .filter((t) => t.status === QueueTokenStatus.SEATED)
@@ -221,6 +270,79 @@ export class QueueTokensService {
         .slice(0, CUSTOMER_BOARD_RECENT)
         .map(entry),
       waiting_count: rows.filter((t) => t.status === QueueTokenStatus.WAITING).length,
+      waiting_tokens: this.waitingInOrder(rows).map((t) => t.token_number),
+    };
+  }
+
+  /**
+   * Every table of the branch and whether a SEATED party holds it now — on
+   * ANY service date. Deriving free tables from today's board alone would
+   * offer a table still held by a party seated before midnight.
+   */
+  async tableAvailability(branchId: string): Promise<QueueTableAvailability[]> {
+    const [tables, holders] = await Promise.all([
+      this.prisma.table.findMany({ where: { branch_id: branchId }, orderBy: { label: 'asc' }, take: 500 }),
+      this.prisma.queueToken.findMany({
+        where: { branch_id: branchId, status: QueueTokenStatus.SEATED, assigned_table_id: { not: null } },
+        select: { id: true, token_number: true, service_date: true, assigned_table_id: true },
+      }),
+    ]);
+    const byTable = new Map(holders.map((h) => [h.assigned_table_id!, h]));
+    return tables.map((t) => {
+      const holder = byTable.get(t.id);
+      return {
+        id: t.id,
+        label: t.label,
+        capacity: t.capacity,
+        zone: t.zone,
+        status: t.status,
+        occupied_by: holder
+          ? {
+              token_id: holder.id,
+              token_number: holder.token_number,
+              service_date: serviceDateFromDb(holder.service_date),
+            }
+          : null,
+      };
+    });
+  }
+
+  /**
+   * A party's phone number, for a call or a WhatsApp message.
+   *
+   * The caller has already been proved to hold queue.call at the branch AND
+   * customers.view in the company (see the controller). Reading a phone
+   * number is recorded in the audit trail — without the number itself.
+   */
+  async contact(ctx: QueueActorContext, tokenId: string): Promise<QueueTokenContactView> {
+    const token = await this.prisma.queueToken.findFirst({
+      where: { id: tokenId, branch_id: ctx.branchId, company_id: ctx.companyId },
+      select: { id: true, token_number: true, customer: { select: { name: true, phone: true } } },
+    });
+    if (!token) throw new NotFoundException();
+    const phone = token.customer?.phone ?? null;
+    if (!token.customer || !phone) {
+      throw new NotFoundException('No contact number is recorded for this party');
+    }
+
+    await this.auditLogService.create({
+      actorUserId: ctx.actorUserId,
+      companyId: ctx.companyId,
+      branchId: ctx.branchId,
+      eventType: AuditEventType.SECURITY,
+      entityType: AUDIT_ENTITY,
+      entityId: token.id,
+      payload: { action: 'view_contact', token_number: token.token_number },
+      failurePolicy: AuditFailurePolicy.STRICT,
+    });
+
+    const digits = phone.replace(/\D/g, '');
+    return {
+      token_id: token.id,
+      customer_name: token.customer.name,
+      phone,
+      tel_url: `tel:${phone.startsWith('+') ? '+' : ''}${digits}`,
+      whatsapp_url: phone.startsWith('+') && digits.length >= 8 ? `https://wa.me/${digits}` : null,
     };
   }
 
@@ -232,9 +354,10 @@ export class QueueTokensService {
   }
 
   private countByStatus(rows: TokenRecord[]): QueueCounts {
-    const counts: QueueCounts = { waiting: 0, called: 0, seated: 0, no_show: 0, cancelled: 0 };
+    const counts: QueueCounts = { scheduled: 0, waiting: 0, called: 0, seated: 0, no_show: 0, cancelled: 0 };
     for (const t of rows) {
-      if (t.status === QueueTokenStatus.WAITING) counts.waiting++;
+      if (t.status === QueueTokenStatus.SCHEDULED) counts.scheduled++;
+      else if (t.status === QueueTokenStatus.WAITING) counts.waiting++;
       else if (t.status === QueueTokenStatus.CALLED) counts.called++;
       else if (t.status === QueueTokenStatus.SEATED) counts.seated++;
       else if (t.status === QueueTokenStatus.NO_SHOW) counts.no_show++;
@@ -307,6 +430,17 @@ export class QueueTokensService {
       }
       const serviceDate = currentServiceDate(branch.timezone);
 
+      // A queue token belongs to ONE service date, and its number restarts
+      // daily. A booking for a later day would sit on today's board and
+      // surface on a day whose board never shows it, so it is refused here
+      // and belongs to that day's own queue (or to Banquet).
+      if (advanceBookingAt !== null && this.localDateOf(advanceBookingAt, branch.timezone) !== serviceDate) {
+        throw new BadRequestException(
+          'An advance booking must be for later today at this branch; book another day on that day',
+        );
+      }
+      const initialStatus = advanceBookingAt !== null ? INITIAL_SCHEDULED_STATUS : INITIAL_QUEUE_STATUS;
+
       let customerId: string | null = null;
       if (dto.customer_id !== undefined) {
         // Scoped by id AND company in one query — a customer of another
@@ -331,7 +465,7 @@ export class QueueTokensService {
           customer_id: customerId,
           service_date: serviceDateToDb(serviceDate),
           token_number: tokenNumber,
-          status: INITIAL_QUEUE_STATUS,
+          status: initialStatus,
           adults,
           kids,
           party_size: partySize,
@@ -343,7 +477,7 @@ export class QueueTokensService {
       await this.recordEvent(tx, ctx, created.id, {
         eventType: QueueTokenEventType.REGISTERED,
         previousStatus: null,
-        newStatus: INITIAL_QUEUE_STATUS,
+        newStatus: initialStatus,
       });
       await this.audit(tx, ctx, AuditEventType.CREATE, created.id, {
         action: 'register',
@@ -446,6 +580,119 @@ export class QueueTokensService {
       return updated;
     });
     return this.emit(ctx, QUEUE_EVENT_TYPES.CALLED, token);
+  }
+
+  /**
+   * CALLED ─▶ WAITING. The party did not respond; it goes back on the list,
+   * behind everyone not yet called (see waitingInOrder), and the skip is
+   * counted so repeated skipping is visible.
+   */
+  async skip(ctx: QueueActorContext, tokenId: string): Promise<QueueTokenView> {
+    const token = await this.mutate(async (tx) => {
+      const current = await this.loadForMutation(tx, ctx, tokenId);
+      const updated = await this.applyStatus(tx, current, QueueTokenStatus.WAITING, {
+        called_at: null,
+        skipped_at: new Date(),
+        skip_count: { increment: 1 },
+      });
+      await this.recordEvent(tx, ctx, updated.id, {
+        eventType: QueueTokenEventType.SKIPPED,
+        previousStatus: current.status,
+        newStatus: updated.status,
+      });
+      await this.audit(tx, ctx, AuditEventType.UPDATE, updated.id, {
+        action: 'skip',
+        token_number: updated.token_number,
+        previous_status: current.status,
+        new_status: updated.status,
+        skip_count: updated.skip_count,
+      });
+      return updated;
+    });
+    return this.emit(ctx, QUEUE_EVENT_TYPES.SKIPPED, token);
+  }
+
+  /** SCHEDULED ─▶ WAITING, when a booked party arrives before its time. */
+  async checkIn(ctx: QueueActorContext, tokenId: string): Promise<QueueTokenView> {
+    const token = await this.mutate(async (tx) => {
+      const current = await this.loadForMutation(tx, ctx, tokenId);
+      const updated = await this.applyStatus(tx, current, QueueTokenStatus.WAITING, {});
+      await this.recordEvent(tx, ctx, updated.id, {
+        eventType: QueueTokenEventType.CHECKED_IN,
+        previousStatus: current.status,
+        newStatus: updated.status,
+      });
+      await this.audit(tx, ctx, AuditEventType.UPDATE, updated.id, {
+        action: 'check_in',
+        token_number: updated.token_number,
+        previous_status: current.status,
+        new_status: updated.status,
+      });
+      return updated;
+    });
+    return this.emit(ctx, QUEUE_EVENT_TYPES.CHECKED_IN, token);
+  }
+
+  /**
+   * Surface every scheduled booking whose time has come: SCHEDULED ─▶ WAITING.
+   *
+   * What the scheduler job calls. Safe to run concurrently and repeatedly —
+   * on several replicas at once — because each token moves through the same
+   * status-conditional update every other operation uses: a second runner
+   * finds the row no longer SCHEDULED, updates nothing, and records nothing.
+   * A booking checked in by staff moments earlier is left alone the same way.
+   */
+  async activateDueScheduled(now: Date = new Date()): Promise<{ activated: number }> {
+    const due = await this.prisma.queueToken.findMany({
+      where: {
+        status: QueueTokenStatus.SCHEDULED,
+        advance_booking_at: { lte: now },
+        branch: { status: BranchStatus.ACTIVE, company: { status: 'ACTIVE' } },
+      },
+      select: { id: true, company_id: true, branch_id: true },
+      orderBy: { advance_booking_at: 'asc' },
+      take: ACTIVATION_BATCH,
+    });
+
+    let activated = 0;
+    for (const row of due) {
+      const ctx: QueueWriteContext = { companyId: row.company_id, branchId: row.branch_id, actorUserId: null };
+      const token = await this.prisma.$transaction(async (tx) => {
+        const { count } = await tx.queueToken.updateMany({
+          where: { id: row.id, status: QueueTokenStatus.SCHEDULED },
+          data: { status: QueueTokenStatus.WAITING },
+        });
+        if (count !== 1) return null;
+        const updated = await this.reload(tx, row.id);
+        await this.recordEvent(tx, ctx, updated.id, {
+          eventType: QueueTokenEventType.ACTIVATED,
+          previousStatus: QueueTokenStatus.SCHEDULED,
+          newStatus: QueueTokenStatus.WAITING,
+        });
+        await this.audit(tx, ctx, AuditEventType.UPDATE, updated.id, {
+          action: 'activate_scheduled',
+          token_number: updated.token_number,
+          previous_status: QueueTokenStatus.SCHEDULED,
+          new_status: QueueTokenStatus.WAITING,
+        });
+        return updated;
+      });
+      if (token) {
+        activated++;
+        this.emit(ctx, QUEUE_EVENT_TYPES.ACTIVATED, token);
+      }
+    }
+    return { activated };
+  }
+
+  /** The branch-local calendar date an instant falls on, as YYYY-MM-DD. */
+  private localDateOf(instant: Date, timeZone: string): string {
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(instant);
   }
 
   /** CALLED ─▶ SEATED, optionally assigning a table in the same transaction. */
@@ -722,7 +969,7 @@ export class QueueTokensService {
 
   private async recordEvent(
     tx: Prisma.TransactionClient,
-    ctx: QueueActorContext,
+    ctx: QueueWriteContext,
     tokenId: string,
     input: EventInput,
   ): Promise<void> {
@@ -741,7 +988,7 @@ export class QueueTokensService {
   /** Audit payloads carry identifiers and statuses only — never customer names or phones. */
   private audit(
     tx: Prisma.TransactionClient,
-    ctx: QueueActorContext,
+    ctx: QueueWriteContext,
     eventType: AuditEventType,
     tokenId: string,
     payload: Record<string, unknown>,
@@ -751,6 +998,8 @@ export class QueueTokensService {
         actorUserId: ctx.actorUserId,
         companyId: ctx.companyId,
         branchId: ctx.branchId,
+        // No actor means the platform acted (the scheduled-booking job).
+        systemEvent: ctx.actorUserId === null,
         eventType,
         entityType: AUDIT_ENTITY,
         entityId: tokenId,
@@ -766,7 +1015,7 @@ export class QueueTokensService {
    * the payload must be safe for a dining-room screen (see queue-views.ts).
    * The caller still gets the full view for its own permission-gated response.
    */
-  private emit(ctx: QueueActorContext, type: string, token: TokenRecord): QueueTokenView {
+  private emit(ctx: QueueWriteContext, type: string, token: TokenRecord): QueueTokenView {
     const scope: RealtimeScope = {
       companyId: ctx.companyId,
       branchId: ctx.branchId,
@@ -806,6 +1055,8 @@ export class QueueTokensService {
       seated_at: token.seated_at,
       cancelled_at: token.cancelled_at,
       no_show_at: token.no_show_at,
+      skipped_at: token.skipped_at,
+      skip_count: token.skip_count,
       created_at: token.created_at,
       updated_at: token.updated_at,
     };

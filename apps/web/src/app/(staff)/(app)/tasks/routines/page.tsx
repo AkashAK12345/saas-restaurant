@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAppContext } from '@/lib/context/app-context-provider';
 import { hasPermission } from '@/lib/auth/permissions';
@@ -27,6 +28,7 @@ export default function RoutinesPage() {
     [selectedCompanyId, selectedBranchId],
   );
   const mayManage = hasPermission(branchPermissions, 'tasks.routine.manage');
+  const mayViewLog = hasPermission(branchPermissions, 'tasks.reports.view');
 
   const [routines, setRoutines] = useState<Routine[]>([]);
   const [checklists, setChecklists] = useState<ChecklistTemplate[]>([]);
@@ -44,6 +46,7 @@ export default function RoutinesPage() {
     name: '',
     frequency: 'DAILY' as 'DAILY' | 'WEEKLY',
     time_of_day: '09:00',
+    due_time: '',
     weekdays: [] as number[],
     checklist_template_id: '',
   });
@@ -100,8 +103,10 @@ export default function RoutinesPage() {
         : [...f.weekdays, day].sort((a, b) => a - b),
     }));
 
+  // "HH:MM" strings compare in clock order; the server applies the same rule.
+  const deadlineValid = !form.due_time || form.due_time >= form.time_of_day;
   const formValid =
-    form.name.trim() && (form.frequency === 'DAILY' || form.weekdays.length > 0);
+    form.name.trim() && (form.frequency === 'DAILY' || form.weekdays.length > 0) && deadlineValid;
 
   if (loading) {
     return (
@@ -173,12 +178,20 @@ export default function RoutinesPage() {
                 name: form.name.trim(),
                 frequency: form.frequency,
                 time_of_day: form.time_of_day,
+                ...(form.due_time ? { due_time: form.due_time } : {}),
                 ...(form.frequency === 'WEEKLY' ? { weekdays: form.weekdays } : {}),
                 ...(form.checklist_template_id
                   ? { checklist_template_id: form.checklist_template_id }
                   : {}),
               });
-              setForm({ name: '', frequency: 'DAILY', time_of_day: '09:00', weekdays: [], checklist_template_id: '' });
+              setForm({
+                name: '',
+                frequency: 'DAILY',
+                time_of_day: '09:00',
+                due_time: '',
+                weekdays: [],
+                checklist_template_id: '',
+              });
               setShowForm(false);
             }, 'Routine created.');
           }}
@@ -221,6 +234,24 @@ export default function RoutinesPage() {
                 onChange={(e) => setForm({ ...form, time_of_day: e.target.value })}
               />
             </div>
+          </div>
+
+          <div>
+            <label className={styles.label} htmlFor="r-due">
+              Deadline (optional, branch local time)
+            </label>
+            <input
+              id="r-due"
+              type="time"
+              className={styles.input}
+              value={form.due_time}
+              onChange={(e) => setForm({ ...form, due_time: e.target.value })}
+            />
+            <p className={styles.hint}>
+              {deadlineValid
+                ? 'When set, each generated task is due by this time the same day; missing it counts as overdue.'
+                : 'The deadline cannot be earlier than the routine’s time.'}
+            </p>
           </div>
 
           {form.frequency === 'WEEKLY' ? (
@@ -294,11 +325,19 @@ export default function RoutinesPage() {
                 {r.frequency === 'DAILY'
                   ? `Every day at ${r.time_of_day}`
                   : `${r.weekdays.map((d) => WEEKDAY_LABEL[d]).join(', ')} at ${r.time_of_day}`}
+                {r.due_time ? `, due by ${r.due_time}` : ''}
                 {r.checklist_name ? ` · ${r.checklist_name}` : ''}
                 {r.default_assignee ? ` · ${r.default_assignee.name}` : ''}
               </div>
               {r.next_occurrence_at ? (
                 <div className={styles.meta}>Next: {when(r.next_occurrence_at)}</div>
+              ) : null}
+              {mayViewLog ? (
+                <div className={styles.meta}>
+                  <Link href={`/tasks/routines/${r.id}/log`} className={styles.link}>
+                    Compliance log
+                  </Link>
+                </div>
               ) : null}
               {mayManage ? (
                 <div className={styles.actions}>

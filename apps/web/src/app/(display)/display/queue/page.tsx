@@ -7,6 +7,7 @@ import { useDisplayQueue } from '@/lib/display/use-display-queue';
 import { PairingForm } from '@/components/display/pairing-form';
 import { CustomerQueueBoard } from '@/components/display/customer-queue-board';
 import { AdminQueueBoard } from '@/components/display/admin-queue-board';
+import { DisplayControls, readDensity, type DisplayDensity } from '@/components/display/display-controls';
 import styles from '@/components/display/display.module.css';
 
 /**
@@ -26,6 +27,7 @@ export default function QueueDisplayPage() {
   const [session, setSession] = useState<DeviceSession | null>(null);
   const [ready, setReady] = useState(false);
   const [branch, setBranch] = useState<DisplayBranch | null>(null);
+  const [density, setDensity] = useState<DisplayDensity>('comfortable');
 
   // localStorage is only readable on the client; resolve after mount so the
   // page can be statically rendered.
@@ -35,6 +37,7 @@ export default function QueueDisplayPage() {
       const stored = deviceSession.get();
       if (cancelled) return;
       setSession(stored);
+      setDensity(readDensity());
       setReady(true);
     })();
     return () => {
@@ -117,27 +120,18 @@ export default function QueueDisplayPage() {
 
   const stale = queue.stream !== 'open';
 
-  if (queue.adminBoard) {
-    return (
-      <AdminQueueBoard
-        board={queue.adminBoard}
-        branchName={branch?.name}
-        stream={queue.stream}
-        stale={stale}
-      />
-    );
-  }
+  const board = queue.adminBoard ? (
+    <AdminQueueBoard board={queue.adminBoard} branchName={branch?.name} stream={queue.stream} stale={stale} />
+  ) : queue.customerBoard ? (
+    <CustomerQueueBoard board={queue.customerBoard} branchName={branch?.name} stream={queue.stream} stale={stale} />
+  ) : null;
 
-  if (queue.customerBoard) {
-    return (
-      <CustomerQueueBoard
-        board={queue.customerBoard}
-        branchName={branch?.name}
-        stream={queue.stream}
-        stale={stale}
-      />
-    );
-  }
+  if (!board) return null;
 
-  return null;
+  return (
+    <div className={density === 'compact' ? styles.compact : undefined}>
+      <DisplayControls density={density} onDensityChange={setDensity} />
+      {board}
+    </div>
+  );
 }

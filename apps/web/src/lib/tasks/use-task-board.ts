@@ -27,7 +27,18 @@ export interface TaskBoardState {
   refresh: () => Promise<void>;
 }
 
-export function useTaskBoard(ctx: TaskContext | null, filters: TaskFilters): TaskBoardState {
+/**
+ * `live` is false for a viewer who may only see their OWN tasks: the branch
+ * stream carries everyone's task events, so the API refuses them a ticket.
+ * Rather than dial a stream that can only be refused — which used to leave the
+ * board saying "Reconnecting…" forever — such a board reads over REST alone
+ * and reports its stream as closed.
+ */
+export function useTaskBoard(
+  ctx: TaskContext | null,
+  filters: TaskFilters,
+  { live = true }: { live?: boolean } = {},
+): TaskBoardState {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [total, setTotal] = useState(0);
   const [loaded, setLoaded] = useState(false);
@@ -69,6 +80,17 @@ export function useTaskBoard(ctx: TaskContext | null, filters: TaskFilters): Tas
     activeKey.current = key;
     if (!scope) return;
 
+    if (!live) {
+      let cancelled = false;
+      void (async () => {
+        await refresh();
+        if (!cancelled) setStream('closed');
+      })();
+      return () => {
+        cancelled = true;
+      };
+    }
+
     let cancelled = false;
     let coalesce: ReturnType<typeof setTimeout> | null = null;
 
@@ -99,7 +121,7 @@ export function useTaskBoard(ctx: TaskContext | null, filters: TaskFilters): Tas
       if (coalesce) clearTimeout(coalesce);
       client.close();
     };
-  }, [scope, key, refresh]);
+  }, [scope, key, refresh, live]);
 
   return {
     tasks,

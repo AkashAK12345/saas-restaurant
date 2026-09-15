@@ -1130,7 +1130,296 @@ describe('Phase 9 Tasks & Routines (e2e)', () => {
   // CONCURRENCY
   // ═══════════════════════════════════════════════════════════════════════════
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // CONFORMANCE: own-task visibility, ownership, comments, deadlines
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  describe('Own-task visibility (tasks.view_own)', () => {
+    let ownUser: any;
+    let tokenOwn: string;
+    const asOwn = (req: request.Test) => as(req, tokenOwn, companyA.id, branchA.id);
+
+    beforeAll(async () => {
+      const names = ['tasks.view_own', 'tasks.create', 'tasks.update', 'tasks.start'];
+      const perms = await prisma.permission.findMany({ where: { name: { in: names } } });
+      expect(perms).toHaveLength(names.length);
+      const role = await prisma.role.create({ data: { company_id: companyA.id, name: 'Own Tasks Only' } });
+      await prisma.rolePermission.createMany({
+        data: perms.map((p) => ({ role_id: role.id, permission_id: p.id })),
+      });
+      ownUser = await prisma.user.create({
+        data: {
+          email: 't-own-a@test.com',
+          password_hash: await bcrypt.hash(PASSWORD, SALT),
+          first_name: 'Olu',
+          last_name: 'Own',
+        },
+      });
+      await prisma.companyMembership.create({
+        data: { user_id: ownUser.id, company_id: companyA.id, status: MembershipStatus.ACTIVE },
+      });
+      await prisma.userBranchRole.create({
+        data: { user_id: ownUser.id, branch_id: branchA.id, role_id: role.id },
+      });
+      tokenOwn = (
+        await request(http).post('/api/v1/auth/login').send({ email: 't-own-a@test.com', password: PASSWORD })
+      ).body.accessToken;
+    });
+
+    it('TO-1. sees tasks assigned to them or raised by them, and nothing else', async () => {
+      const mine = (await createTask({ title: 'Assigned to own', assignee_id: ownUser.id })).body;
+      const others = (await createTask({ title: 'Somebody else’s' })).body;
+      const raised = (await asOwn(request(http).post('/api/v1/tasks')).send({ title: 'Raised by own' })).body;
+      expect(raised.created_by).toBe(ownUser.id);
+
+      const list = await asOwn(request(http).get('/api/v1/tasks?limit=100'));
+      expect(list.status).toBe(200);
+      const ids = list.body.data.map((t: any) => t.id);
+      expect(ids).toContain(mine.id);
+      expect(ids).toContain(raised.id);
+      expect(ids).not.toContain(others.id);
+      expect(list.body.meta.total).toBe(list.body.data.length);
+
+      // Not by id either: 404, exactly as for a task in another branch.
+      expect((await asOwn(request(http).get(`/api/v1/tasks/${others.id}`))).status).toBe(404);
+      expect((await asOwn(request(http).get(`/api/v1/tasks/${mine.id}`))).status).toBe(200);
+    });
+
+    it('TO-2. cannot act on a task they cannot see, even with the action permission', async () => {
+      const others = (await createTask()).body;
+      const mine = (await createTask({ assignee_id: ownUser.id })).body;
+      expect((await asOwn(request(http).post(`/api/v1/tasks/${others.id}/start`)).send()).status).toBe(404);
+      expect((await asOwn(request(http).post(`/api/v1/tasks/${others.id}/comments`)).send({ body: 'hi' })).status).toBe(404);
+      expect((await asOwn(request(http).get(`/api/v1/tasks/${others.id}/comments`))).status).toBe(404);
+      expect((await asOwn(request(http).post(`/api/v1/tasks/${mine.id}/start`)).send()).status).toBe(200);
+      const after = await prisma.task.findUnique({ where: { id: others.id } });
+      expect(after!.status).toBe('PENDING');
+    });
+
+    it('TO-3. is refused the branch-wide task stream, whose events name other people’s tasks', async () => {
+      expect((await asOwn(request(http).post('/api/v1/realtime/tickets/tasks'))).status).toBe(403);
+    });
+
+    it('TO-4. holding neither read key still sees nothing', async () => {
+      const res = await as(request(http).get('/api/v1/tasks'), tokenStrangerA, companyA.id, branchA.id);
+      expect(res.status).toBe(403);
+    });
+  });
+
+  describe('Ownership and reassignment', () => {
+    it('TW-1. records who raised a task, and routine tasks have no human creator', async () => {
+      const task = (await createTask()).body;
+      expect(task.created_by).toBe(managerA.id);
+      expect(task.creator).toEqual({ id: managerA.id, name: 'Mina Manager' });
+      expect(task.reassignment_count).toBe(0);
+    });
+
+    it('TW-2. counts only real reassignments and records the assigner and the previous assignee', async () => {
+      const task = (await createTask({ assignee_id: workerA.id })).body;
+      expect(task.assigned_by).toBe(managerA.id);
+      expect(task.assigned_at).toBeTruthy();
+
+      const assign = (assignee_id: string | null) =>
+        asManager(request(http).post(`/api/v1/tasks/${task.id}/assign`)).send({ assignee_id });
+
+      expect((await assign(viewerA.id)).body.reassignment_count).toBe(1); // worker → viewer
+      expect((await assign(viewerA.id)).body.reassignment_count).toBe(1); // same person: not a move
+      const cleared = (await assign(null)).body;
+      expect(cleared.reassignment_count).toBe(1); // clearing is not a reassignment
+      expect(cleared.assigned_by).toBeNull();
+      expect((await assign(workerA.id)).body.reassignment_count).toBe(1); // from nobody: not a move
+
+      const audits = await prisma.auditLog.findMany({
+        where: { entity_type: 'TASK', entity_id: task.id },
+        orderBy: { created_at: 'asc' },
+      });
+      const reassign = audits.find((a) => (a.payload as any).action === 'reassign_task');
+      expect(reassign).toBeDefined();
+      expect(reassign!.payload).toMatchObject({ previous_assignee_id: workerA.id, assignee_id: viewerA.id });
+    });
+
+    it('TW-3. lists the assignable staff of THIS branch, by name only, behind tasks.assign', async () => {
+      const res = await asManager(request(http).get('/api/v1/tasks/assignable-staff'));
+      expect(res.status).toBe(200);
+      const ids = res.body.map((s: any) => s.id);
+      expect(ids).toEqual(expect.arrayContaining([workerA.id, viewerA.id, managerA.id]));
+      expect(ids).not.toContain(branchOnlyA.id); // works at the second branch only
+      expect(ids).not.toContain(managerB.id);
+      expect(JSON.stringify(res.body)).not.toContain('@test.com');
+
+      const worker = await as(request(http).get('/api/v1/tasks/assignable-staff'), tokenWorkerA, companyA.id, branchA.id);
+      expect(worker.status).toBe(403);
+    });
+  });
+
+  describe('Edits and comments', () => {
+    it('TD-1. an edit is audited with old and new values and published as task.updated', async () => {
+      const task = (await createTask({ title: 'Before', priority: 'LOW' })).body;
+      const wait = new Promise<Array<{ type: string }>>((resolve) => {
+        const sub = broker
+          .subscribe({ companyId: companyA.id, branchId: branchA.id, channel: RealtimeChannel.TASKS })
+          .subscribe((e: any) => {
+            sub.unsubscribe();
+            resolve([e]);
+          });
+      });
+      const res = await asManager(request(http).patch(`/api/v1/tasks/${task.id}`)).send({
+        title: 'After',
+        priority: 'LOW', // unchanged: not recorded as a change
+      });
+      expect(res.status).toBe(200);
+      expect((await wait)[0].type).toBe(TASK_EVENT_TYPES.UPDATED);
+
+      const audit = await prisma.auditLog.findFirst({
+        where: { entity_type: 'TASK', entity_id: task.id, payload: { path: ['action'], equals: 'update_task' } },
+      });
+      expect(audit!.payload).toMatchObject({
+        changed_fields: ['title'],
+        changes: { title: { from: 'Before', to: 'After' } },
+      });
+    });
+
+    it('TD-2. comments are added, listed in order, and cannot be blank', async () => {
+      const task = (await createTask()).body;
+      const post = (token: string, body: unknown) =>
+        as(request(http).post(`/api/v1/tasks/${task.id}/comments`), token, companyA.id, branchA.id).send(body);
+
+      const first = await post(tokenWorkerA, { body: '  Fridge was warm, reported to chef  ' });
+      expect(first.status).toBe(201);
+      expect(first.body.body).toBe('Fridge was warm, reported to chef');
+      expect(first.body.author).toEqual({ id: workerA.id, name: 'Wes Worker' });
+      expect((await post(tokenManagerA, { body: 'Thanks' })).status).toBe(201);
+
+      expect((await post(tokenWorkerA, { body: '   ' })).status).toBe(400);
+      expect((await post(tokenWorkerA, { body: 'x'.repeat(2001) })).status).toBe(400);
+      // Commenting is working on the task: tasks.view alone is not enough.
+      expect((await post(tokenViewerA, { body: 'Nope' })).status).toBe(403);
+
+      const list = await asManager(request(http).get(`/api/v1/tasks/${task.id}/comments`));
+      expect(list.status).toBe(200);
+      expect(list.body.map((c: any) => c.body)).toEqual(['Fridge was warm, reported to chef', 'Thanks']);
+    });
+
+    it('TD-3. a comment is append-only at the database level', async () => {
+      const task = (await createTask()).body;
+      const comment = (
+        await asManager(request(http).post(`/api/v1/tasks/${task.id}/comments`)).send({ body: 'Immutable' })
+      ).body;
+      await expect(
+        prisma.taskComment.update({ where: { id: comment.id }, data: { body: 'Rewritten' } }),
+      ).rejects.toThrow(/append-only/);
+      await expect(prisma.taskComment.delete({ where: { id: comment.id } })).rejects.toThrow(/append-only/);
+    });
+
+    it('TD-4. comments on another branch’s task are not reachable', async () => {
+      // Written directly: managerA holds no role at the second branch.
+      const other = await prisma.task.create({
+        data: { company_id: companyA.id, branch_id: branchA2.id, title: 'Second branch task' },
+      });
+      expect((await asManager(request(http).get(`/api/v1/tasks/${other.id}/comments`))).status).toBe(404);
+      expect(
+        (await asManager(request(http).post(`/api/v1/tasks/${other.id}/comments`)).send({ body: 'Leak?' })).status,
+      ).toBe(404);
+    });
+  });
+
+  describe('Query flags', () => {
+    it('TF-1. overdue=false and unassigned=false do not filter as if they were true', async () => {
+      // Guarantee both kinds exist, so a wrong filter changes the totals.
+      await createTask({ due_at: new Date(Date.now() - 3_600_000).toISOString() });
+      await createTask({ assignee_id: workerA.id });
+
+      const total = async (qs: string) => {
+        const res = await asManager(request(http).get(`/api/v1/tasks${qs}`));
+        expect(res.status).toBe(200);
+        return res.body.meta.total as number;
+      };
+      const all = await total('');
+
+      // "false" means no filter — before the fix the string read as true.
+      expect(await total('?overdue=false')).toBe(all);
+      expect(await total('?unassigned=false')).toBe(all);
+      // "true" still filters.
+      expect(await total('?overdue=true')).toBeLessThan(all);
+      expect(await total('?unassigned=true')).toBeLessThan(all);
+
+      expect((await asManager(request(http).get('/api/v1/tasks?overdue=maybe'))).status).toBe(400);
+    });
+  });
+
+  describe('Routine deadlines', () => {
+    it('TR-D1. a routine with a deadline generates a task due at that branch-local time', async () => {
+      const routine = (
+        await asManager(request(http).post('/api/v1/routines')).send({
+          name: `Deadline ${Date.now()}`,
+          frequency: 'DAILY',
+          time_of_day: '00:01',
+          due_time: '23:59',
+        })
+      ).body;
+      expect(routine.due_time).toBe('23:59');
+
+      await asManager(request(http).post('/api/v1/routines/materialize')).send();
+      const today = branchLocalDate(new Date(), 'Asia/Kolkata');
+      const task = await prisma.task.findFirst({
+        where: { routine_id: routine.id, routine_occurrence_date: new Date(`${today}T00:00:00.000Z`) },
+      });
+      expect(task).not.toBeNull();
+      // 23:59 IST on the occurrence day.
+      expect(task!.due_at!.toISOString()).toBe(new Date(`${today}T18:29:00.000Z`).toISOString());
+      expect(task!.created_by).toBeNull();
+
+      // Scheduler/manual materialization is attributed to the tenant.
+      const audit = await prisma.auditLog.findFirst({ where: { entity_type: 'TASK', entity_id: task!.id } });
+      expect(audit!.company_id).toBe(companyA.id);
+      expect(audit!.branch_id).toBe(branchA.id);
+    });
+
+    it('TR-D2. a deadline earlier than the routine time, or malformed, is refused', async () => {
+      const early = await asManager(request(http).post('/api/v1/routines')).send({
+        name: `Early ${Date.now()}`,
+        frequency: 'DAILY',
+        time_of_day: '09:00',
+        due_time: '08:00',
+      });
+      expect(early.status).toBe(409);
+      const bad = await asManager(request(http).post('/api/v1/routines')).send({
+        name: `Bad ${Date.now()}`,
+        frequency: 'DAILY',
+        time_of_day: '09:00',
+        due_time: '9am',
+      });
+      expect(bad.status).toBe(400);
+    });
+  });
+
   describe('Concurrency', () => {
+    it('TX-6. completing while a required item is unticked never completes an incomplete checklist', async () => {
+      for (let round = 0; round < 5; round++) {
+        const task = (await createTask({ checklist_template_id: checklistA.id })).body;
+        const required = task.checklist.filter((i: any) => i.is_required);
+        for (const item of required) {
+          await asManager(request(http).patch(`/api/v1/tasks/${task.id}/checklist/${item.id}`)).send({ is_done: true });
+        }
+
+        const [untick, complete] = await Promise.all([
+          asManager(request(http).patch(`/api/v1/tasks/${task.id}/checklist/${required[0].id}`)).send({ is_done: false }),
+          asManager(request(http).post(`/api/v1/tasks/${task.id}/complete`)).send(),
+        ]);
+        expect([200, 409]).toContain(untick.status);
+        expect([200, 409]).toContain(complete.status);
+
+        const after = await prisma.task.findUnique({ where: { id: task.id }, include: { checklist: true } });
+        const undone = after!.checklist.filter((i) => i.is_required && !i.is_done);
+        if (after!.status === 'COMPLETED') {
+          expect(undone).toHaveLength(0);
+          expect(untick.status).toBe(409);
+        } else {
+          expect(complete.status).toBe(409);
+        }
+      }
+    });
+
     it('TX-1. ten simultaneous materializations produce ONE task per occurrence', async () => {
       const routine = (
         await asManager(request(http).post('/api/v1/routines')).send({
@@ -1173,17 +1462,29 @@ describe('Phase 9 Tasks & Routines (e2e)', () => {
       expect(after!.status).toBe('COMPLETED');
     });
 
-    it('TX-3. competing start and cancel leave one deterministic final state', async () => {
+    it('TX-3. competing start and cancel leave a final state consistent with what succeeded', async () => {
+      // IN_PROGRESS → CANCELLED is a legal move, so this race has THREE honest
+      // outcomes, depending on commit order:
+      //   start wins the read, cancel loses it   → 200/409, IN_PROGRESS
+      //   cancel wins the read, start loses it   → 409/200, CANCELLED
+      //   start commits, then cancel reads it    → 200/200, CANCELLED
+      // What must never happen is a response that disagrees with the row.
       const task = (await createTask()).body;
       const [start, cancel] = await Promise.all([
         asManager(request(http).post(`/api/v1/tasks/${task.id}/start`)).send(),
         asManager(request(http).post(`/api/v1/tasks/${task.id}/cancel`)).send(),
       ]);
-      const ok = [start, cancel].filter((r) => r.status === 200);
-      expect(ok).toHaveLength(1);
+      expect([200, 409]).toContain(start.status);
+      expect([200, 409]).toContain(cancel.status);
+      expect([start.status, cancel.status]).toContain(200);
 
       const after = await prisma.task.findUnique({ where: { id: task.id } });
-      expect(['IN_PROGRESS', 'CANCELLED']).toContain(after!.status);
+      if (cancel.status === 200) {
+        expect(after!.status).toBe('CANCELLED');
+      } else {
+        expect(start.status).toBe(200);
+        expect(after!.status).toBe('IN_PROGRESS');
+      }
     });
 
     it('TX-4. competing assignments settle on one of them, never a mix', async () => {
@@ -1219,6 +1520,190 @@ describe('Phase 9 Tasks & Routines (e2e)', () => {
   // ═══════════════════════════════════════════════════════════════════════════
   // AUDIT
   // ═══════════════════════════════════════════════════════════════════════════
+
+  describe('Typed checklist answers, reference library and the transposed log', () => {
+    let typed: any;
+    const answer = (taskId: string, itemId: string, body: Record<string, unknown>, token = tokenManagerA) =>
+      as(request(http).patch(`/api/v1/tasks/${taskId}/checklist/${itemId}`), token, companyA.id, branchA.id).send(body);
+
+    beforeAll(async () => {
+      typed = (
+        await as(request(http).post('/api/v1/checklists'), tokenManagerA, companyA.id).send({
+          name: 'EOD typed',
+          items: [
+            { label: 'Meter reading', kind: 'NUMBER' },
+            { label: 'Reception', kind: 'RATING' },
+            { label: 'Closing note', kind: 'TEXT', is_required: false },
+            { label: 'Lights off' },
+          ],
+        })
+      ).body;
+    });
+
+    it('TY-1. a template carries each item’s kind into the task it creates', async () => {
+      expect(typed.items.map((i: any) => i.kind)).toEqual(['NUMBER', 'RATING', 'TEXT', 'CHECK']);
+      const task = (await createTask({ checklist_template_id: typed.id })).body;
+      expect(task.checklist.map((i: any) => [i.kind, i.value])).toEqual([
+        ['NUMBER', null],
+        ['RATING', null],
+        ['TEXT', null],
+        ['CHECK', null],
+      ]);
+    });
+
+    it('TY-2. an answer is what marks a typed item done, stored in canonical form', async () => {
+      const task = (await createTask({ checklist_template_id: typed.id })).body;
+      const [meter, rating, note, lights] = task.checklist;
+
+      expect((await answer(task.id, meter.id, { is_done: true })).status).toBe(400);
+      expect((await answer(task.id, meter.id, { is_done: true, value: '12.3456' })).status).toBe(400);
+      expect((await answer(task.id, rating.id, { is_done: true, value: '6' })).status).toBe(400);
+      expect((await answer(task.id, lights.id, { is_done: true, value: 'yes' })).status).toBe(400);
+
+      const saved = await answer(task.id, meter.id, { is_done: true, value: '001234.50' });
+      expect(saved.status).toBe(200);
+      expect(saved.body.checklist[0]).toMatchObject({ is_done: true, value: '1234.5' });
+
+      // Changing the answer on a done item replaces it.
+      const changed = await answer(task.id, meter.id, { is_done: true, value: '1300' });
+      expect(changed.body.checklist[0].value).toBe('1300');
+
+      // Clearing removes the answer.
+      const cleared = await answer(task.id, meter.id, { is_done: false });
+      expect(cleared.body.checklist[0]).toMatchObject({ is_done: false, value: null });
+
+      await answer(task.id, note.id, { is_done: true, value: '  All good  ' });
+      const detail = await asManager(request(http).get(`/api/v1/tasks/${task.id}`));
+      expect(detail.body.checklist[2].value).toBe('All good');
+
+      // The database refuses a done typed item without an answer, whatever writes it.
+      await expect(
+        prisma.taskChecklistItem.update({ where: { id: meter.id }, data: { is_done: true } }),
+      ).rejects.toThrow(/task_checklist_items_answered_when_done/);
+    });
+
+    it('TY-3. a task cannot complete while a required typed item is unanswered', async () => {
+      const task = (await createTask({ checklist_template_id: typed.id })).body;
+      const [meter, rating, , lights] = task.checklist;
+      await asManager(request(http).post(`/api/v1/tasks/${task.id}/start`)).send();
+      await answer(task.id, meter.id, { is_done: true, value: '10' });
+      await answer(task.id, lights.id, { is_done: true });
+      expect((await asManager(request(http).post(`/api/v1/tasks/${task.id}/complete`)).send()).status).toBe(409);
+
+      await answer(task.id, rating.id, { is_done: true, value: '4' });
+      expect((await asManager(request(http).post(`/api/v1/tasks/${task.id}/complete`)).send()).status).toBe(200);
+    });
+
+    it('TY-4. the audit trail records that an answer was given, never what it says', async () => {
+      const task = (await createTask({ checklist_template_id: typed.id })).body;
+      await answer(task.id, task.checklist[2].id, { is_done: true, value: 'Customer Ravi complained about dal' });
+      const audits = await prisma.auditLog.findMany({ where: { entity_id: task.id } });
+      const blob = JSON.stringify(audits.map((a) => a.payload));
+      expect(blob).toContain('has_value');
+      expect(blob).not.toContain('Ravi');
+    });
+
+    it('TY-5. the reference library installs an editable company template, once, behind checklist.manage', async () => {
+      const library = await as(request(http).get('/api/v1/checklists/library'), tokenManagerA, companyA.id);
+      expect(library.status).toBe(200);
+      const banquet = library.body.find((r: any) => r.key === 'banquet-opening');
+      expect(banquet.installed).toBe(false);
+      expect(library.body.map((r: any) => r.name)).not.toContain('Kitchen Checklist');
+
+      const refused = await as(
+        request(http).post('/api/v1/checklists/library/banquet-opening'),
+        tokenWorkerA,
+        companyA.id,
+      ).send();
+      expect(refused.status).toBe(403);
+
+      const installed = await as(
+        request(http).post('/api/v1/checklists/library/banquet-opening'),
+        tokenManagerA,
+        companyA.id,
+      ).send();
+      expect(installed.status).toBe(201);
+      expect(installed.body.name).toBe('Banquet Opening Checklist');
+      expect(installed.body.items.map((i: any) => i.label)).toContain('Generators');
+
+      const again = await as(
+        request(http).post('/api/v1/checklists/library/banquet-opening'),
+        tokenManagerA,
+        companyA.id,
+      ).send();
+      expect(again.status).toBe(409);
+      expect(
+        (await as(request(http).post('/api/v1/checklists/library/no-such-thing'), tokenManagerA, companyA.id).send())
+          .status,
+      ).toBe(404);
+
+      const relisted = await as(request(http).get('/api/v1/checklists/library'), tokenManagerA, companyA.id);
+      expect(relisted.body.find((r: any) => r.key === 'banquet-opening').installed).toBe(true);
+    });
+
+    it('TY-6. the transposed log lines each item up across occurrence dates, and is branch-scoped', async () => {
+      const routine = await prisma.taskRoutine.create({
+        data: {
+          company_id: companyA.id,
+          branch_id: branchA.id,
+          name: `Log routine ${Math.random().toString(36).slice(2, 7)}`,
+          frequency: 'DAILY',
+          time_of_day: '09:00',
+        },
+      });
+      const occurrence = (date: string, meter: string | null, lightsDone: boolean) =>
+        prisma.task.create({
+          data: {
+            company_id: companyA.id,
+            branch_id: branchA.id,
+            title: routine.name,
+            source: 'ROUTINE',
+            routine_id: routine.id,
+            routine_occurrence_date: new Date(`${date}T00:00:00.000Z`),
+            checklist: {
+              create: [
+                { label: 'Meter reading', kind: 'NUMBER', position: 0, is_done: meter !== null, value: meter },
+                { label: 'Lights off', kind: 'CHECK', position: 1, is_done: lightsDone },
+              ],
+            },
+          },
+        });
+      await occurrence('2026-09-01', '100', true);
+      await occurrence('2026-09-02', null, false);
+      await occurrence('2026-09-03', '120.5', true);
+
+      const log = await asManager(request(http).get(`/api/v1/routines/${routine.id}/log`)).query({
+        from: '2026-09-01',
+        to: '2026-09-03',
+      });
+      expect(log.status).toBe(200);
+      expect(log.body.dates).toEqual(['2026-09-01', '2026-09-02', '2026-09-03']);
+      const meterRow = log.body.rows.find((r: any) => r.label === 'Meter reading');
+      expect(meterRow.cells).toEqual({
+        '2026-09-01': { done: true, value: '100' },
+        '2026-09-02': { done: false, value: null },
+        '2026-09-03': { done: true, value: '120.5' },
+      });
+      const lightsRow = log.body.rows.find((r: any) => r.label === 'Lights off');
+      expect(Object.values(lightsRow.cells).map((c: any) => c.done)).toEqual([true, false, true]);
+
+      // Another branch cannot read it; a worker without tasks.reports.view cannot either.
+      expect(
+        (await asManager(request(http).get(`/api/v1/routines/${routine.id}/log`), branchOff.id).query({ from: '2026-09-01', to: '2026-09-03' })).status,
+      ).toBe(403);
+      expect(
+        (
+          await as(request(http).get(`/api/v1/routines/${routine.id}/log`), tokenWorkerA, companyA.id, branchA.id).query({
+            from: '2026-09-01',
+            to: '2026-09-03',
+          })
+        ).status,
+      ).toBe(403);
+      expect(
+        (await asManager(request(http).get(`/api/v1/routines/${routine.id}/log`)).query({ from: '2026-09-01', to: '2026-12-31' })).status,
+      ).toBe(400);
+    });
+  });
 
   describe('Audit', () => {
     it('TU-1. every task mutation is audited with company, branch and actor', async () => {

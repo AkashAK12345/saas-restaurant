@@ -41,6 +41,10 @@ export function AppShell({ children }: { children: ReactNode }) {
         </div>
         <div className={styles.user}>
           <span className={styles.userName}>{user?.email}</span>
+          {/* Every user's own logins; no permission is needed to see or end them. */}
+          <Link href="/settings/devices" className={styles.logout}>
+            Devices
+          </Link>
           <button type="button" className={styles.logout} onClick={() => void logout()}>
             Sign out
           </button>

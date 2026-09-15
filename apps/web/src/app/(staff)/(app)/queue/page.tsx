@@ -100,6 +100,12 @@ export default function QueuePage() {
         </div>
       ) : null}
 
+      {board.scheduled.length > 0 ? (
+        <div style={{ marginBottom: 'var(--gap-lg)' }}>
+          {column('Scheduled', board.scheduled, 'No advance bookings.')}
+        </div>
+      ) : null}
+
       <div className={`${styles.columns} ${styles.columnsThree}`}>
         {column('Waiting', board.waiting, 'Nobody is waiting.')}
         {column('Called', board.called, 'No party has been called.')}

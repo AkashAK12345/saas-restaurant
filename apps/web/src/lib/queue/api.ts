@@ -4,7 +4,9 @@ import type {
   Customer,
   Paginated,
   QueueBoard,
+  QueueTableAvailability,
   QueueToken,
+  QueueTokenContact,
   QueueTokenDetail,
   QueueTokenStatus,
   RestaurantTable,
@@ -86,6 +88,25 @@ export const queueApi = {
 
   releaseTable: (ctx: QueueContext, id: string) =>
     api.post<QueueToken>(`/queue-tokens/${id}/release-table`, undefined, ctxOpts(ctx)),
+
+  /** CALLED → WAITING: the party did not respond. */
+  skip: (ctx: QueueContext, id: string) =>
+    api.post<QueueToken>(`/queue-tokens/${id}/skip`, undefined, ctxOpts(ctx)),
+
+  /** SCHEDULED → WAITING: a booked party arrived. */
+  checkIn: (ctx: QueueContext, id: string) =>
+    api.post<QueueToken>(`/queue-tokens/${id}/check-in`, undefined, ctxOpts(ctx)),
+
+  /**
+   * A party's phone, for a call or a WhatsApp message. Fetched only when the
+   * operator asks, and every read is audited server-side.
+   */
+  contact: (ctx: QueueContext, id: string) =>
+    api.get<QueueTokenContact>(`/queue-tokens/${id}/contact`, ctxOpts(ctx)),
+
+  /** Every table and which seated party holds it, on any service date. */
+  tableAvailability: (ctx: QueueContext) =>
+    api.get<QueueTableAvailability[]>('/queue-tokens/table-availability', ctxOpts(ctx)),
 
   /** Customers of the company, for the register screen's lookup. */
   customers: (ctx: QueueContext, limit = 100) =>

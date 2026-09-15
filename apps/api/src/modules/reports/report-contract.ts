@@ -65,6 +65,18 @@ export interface ReportDefinition {
   options?: readonly ReportOptionSpec[];
   /** Money columns carry minor units; the currency is per-row where it varies. */
   exportable: boolean;
+  /**
+   * Drill-down to the source record: rows carry `id_key`, and the client links
+   * the row to `path` with ":id" replaced. Only for records that have a screen
+   * of their own; an aggregate row has nothing to open.
+   */
+  drilldown?: ReportDrilldown;
+}
+
+export interface ReportDrilldown {
+  id_key: string;
+  /** App path with an ":id" placeholder, e.g. "/banquet/:id". */
+  path: string;
 }
 
 /** Guard-verified context. The ids here are proven, not requested. */
@@ -138,6 +150,8 @@ export interface ReportResponse {
   kind: ReportKind;
   generated_at: string;
   timezone: string;
+  /** For provenance in exports: a person reads a branch name, not a uuid. */
+  branch_name: string;
   filters: {
     branch_id: string;
     from: string;
@@ -145,6 +159,7 @@ export interface ReportResponse {
     options: Record<string, string>;
   };
   columns: readonly ReportColumn[];
+  drilldown: ReportDrilldown | null;
   /**
    * The filters this report OFFERS, so a client can render the controls from
    * the same response that carries the data. `filters.options` above is what

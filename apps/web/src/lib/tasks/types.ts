@@ -20,14 +20,39 @@ export interface StaffRef {
   name: string;
 }
 
+/** CHECK is a tick; the others are done when answered. */
+export type ChecklistItemKind = 'CHECK' | 'NUMBER' | 'TEXT' | 'RATING' | 'DATE';
+
 export interface ChecklistItem {
   id: string;
   label: string;
   position: number;
+  kind: ChecklistItemKind;
   is_required: boolean;
   is_done: boolean;
+  /** The canonical answer for a non-CHECK item; null while unanswered. */
+  value: string | null;
   done_at: string | null;
   done_by: string | null;
+}
+
+/** Items down the side, occurrence dates across the top. */
+export interface RoutineLog {
+  routine_id: string;
+  routine_name: string;
+  from: string;
+  to: string;
+  dates: string[];
+  occurrences: Array<{ date: string; task_id: string; status: TaskStatus; completed_at: string | null; late: boolean }>;
+  rows: Array<{ label: string; kind: ChecklistItemKind; cells: Record<string, { done: boolean; value: string | null }> }>;
+}
+
+export interface ReferenceChecklist {
+  key: string;
+  name: string;
+  description: string;
+  items: Array<{ label: string; kind: ChecklistItemKind; is_required: boolean }>;
+  installed: boolean;
 }
 
 export interface ChecklistProgress {
@@ -51,6 +76,15 @@ export interface Task {
   overdue: boolean;
   assignee_id: string | null;
   assignee: StaffRef | null;
+  /** Who made the current assignment, and when. */
+  assigned_by: string | null;
+  assigner: StaffRef | null;
+  assigned_at: string | null;
+  /** Times responsibility moved from one person to another. */
+  reassignment_count: number;
+  /** Who raised the task; null for routine-generated tasks. */
+  created_by: string | null;
+  creator: StaffRef | null;
   source: TaskSource;
   routine_id: string | null;
   routine_name: string | null;
@@ -69,10 +103,20 @@ export interface TaskDetail extends Task {
   checklist: ChecklistItem[];
 }
 
+/** A note on a task. Append-only: there is no edit or delete. */
+export interface TaskComment {
+  id: string;
+  task_id: string;
+  author: StaffRef;
+  body: string;
+  created_at: string;
+}
+
 export interface ChecklistTemplateItem {
   id: string;
   label: string;
   position: number;
+  kind: ChecklistItemKind;
   is_required: boolean;
 }
 
@@ -95,6 +139,8 @@ export interface Routine {
   description: string | null;
   frequency: RoutineFrequency;
   time_of_day: string;
+  /** Branch-local submission deadline "HH:MM"; null = due at time_of_day. */
+  due_time: string | null;
   weekdays: number[];
   priority: TaskPriority;
   status: RoutineStatus;
@@ -151,6 +197,8 @@ export const TASK_EVENTS = [
   'task.cancelled',
   'task.checklist.updated',
   'task.routine.materialized',
+  'task.updated',
+  'task.comment.added',
 ] as const;
 
 export const TASK_STATUS_LABEL: Record<TaskStatus, string> = {

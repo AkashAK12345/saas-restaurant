@@ -8,6 +8,7 @@ import { hasPermission } from '@/lib/auth/permissions';
 import { reportsApi, saveFile, type ReportQuery } from '@/lib/reports/api';
 import { MetricGrid } from '@/components/reports/metric-grid';
 import { ReportTable } from '@/components/reports/report-table';
+import { formatDateLabel } from '@/lib/reports/format';
 import type { ExportFormat, ReportResponse } from '@/lib/reports/types';
 import styles from '@/components/reports/reports.module.css';
 
@@ -53,6 +54,10 @@ export default function ReportPage() {
   const [to, setTo] = useState('');
   const [options, setOptions] = useState<Record<string, string>>({});
   const [offset, setOffset] = useState(0);
+  // Bumped by "Run" so pressing it always asks the server again — even when
+  // nothing in the form changed and the page is already on the first page.
+  // Without it the button did nothing at all in that state.
+  const [runs, setRuns] = useState(0);
 
   const [report, setReport] = useState<ReportResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -68,6 +73,7 @@ export default function ReportPage() {
 
   useEffect(() => {
     if (!ctx || !reportKey) return;
+    void runs; // a dependency on purpose: see `runs` above
     let cancelled = false;
     void (async () => {
       setLoading(true);
@@ -88,7 +94,7 @@ export default function ReportPage() {
     return () => {
       cancelled = true;
     };
-  }, [ctx, reportKey, query]);
+  }, [ctx, reportKey, query, runs]);
 
   const runExport = useCallback(
     async (format: ExportFormat) => {
@@ -133,7 +139,8 @@ export default function ReportPage() {
           <p className={styles.subtitle}>{report?.description}</p>
           {report ? (
             <p className={styles.zone}>
-              {report.filters.from} to {report.filters.to} · {report.timezone}
+              {report.branch_name ? `${report.branch_name} · ` : ''}
+              {formatDateLabel(report.filters.from)} to {formatDateLabel(report.filters.to)} · {report.timezone}
             </p>
           ) : null}
         </div>
@@ -147,6 +154,7 @@ export default function ReportPage() {
         onSubmit={(event) => {
           event.preventDefault();
           setOffset(0);
+          setRuns((n) => n + 1);
         }}
       >
         <div className={styles.field}>
@@ -262,7 +270,8 @@ export default function ReportPage() {
             columns={report.columns}
             rows={report.rows}
             timezone={timezone}
-            caption={`${report.name}, ${report.filters.from} to ${report.filters.to}`}
+            caption={`${report.name}, ${formatDateLabel(report.filters.from)} to ${formatDateLabel(report.filters.to)}`}
+            drilldown={report.drilldown}
           />
 
           {paginated ? (

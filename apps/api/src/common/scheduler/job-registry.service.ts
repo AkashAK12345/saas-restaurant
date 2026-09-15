@@ -1,7 +1,8 @@
-import { Injectable, Logger, OnModuleDestroy } from '@nestjs/common';
+import { Inject, Injectable, Logger, OnModuleDestroy, Optional } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { SchedulerRegistry } from '@nestjs/schedule';
 import { CronJob } from 'cron';
+import { JOB_LOCK, type JobLock } from './job-lock.js';
 
 export type JobHandler = () => Promise<void> | void;
 
@@ -28,6 +29,8 @@ export interface JobStatus {
   runs: number;
   failures: number;
   skippedOverlaps: number;
+  /** Ticks skipped because another process held the job's lock. */
+  skippedLocked: number;
   lastStartedAt: string | null;
   lastFinishedAt: string | null;
   lastError: string | null;
@@ -65,21 +68,19 @@ interface JobState extends JobStatus {
  *   The service — not the job — decides what to do, using branch-local time
  *   (see branch-time.ts).
  *
- * SINGLE-INSTANCE — the limitation, stated plainly
- *   This registry schedules within ONE process. Run two API replicas and every
- *   job fires twice, once per replica, at roughly the same moment. The overlap
- *   guard above is per-process and does nothing about that.
+ * MULTIPLE REPLICAS
+ *   Each process schedules its own timers, so with two API replicas every job
+ *   TICKS twice. When a JobLock is provided (SchedulerModule provides the
+ *   PostgreSQL advisory-lock implementation, no new infrastructure), a tick
+ *   runs only if no other process is running that job; the other is skipped
+ *   and counted as `skippedLocked`.
  *
- *   Consequences for future domain jobs:
+ *   The lock prevents wasted duplicate work. It is NOT what keeps data
+ *   correct, and jobs must still be written as if it did not exist:
  *     - every job MUST be idempotent at the data layer (e.g. a unique
- *       constraint such as (routine_id, scheduled_for) so a duplicate run is a
- *       no-op, not a duplicate row);
+ *       constraint such as (routine_id, occurrence_date) so a duplicate run is
+ *       a no-op, not a duplicate row);
  *     - jobs must never assume they are the only runner.
- *   Distributed scheduling / a shared lock (Redis, advisory locks) is deferred
- *   and tracked as BACKLOG with the broker and throttle. This is the same
- *   trade-off as those, made for the same reason: the current deployment is a
- *   single instance and adding infrastructure for a constraint that does not
- *   yet exist would be premature.
  *
  * TIMEZONE
  *   Cron expressions here run in UTC. That is fine for "wake up every N
@@ -97,6 +98,7 @@ export class JobRegistry implements OnModuleDestroy {
   constructor(
     private readonly scheduler: SchedulerRegistry,
     config: ConfigService,
+    @Optional() @Inject(JOB_LOCK) private readonly lock?: JobLock,
   ) {
     this.enabled = config.get<string>('SCHEDULER_ENABLED', 'true') !== 'false';
     if (!this.enabled) {
@@ -122,6 +124,7 @@ export class JobRegistry implements OnModuleDestroy {
       runs: 0,
       failures: 0,
       skippedOverlaps: 0,
+      skippedLocked: 0,
       lastStartedAt: null,
       lastFinishedAt: null,
       lastError: null,
@@ -147,9 +150,18 @@ export class JobRegistry implements OnModuleDestroy {
     job.running = true;
     job.lastStartedAt = new Date().toISOString();
     try {
-      await job.handler();
-      job.runs += 1;
-      job.lastError = null;
+      const ran = this.lock
+        ? await this.lock.runExclusive(name, async () => {
+            await job.handler();
+          })
+        : (await job.handler(), true);
+      if (ran) {
+        job.runs += 1;
+        job.lastError = null;
+      } else {
+        job.skippedLocked += 1;
+        this.logger.debug(`Job "${name}" skipped: another process holds its lock`);
+      }
     } catch (err) {
       job.failures += 1;
       job.lastError = err instanceof Error ? err.message : String(err);

@@ -85,4 +85,9 @@ describe('AppShell', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Sign out' }));
     expect(logout).toHaveBeenCalled();
   });
+
+  it('offers every user their own signed-in devices beside Sign out', () => {
+    render(<AppShell><p /></AppShell>);
+    expect(screen.getByRole('link', { name: 'Devices' }).getAttribute('href')).toBe('/settings/devices');
+  });
 });

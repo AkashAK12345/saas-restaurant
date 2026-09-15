@@ -6,7 +6,7 @@ import { hasPermission } from '@/lib/auth/permissions';
 import { queueApi } from '@/lib/queue/api';
 import type { Customer, QueueToken } from '@/lib/queue/types';
 import { PartyFields, type PartyValue } from '@/components/queue/party-fields';
-import { branchLocalToInstant } from '@/lib/queue/branch-time';
+import { branchLocalToInstant, instantToBranchLocal } from '@/lib/queue/branch-time';
 import styles from './register.module.css';
 
 type Mode = 'walkin' | 'existing' | 'new';
@@ -132,6 +132,11 @@ export default function RegisterPage() {
         if (instant.getTime() <= Date.now()) {
           throw new Error('An advance booking must be in the future.');
         }
+        // A token belongs to one service day: a later day's booking is taken
+        // on that day. The server enforces the same rule.
+        if (advanceLocal.slice(0, 10) !== instantToBranchLocal(new Date(), timezone).slice(0, 10)) {
+          throw new Error('An advance booking must be for later today at this branch.');
+        }
         advanceBookingAt = instant.toISOString();
       }
 
@@ -211,7 +216,8 @@ export default function RegisterPage() {
             onChange={(event) => setAdvanceLocal(event.target.value)}
           />
           <p className={styles.advanceHint}>
-            Leave empty to join the queue now. Times are {timezone}.
+            Leave empty to join the queue now. A booking for later today is held as scheduled and
+            joins the waiting list at its time. Times are {timezone}.
           </p>
         </div>
 

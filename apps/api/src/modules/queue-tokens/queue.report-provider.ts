@@ -62,7 +62,7 @@ const TOKEN_COLUMNS = [
   { key: 'wait_seconds', label: 'Wait', type: 'duration' },
 ] as const;
 
-const QUEUE_STATUSES = ['WAITING', 'CALLED', 'SEATED', 'NO_SHOW', 'CANCELLED'] as const;
+const QUEUE_STATUSES = ['SCHEDULED', 'WAITING', 'CALLED', 'SEATED', 'NO_SHOW', 'CANCELLED'] as const;
 
 interface SummaryRow {
   service_date: Date;

@@ -21,6 +21,8 @@ export const PERMISSION_KEYS = {
   QUEUE_VIEW: 'queue.view',
   BANQUET_KDS_VIEW: 'banquet.kds.view',
   TASKS_VIEW: 'tasks.view',
+  /** Narrower task read: only the caller's own tasks. The server narrows the data. */
+  TASKS_VIEW_OWN: 'tasks.view_own',
   // Queue Management (Phase 7) — one key per explicit queue operation.
   QUEUE_REGISTER: 'queue.register',
   QUEUE_CALL: 'queue.call',

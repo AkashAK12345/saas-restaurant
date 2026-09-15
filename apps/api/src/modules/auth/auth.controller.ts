@@ -2,14 +2,17 @@ import {
   Controller,
   Post,
   Patch,
+  Delete,
   Body,
   UseGuards,
   Get,
   Req,
   Ip,
+  Param,
   Headers,
   HttpCode,
   HttpStatus,
+  NotFoundException,
 } from '@nestjs/common';
 import { AuthService } from './auth.service.js';
 import { AuthContextService } from './auth-context.service.js';
@@ -34,10 +37,31 @@ export class AuthController {
 
   @Post('login')
   @HttpCode(HttpStatus.OK)
-  async login(@Body() loginDto: LoginDto, @Ip() ip: string) {
-    // The client IP is one half of the brute-force throttle key. It is request
-    // metadata, never treated as authorization proof.
-    return this.authService.login(loginDto, ip ?? 'unknown');
+  async login(
+    @Body() loginDto: LoginDto,
+    @Ip() ip: string,
+    @Headers('user-agent') userAgent: string | undefined,
+  ) {
+    // The client IP is one half of the brute-force throttle key. It and the
+    // user agent are request metadata — shown to the account owner on their
+    // device list, never treated as authorization proof.
+    return this.authService.login(loginDto, ip ?? 'unknown', userAgent);
+  }
+
+  /** The caller's own signed-in devices. */
+  @UseGuards(JwtAuthGuard)
+  @Get('sessions')
+  async listSessions(@Req() req: AuthenticatedRequest) {
+    return { data: await this.authService.listSessions(req.user.id, req.user.sessionId) };
+  }
+
+  /** Sign out one of the caller's own devices, by its opaque handle. */
+  @UseGuards(JwtAuthGuard)
+  @Delete('sessions/:handle')
+  @HttpCode(HttpStatus.OK)
+  async revokeSession(@Param('handle') handle: string, @Req() req: AuthenticatedRequest) {
+    if (!/^[a-f0-9]{32}$/.test(handle)) throw new NotFoundException();
+    return this.authService.revokeOwnSession(req.user.id, req.user.sessionId, handle);
   }
 
   @Post('refresh')

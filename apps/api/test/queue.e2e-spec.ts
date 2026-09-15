@@ -29,7 +29,8 @@ import { AllExceptionsFilter } from '../src/core/filters/all-exceptions.filter.j
 import { resetDatabase, assertPermissionsSeeded } from './utils/db.js';
 import { EVENT_BROKER, type EventBroker } from '../src/common/realtime/event-broker.js';
 import { RealtimeChannel } from '../src/common/realtime/channels.js';
-import { QUEUE_EVENT_TYPES } from '../src/modules/queue-tokens/queue-tokens.service.js';
+import { QUEUE_EVENT_TYPES, QueueTokensService } from '../src/modules/queue-tokens/queue-tokens.service.js';
+import { TablesService } from '../src/modules/tables/tables.service.js';
 import { currentServiceDate } from '../src/modules/queue-tokens/queue-service-date.js';
 
 const PASSWORD = 'SecurePassword123!';
@@ -1010,7 +1011,199 @@ describe('Phase 7 Queue Management (e2e)', () => {
       });
     });
 
-    // ═══════════════════════════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════════════════════════════
+  // CONFORMANCE: skip, scheduled bookings, contact, table availability
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  describe('Skip, scheduled bookings, contact and tables', () => {
+    let sBranch: any;
+    const onS = (req: request.Test) => as(req, tokenPodiumA, companyA.id, sBranch.id);
+    const inMinutes = (m: number) => new Date(Date.now() + m * 60_000).toISOString();
+
+    beforeAll(async () => {
+      sBranch = await prisma.branch.create({
+        data: { company_id: companyA.id, name: 'Conformance Branch', timezone: 'Asia/Kolkata', status: BranchStatus.ACTIVE },
+      });
+      const role = await prisma.role.findFirst({ where: { company_id: companyA.id, name: 'Podium' } });
+      await prisma.userBranchRole.create({ data: { user_id: podiumA.id, branch_id: sBranch.id, role_id: role!.id } });
+    });
+
+    it('QK-1. skip returns a called party to the list, behind everyone not yet called', async () => {
+      const first = (await register({ adults: 2 }, sBranch.id)).body;
+      const second = (await register({ adults: 2 }, sBranch.id)).body;
+      await onS(request(http).post(`/api/v1/queue-tokens/${first.id}/call`)).send();
+
+      const skipped = await onS(request(http).post(`/api/v1/queue-tokens/${first.id}/skip`)).send();
+      expect(skipped.status).toBe(200);
+      expect(skipped.body).toMatchObject({ status: 'WAITING', called_at: null, skip_count: 1 });
+      expect(skipped.body.skipped_at).toBeTruthy();
+
+      const board = (await onS(request(http).get('/api/v1/queue-tokens/board'))).body;
+      // Lower number, but skipped: the never-called party is next.
+      expect(board.next_waiting.id).toBe(second.id);
+      expect(board.waiting.map((t: any) => t.id)).toEqual([second.id, first.id]);
+
+      const events = await prisma.queueTokenEvent.findMany({
+        where: { queue_token_id: first.id },
+        orderBy: { created_at: 'asc' },
+      });
+      expect(events.map((e) => e.event_type)).toEqual(['REGISTERED', 'CALLED', 'SKIPPED']);
+      // Clean up so later tests see an empty waiting list.
+      for (const t of [first, second]) await onS(request(http).post(`/api/v1/queue-tokens/${t.id}/cancel`)).send();
+    });
+
+    it('QK-2. skip is refused for a party that has not been called, and for a viewer', async () => {
+      const t = (await register({ adults: 2 }, sBranch.id)).body;
+      expect((await onS(request(http).post(`/api/v1/queue-tokens/${t.id}/skip`)).send()).status).toBe(409);
+      const viewer = await as(request(http).post(`/api/v1/queue-tokens/${t.id}/skip`), tokenViewerA, companyA.id, branchA.id).send();
+      expect([403, 404]).toContain(viewer.status);
+      await onS(request(http).post(`/api/v1/queue-tokens/${t.id}/cancel`)).send();
+    });
+
+    it('QK-3. an advance booking is held SCHEDULED: not waiting, not next, not callable', async () => {
+      const booked = await register({ adults: 4, advance_booking_at: inMinutes(3) }, sBranch.id);
+      expect(booked.status).toBe(201);
+      expect(booked.body.status).toBe('SCHEDULED');
+
+      const board = (await onS(request(http).get('/api/v1/queue-tokens/board'))).body;
+      expect(board.counts.scheduled).toBeGreaterThanOrEqual(1);
+      expect(board.scheduled.map((t: any) => t.id)).toContain(booked.body.id);
+      expect(board.waiting.map((t: any) => t.id)).not.toContain(booked.body.id);
+
+      expect((await onS(request(http).post(`/api/v1/queue-tokens/${booked.body.id}/call`)).send()).status).toBe(409);
+    });
+
+    it('QK-4. a scheduled party is checked in by staff with queue.register', async () => {
+      const booked = (await register({ adults: 2, advance_booking_at: inMinutes(3) }, sBranch.id)).body;
+      const viewer = await as(
+        request(http).post(`/api/v1/queue-tokens/${booked.id}/check-in`),
+        tokenViewerA,
+        companyA.id,
+        branchA.id,
+      ).send();
+      expect(viewer.status).toBe(403);
+
+      const res = await onS(request(http).post(`/api/v1/queue-tokens/${booked.id}/check-in`)).send();
+      expect(res.status).toBe(200);
+      expect(res.body.status).toBe('WAITING');
+      expect((await onS(request(http).post(`/api/v1/queue-tokens/${booked.id}/check-in`)).send()).status).toBe(409);
+      await onS(request(http).post(`/api/v1/queue-tokens/${booked.id}/cancel`)).send();
+    });
+
+    it('QK-5. due bookings surface automatically, once, however many runners race', async () => {
+      const service = app.get(QueueTokensService);
+      const booked = (await register({ adults: 2, advance_booking_at: inMinutes(3) }, sBranch.id)).body;
+
+      // Not yet due: nothing moves.
+      await service.activateDueScheduled(new Date());
+      expect((await prisma.queueToken.findUnique({ where: { id: booked.id } }))!.status).toBe('SCHEDULED');
+
+      // Due: three runners at once (as on three replicas) activate it exactly once.
+      const later = new Date(Date.now() + 10 * 60_000);
+      await Promise.all([
+        service.activateDueScheduled(later),
+        service.activateDueScheduled(later),
+        service.activateDueScheduled(later),
+      ]);
+      expect((await prisma.queueToken.findUnique({ where: { id: booked.id } }))!.status).toBe('WAITING');
+      const activations = await prisma.queueTokenEvent.findMany({
+        where: { queue_token_id: booked.id, event_type: 'ACTIVATED' },
+      });
+      expect(activations).toHaveLength(1);
+      expect(activations[0].actor_user_id).toBeNull();
+
+      // Attributed to the tenant, with no human actor.
+      const audit = await prisma.auditLog.findFirst({
+        where: { entity_type: 'QUEUE_TOKEN', entity_id: booked.id, payload: { path: ['action'], equals: 'activate_scheduled' } },
+      });
+      expect(audit).toMatchObject({ company_id: companyA.id, branch_id: sBranch.id, user_id: null });
+      await onS(request(http).post(`/api/v1/queue-tokens/${booked.id}/cancel`)).send();
+    });
+
+    it('QK-6. an advance booking for another day is refused', async () => {
+      // Almost 24 hours ahead: inside the old horizon, but on the NEXT
+      // branch-local service date unless the current day has only just begun.
+      // Whichever day it lands on, the response must agree with the rule.
+      const res = await register({ adults: 2, advance_booking_at: new Date(Date.now() + 23.9 * 3_600_000).toISOString() }, sBranch.id);
+      const sameDay =
+        new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date(Date.now() + 23.9 * 3_600_000)) ===
+        currentServiceDate('Asia/Kolkata');
+      expect(res.status).toBe(sameDay ? 201 : 400);
+      if (res.status === 201) await onS(request(http).post(`/api/v1/queue-tokens/${res.body.id}/cancel`)).send();
+    });
+
+    it('QK-7. a phone number is released only to queue.call + customers.view, and the read is audited', async () => {
+      const named = (await register({ adults: 2, customer_id: customerA.id }, sBranch.id)).body;
+      const res = await onS(request(http).get(`/api/v1/queue-tokens/${named.id}/contact`));
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({
+        token_id: named.id,
+        customer_name: 'Asha Rao',
+        phone: '+919876500001',
+        tel_url: 'tel:+919876500001',
+        whatsapp_url: 'https://wa.me/919876500001',
+      });
+
+      const audit = await prisma.auditLog.findFirst({
+        where: { entity_type: 'QUEUE_TOKEN', entity_id: named.id, event_type: 'SECURITY' },
+      });
+      expect(audit!.payload).toMatchObject({ action: 'view_contact' });
+      expect(JSON.stringify(audit!.payload)).not.toContain('9876500001');
+
+      // queue.view alone: refused at the guard.
+      const viewer = await as(request(http).get(`/api/v1/queue-tokens/${named.id}/contact`), tokenViewerA, companyA.id, branchA.id);
+      expect(viewer.status).toBe(403);
+
+      // queue.call without customers.view: refused too.
+      const perms = await prisma.permission.findMany({ where: { name: { in: ['queue.view', 'queue.call'] } } });
+      const callerRole = await prisma.role.create({ data: { company_id: companyA.id, name: 'Caller only' } });
+      await prisma.rolePermission.createMany({ data: perms.map((p) => ({ role_id: callerRole.id, permission_id: p.id })) });
+      const caller = await prisma.user.create({
+        data: { email: 'q-caller-a@test.com', password_hash: await bcrypt.hash(PASSWORD, SALT) },
+      });
+      await prisma.companyMembership.create({ data: { user_id: caller.id, company_id: companyA.id, status: MembershipStatus.ACTIVE } });
+      await prisma.userBranchRole.create({ data: { user_id: caller.id, branch_id: sBranch.id, role_id: callerRole.id } });
+      const callerToken = (
+        await request(http).post('/api/v1/auth/login').send({ email: 'q-caller-a@test.com', password: PASSWORD })
+      ).body.accessToken;
+      const noCustomers = await as(request(http).get(`/api/v1/queue-tokens/${named.id}/contact`), callerToken, companyA.id, sBranch.id);
+      expect(noCustomers.status).toBe(403);
+
+      // A walk-in has no number to give.
+      const walkIn = (await register({ adults: 1 }, sBranch.id)).body;
+      expect((await onS(request(http).get(`/api/v1/queue-tokens/${walkIn.id}/contact`))).status).toBe(404);
+
+      for (const t of [named, walkIn]) await onS(request(http).post(`/api/v1/queue-tokens/${t.id}/cancel`)).send();
+    });
+
+    it('QK-8. table availability sees a party still seated from an earlier day, and such a table cannot be deactivated', async () => {
+      const table = await prisma.table.create({ data: { branch_id: sBranch.id, label: 'OVERNIGHT', capacity: 4 } });
+      const t = (await register({ adults: 2 }, sBranch.id)).body;
+      await onS(request(http).post(`/api/v1/queue-tokens/${t.id}/call`)).send();
+      await onS(request(http).post(`/api/v1/queue-tokens/${t.id}/seat`)).send({ table_id: table.id });
+      // The party was seated before midnight: its token belongs to a past day.
+      await prisma.queueToken.update({ where: { id: t.id }, data: { service_date: new Date('2020-01-01T00:00:00.000Z') } });
+
+      const res = await onS(request(http).get('/api/v1/queue-tokens/table-availability'));
+      expect(res.status).toBe(200);
+      const row = res.body.find((x: any) => x.id === table.id);
+      expect(row.occupied_by).toEqual({ token_id: t.id, token_number: t.token_number, service_date: '2020-01-01' });
+
+      const tables = app.get(TablesService);
+      await expect(
+        tables.updateTable(table.id, sBranch.id, companyA.id, { status: 'INACTIVE' } as any, podiumA.id),
+      ).rejects.toThrow(/occupied/);
+
+      await onS(request(http).post(`/api/v1/queue-tokens/${t.id}/release-table`)).send();
+      const freed = (await onS(request(http).get('/api/v1/queue-tokens/table-availability'))).body.find((x: any) => x.id === table.id);
+      expect(freed.occupied_by).toBeNull();
+      await expect(
+        tables.updateTable(table.id, sBranch.id, companyA.id, { status: 'INACTIVE' } as any, podiumA.id),
+      ).resolves.toMatchObject({ status: 'INACTIVE' });
+    });
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
   // PODIUM BOARD  (the operator's working view)
   // ═══════════════════════════════════════════════════════════════════════════
 
@@ -1132,7 +1325,7 @@ describe('Phase 7 Queue Management (e2e)', () => {
         service_date: '2020-01-01',
       });
       expect(past.status).toBe(200);
-      expect(past.body.counts).toEqual({ waiting: 0, called: 0, seated: 0, no_show: 0, cancelled: 0 });
+      expect(past.body.counts).toEqual({ scheduled: 0, waiting: 0, called: 0, seated: 0, no_show: 0, cancelled: 0 });
 
       const bad = await onBoard(request(http).get('/api/v1/queue-tokens/board')).query({
         service_date: '2026-02-30',
@@ -1211,8 +1404,11 @@ describe('Phase 7 Queue Management (e2e)', () => {
       );
       expect(res.status).toBe(200);
       expect(Object.keys(res.body).sort()).toEqual(
-        ['branch_id', 'now_serving', 'recently_seated', 'service_date', 'waiting_count'].sort(),
+        ['branch_id', 'now_serving', 'recently_seated', 'service_date', 'waiting_count', 'waiting_tokens'].sort(),
       );
+      // The waiting tiles are bare numbers.
+      expect(res.body.waiting_tokens).toHaveLength(1);
+      expect(res.body.waiting_tokens.every((n: unknown) => typeof n === 'number')).toBe(true);
       expect(res.body.now_serving).toEqual([
         { token_number: calledToken.token_number, table_label: null, called_at: expect.any(String) },
       ]);
@@ -1236,6 +1432,8 @@ describe('Phase 7 Queue Management (e2e)', () => {
       );
       expect(res.status).toBe(200);
       expect(res.body.counts).toMatchObject({ waiting: 1, called: 1, seated: 1 });
+      // Total Waiting / Adults / Kids: the one party still waiting is 3 adults.
+      expect(res.body.totals).toEqual({ parties: 1, adults: 3, kids: 0 });
       expect(res.body.called[0]).toMatchObject({
         id: calledToken.id,
         token_number: calledToken.token_number,

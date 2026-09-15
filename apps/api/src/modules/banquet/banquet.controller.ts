@@ -15,23 +15,33 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import { BanquetCatalogService } from './banquet-catalog.service.js';
-import { BanquetBookingsService } from './banquet-bookings.service.js';
+import {
+  ADJUSTMENT_ROUTE_PERMISSIONS,
+  BanquetBookingsService,
+} from './banquet-bookings.service.js';
 import { BanquetKdsService } from './banquet-kds.service.js';
 import {
+  AvailabilityQueryDto,
+  CancelBookingDto,
+  CreateAdjustmentDto,
   CreateBookingDto,
   CreateHallDto,
+  CreateHallSlotDto,
   CreatePackageDto,
   CreatePaymentDto,
   KdsBoardQueryDto,
   ListBookingsQueryDto,
   UpdateBookingDto,
   UpdateHallDto,
+  UpdateHallSlotDto,
   UpdatePackageDto,
   UpsertEventPlanDto,
+  VerifyPaymentDto,
 } from './banquet.dto.js';
 import { PaginationQueryDto } from '../../common/pagination.dto.js';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import { PermissionGuard } from '../../common/authorization/permission.guard.js';
+import { AuthorizationService } from '../../common/authorization/authorization.service.js';
 import {
   RequireBranchPermission,
   RequireCompanyPermission,
@@ -64,6 +74,7 @@ export class BanquetController {
     private readonly catalog: BanquetCatalogService,
     private readonly bookings: BanquetBookingsService,
     private readonly kds: BanquetKdsService,
+    private readonly authorization: AuthorizationService,
   ) {}
 
   private branchCtx(
@@ -120,6 +131,42 @@ export class BanquetController {
     return this.catalog.updateHall(this.branchCtx(companyId, branchId, req), id, dto);
   }
 
+  @Post('halls/:id/slots')
+  @HttpCode(HttpStatus.CREATED)
+  @UseGuards(PermissionGuard)
+  @RequireBranchPermission(PERMISSION_KEYS.BANQUET_HALL_MANAGE)
+  createHallSlot(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Headers('x-company-id') companyId: string,
+    @Headers('x-branch-id') branchId: string,
+    @Body() dto: CreateHallSlotDto,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.catalog.createSlot(this.branchCtx(companyId, branchId, req), id, dto);
+  }
+
+  @Patch('halls/:id/slots/:slotId')
+  @UseGuards(PermissionGuard)
+  @RequireBranchPermission(PERMISSION_KEYS.BANQUET_HALL_MANAGE)
+  updateHallSlot(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('slotId', ParseUUIDPipe) slotId: string,
+    @Headers('x-company-id') companyId: string,
+    @Headers('x-branch-id') branchId: string,
+    @Body() dto: UpdateHallSlotDto,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.catalog.updateSlot(this.branchCtx(companyId, branchId, req), id, slotId, dto);
+  }
+
+  /** Hall × slot × date calendar. Derived and read-only: it reserves nothing. */
+  @Get('availability')
+  @UseGuards(PermissionGuard)
+  @RequireBranchPermission(PERMISSION_KEYS.BANQUET_VIEW)
+  availability(@Headers('x-branch-id') branchId: string, @Query() query: AvailabilityQueryDto) {
+    return this.catalog.availability(branchId, query);
+  }
+
   // ── Packages (company-scoped) ─────────────────────────────────────────────
 
   @Get('packages')
@@ -165,8 +212,21 @@ export class BanquetController {
   @Get('kds/board')
   @UseGuards(PermissionGuard)
   @RequireBranchPermission(PERMISSION_KEYS.BANQUET_KDS_VIEW)
-  kdsBoard(@Headers('x-branch-id') branchId: string, @Query() query: KdsBoardQueryDto) {
-    return this.kds.staffBoard(branchId, query.service_date);
+  async kdsBoard(
+    @Headers('x-company-id') companyId: string,
+    @Headers('x-branch-id') branchId: string,
+    @Query() query: KdsBoardQueryDto,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    // Customer names are banquet data, not kitchen data: kds.view alone is
+    // not enough to see who an event is for.
+    const includeCustomer = await this.authorization.hasBranchPermission(
+      req.user.id,
+      companyId,
+      branchId,
+      PERMISSION_KEYS.BANQUET_VIEW,
+    );
+    return this.kds.staffBoard(branchId, query.service_date, includeCustomer);
   }
 
   @Post('kds/items/:id/start')
@@ -212,6 +272,14 @@ export class BanquetController {
   @RequireBranchPermission(PERMISSION_KEYS.BANQUET_VIEW)
   getBooking(@Param('id', ParseUUIDPipe) id: string, @Headers('x-branch-id') branchId: string) {
     return this.bookings.get(branchId, id);
+  }
+
+  /** Booking plus the billing branch's GSTIN/FSSAI, for the printable bill. */
+  @Get('bookings/:id/bill')
+  @UseGuards(PermissionGuard)
+  @RequireBranchPermission(PERMISSION_KEYS.BANQUET_VIEW)
+  getBill(@Param('id', ParseUUIDPipe) id: string, @Headers('x-branch-id') branchId: string) {
+    return this.bookings.getBill(branchId, id);
   }
 
   @Post('bookings')
@@ -274,9 +342,42 @@ export class BanquetController {
     @Param('id', ParseUUIDPipe) id: string,
     @Headers('x-company-id') companyId: string,
     @Headers('x-branch-id') branchId: string,
+    @Body() dto: CancelBookingDto,
     @Req() req: AuthenticatedRequest,
   ) {
-    return this.bookings.cancel(this.branchCtx(companyId, branchId, req), id);
+    return this.bookings.cancel(this.branchCtx(companyId, branchId, req), id, dto.reason);
+  }
+
+  // ── Pricing adjustments (extra charges & discounts) ───────────────────────
+  // The guard admits any of the three pricing keys; the service then requires
+  // the exact key for the line's kind (see ADJUSTMENT_PERMISSION).
+
+  @Post('bookings/:id/adjustments')
+  @HttpCode(HttpStatus.CREATED)
+  @UseGuards(PermissionGuard)
+  @RequireBranchPermission(ADJUSTMENT_ROUTE_PERMISSIONS)
+  addAdjustment(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Headers('x-company-id') companyId: string,
+    @Headers('x-branch-id') branchId: string,
+    @Body() dto: CreateAdjustmentDto,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.bookings.addAdjustment(this.branchCtx(companyId, branchId, req), id, dto);
+  }
+
+  @Post('bookings/:id/adjustments/:adjustmentId/reverse')
+  @HttpCode(HttpStatus.CREATED)
+  @UseGuards(PermissionGuard)
+  @RequireBranchPermission(ADJUSTMENT_ROUTE_PERMISSIONS)
+  reverseAdjustment(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('adjustmentId', ParseUUIDPipe) adjustmentId: string,
+    @Headers('x-company-id') companyId: string,
+    @Headers('x-branch-id') branchId: string,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.bookings.reverseAdjustment(this.branchCtx(companyId, branchId, req), id, adjustmentId);
   }
 
   // ── Payments (advance & balance) ──────────────────────────────────────────
@@ -300,6 +401,21 @@ export class BanquetController {
     @Req() req: AuthenticatedRequest,
   ) {
     return this.bookings.createPayment(this.branchCtx(companyId, branchId, req), id, dto);
+  }
+
+  /** Second-person verification. Adds a record; the payment itself is never changed. */
+  @Post('payments/:id/verify')
+  @HttpCode(HttpStatus.CREATED)
+  @UseGuards(PermissionGuard)
+  @RequireBranchPermission(PERMISSION_KEYS.BANQUET_PAYMENT_VERIFY)
+  verifyPayment(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Headers('x-company-id') companyId: string,
+    @Headers('x-branch-id') branchId: string,
+    @Body() dto: VerifyPaymentDto,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.bookings.verifyPayment(this.branchCtx(companyId, branchId, req), id, dto);
   }
 
   // ── Event plan ────────────────────────────────────────────────────────────

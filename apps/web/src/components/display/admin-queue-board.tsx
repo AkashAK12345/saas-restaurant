@@ -44,6 +44,7 @@ function Column({
               <span className={styles.adminNumber}>{t.token_number}</span>
               <span className={styles.adminMeta}>
                 {t.party_size} {t.party_size === 1 ? 'guest' : 'guests'}
+                {` · ${t.adults} ${t.adults === 1 ? 'adult' : 'adults'}, ${t.kids} ${t.kids === 1 ? 'kid' : 'kids'}`}
                 {stamp(t) ? ` · ${stamp(t)}` : ''}
               </span>
               {t.assigned_table ? (
@@ -86,6 +87,21 @@ export function AdminQueueBoard({
           {board.service_date}
         </span>
       </header>
+
+      <div className={styles.tiles} aria-label="Waiting totals">
+        <div className={styles.tile}>
+          <span className={styles.tileValue}>{board.totals.parties}</span>
+          <span className={styles.tileLabel}>Total waiting</span>
+        </div>
+        <div className={styles.tile}>
+          <span className={styles.tileValue}>{board.totals.adults}</span>
+          <span className={styles.tileLabel}>Total adults</span>
+        </div>
+        <div className={styles.tile}>
+          <span className={styles.tileValue}>{board.totals.kids}</span>
+          <span className={styles.tileLabel}>Total kids</span>
+        </div>
+      </div>
 
       <div className={styles.adminGrid}>
         <Column

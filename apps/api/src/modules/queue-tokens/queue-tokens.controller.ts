@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  ForbiddenException,
   Get,
   Headers,
   HttpCode,
@@ -12,6 +13,7 @@ import {
   Req,
   UseGuards,
 } from '@nestjs/common';
+import { AuthorizationService } from '../../common/authorization/authorization.service.js';
 import { QueueTokensService, type QueueActorContext } from './queue-tokens.service.js';
 import {
   AssignQueueTableDto,
@@ -43,7 +45,10 @@ interface AuthenticatedRequest {
 @Controller('queue-tokens')
 @UseGuards(JwtAuthGuard)
 export class QueueTokensController {
-  constructor(private readonly queueTokens: QueueTokensService) {}
+  constructor(
+    private readonly queueTokens: QueueTokensService,
+    private readonly authorization: AuthorizationService,
+  ) {}
 
   private ctx(
     companyId: string,
@@ -72,11 +77,76 @@ export class QueueTokensController {
     return this.queueTokens.board(branchId, query.service_date);
   }
 
+  /**
+   * Every table of the branch and which seated party holds it, on any day.
+   * The podium's "available tables". Declared before :id.
+   */
+  @Get('table-availability')
+  @UseGuards(PermissionGuard)
+  @RequireBranchPermission(PERMISSION_KEYS.QUEUE_VIEW)
+  tableAvailability(@Headers('x-branch-id') branchId: string) {
+    return this.queueTokens.tableAvailability(branchId);
+  }
+
   @Get(':id')
   @UseGuards(PermissionGuard)
   @RequireBranchPermission(PERMISSION_KEYS.QUEUE_VIEW)
   get(@Param('id', ParseUUIDPipe) id: string, @Headers('x-branch-id') branchId: string) {
     return this.queueTokens.get({ branchId }, id);
+  }
+
+  /**
+   * A party's phone number, for a call or a WhatsApp message.
+   *
+   * Two permissions, because two different things are being done: calling a
+   * party is a queue operation (queue.call, proved at the branch by the
+   * guard), and reading a phone number is customer data (customers.view,
+   * proved in the company below). The read is audited.
+   */
+  @Get(':id/contact')
+  @UseGuards(PermissionGuard)
+  @RequireBranchPermission(PERMISSION_KEYS.QUEUE_CALL)
+  async contact(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Headers('x-company-id') companyId: string,
+    @Headers('x-branch-id') branchId: string,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    const mayReadCustomers = await this.authorization.hasCompanyPermission(
+      req.user.id,
+      companyId,
+      PERMISSION_KEYS.CUSTOMERS_VIEW,
+    );
+    if (!mayReadCustomers) throw new ForbiddenException();
+    return this.queueTokens.contact(this.ctx(companyId, branchId, req), id);
+  }
+
+  /** CALLED ─▶ WAITING: the party did not respond. Part of calling, so queue.call. */
+  @Post(':id/skip')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(PermissionGuard)
+  @RequireBranchPermission(PERMISSION_KEYS.QUEUE_CALL)
+  skip(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Headers('x-company-id') companyId: string,
+    @Headers('x-branch-id') branchId: string,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.queueTokens.skip(this.ctx(companyId, branchId, req), id);
+  }
+
+  /** SCHEDULED ─▶ WAITING: a booked party arrived. Registering arrivals is queue.register. */
+  @Post(':id/check-in')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(PermissionGuard)
+  @RequireBranchPermission(PERMISSION_KEYS.QUEUE_REGISTER)
+  checkIn(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Headers('x-company-id') companyId: string,
+    @Headers('x-branch-id') branchId: string,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.queueTokens.checkIn(this.ctx(companyId, branchId, req), id);
   }
 
   @Post()

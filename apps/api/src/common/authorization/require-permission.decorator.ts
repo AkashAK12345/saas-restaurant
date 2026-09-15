@@ -9,7 +9,12 @@ import type { PermissionKey } from './permission-keys.js';
 export type PermissionScope = 'company' | 'branch' | 'company_status';
 
 export interface PermissionMeta {
-  permission: PermissionKey;
+  /**
+   * One key, or a list of which the caller must hold AT LEAST ONE. A list is
+   * for reads that come in a wide and a narrow form (tasks.view /
+   * tasks.view_own); the service then narrows what the narrow key returns.
+   */
+  permission: PermissionKey | readonly PermissionKey[];
   scope: PermissionScope;
 }
 
@@ -33,7 +38,7 @@ export const RequireCompanyPermission = (permission: PermissionKey) =>
  *   - the branch belongs to X-Company-ID
  *   - the user holds the required permission via branch roles at that specific branch
  */
-export const RequireBranchPermission = (permission: PermissionKey) =>
+export const RequireBranchPermission = (permission: PermissionKey | readonly PermissionKey[]) =>
   SetMetadata<string, PermissionMeta>(PERMISSION_META_KEY, {
     permission,
     scope: 'branch',

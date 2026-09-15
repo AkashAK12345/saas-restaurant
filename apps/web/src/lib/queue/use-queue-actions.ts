@@ -31,6 +31,8 @@ export interface QueueActionsState {
   cancel: (t: QueueToken) => Promise<void>;
   assignTable: (t: QueueToken, tableId: string) => Promise<void>;
   releaseTable: (t: QueueToken) => Promise<void>;
+  skip: (t: QueueToken) => Promise<void>;
+  checkIn: (t: QueueToken) => Promise<void>;
 }
 
 export function useQueueActions(
@@ -105,6 +107,18 @@ export function useQueueActions(
     ),
     releaseTable: useCallback(
       (t) => run((c) => queueApi.releaseTable(c, t.id), (r) => `Table released for token ${r.token_number}.`),
+      [run],
+    ),
+    skip: useCallback(
+      (t) =>
+        run(
+          (c) => queueApi.skip(c, t.id),
+          (r) => `Token ${r.token_number} skipped — back on the list behind parties not yet called.`,
+        ),
+      [run],
+    ),
+    checkIn: useCallback(
+      (t) => run((c) => queueApi.checkIn(c, t.id), (r) => `Token ${r.token_number} checked in and waiting.`),
       [run],
     ),
   };

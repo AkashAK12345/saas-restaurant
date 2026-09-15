@@ -22,7 +22,29 @@ import type { PrismaService } from '../../src/core/database/prisma.service.js';
  * Immutability in production is therefore untouched.
  */
 export async function purgeAuditLogs(prisma: PrismaService): Promise<void> {
+  await assertE2eDatabase(prisma);
   await prisma.$executeRawUnsafe('TRUNCATE TABLE "audit_logs"');
+}
+
+/**
+ * Refuses to touch any database that is not explicitly an e2e database.
+ *
+ * Every helper in this file wipes users, companies, bookings and audit
+ * history. The suites connect to whatever DATABASE_URL the environment
+ * provides, and the repository's .env files point at development databases —
+ * so without this check a plain `npm run test:e2e` would destroy real work.
+ * The rule is deliberately blunt: the database the connection ACTUALLY reached
+ * must have "e2e" in its name, or nothing is deleted.
+ */
+export async function assertE2eDatabase(prisma: PrismaService): Promise<void> {
+  const rows = await prisma.$queryRaw<Array<{ current_database: string }>>`SELECT current_database()`;
+  const name = rows[0]?.current_database ?? '';
+  if (!name.includes('e2e')) {
+    throw new Error(
+      `Refusing to reset database "${name}": e2e suites only run against a database whose name contains "e2e". ` +
+        'Point DATABASE_URL at one (e.g. samco_e2e). Nothing was deleted.',
+    );
+  }
 }
 
 /**
@@ -45,10 +67,15 @@ export async function purgeQueueHistory(prisma: PrismaService): Promise<void> {
  * branches and users they reference.
  */
 export async function purgeBanquet(prisma: PrismaService): Promise<void> {
-  await prisma.$executeRawUnsafe('TRUNCATE TABLE "banquet_payments"');
+  // Verifications and adjustments are append-only too, and verifications
+  // reference payments, so all three go in one TRUNCATE.
+  await prisma.$executeRawUnsafe(
+    'TRUNCATE TABLE "banquet_payment_verifications", "banquet_payments", "banquet_booking_adjustments"',
+  );
   await prisma.banquetEventPlan.deleteMany();
   await prisma.banquetBookingItem.deleteMany();
   await prisma.banquetBooking.deleteMany();
+  await prisma.banquetHallSlot.deleteMany();
   await prisma.banquetHall.deleteMany();
   await prisma.banquetPackageItem.deleteMany();
   await prisma.banquetPackage.deleteMany();
@@ -61,6 +88,9 @@ export async function purgeBanquet(prisma: PrismaService): Promise<void> {
  * be cleared before them.
  */
 export async function purgeTasks(prisma: PrismaService): Promise<void> {
+  // task_comments is append-only (triggers reject DELETE), so it is TRUNCATEd
+  // like audit_logs, and before the tasks it references.
+  await prisma.$executeRawUnsafe('TRUNCATE TABLE "task_comments"');
   await prisma.taskChecklistItem.deleteMany();
   await prisma.task.deleteMany();
   await prisma.taskRoutine.deleteMany();
@@ -79,6 +109,7 @@ export async function purgeTasks(prisma: PrismaService): Promise<void> {
  * data owned by `prisma db seed`, not per-test fixture data.
  */
 export async function resetDatabase(prisma: PrismaService): Promise<void> {
+  await assertE2eDatabase(prisma);
   await purgeAuditLogs(prisma);
   await purgeQueueHistory(prisma);
   await purgeBanquet(prisma);

@@ -4,7 +4,15 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAppContext } from '@/lib/context/app-context-provider';
 import { hasPermission } from '@/lib/auth/permissions';
 import { tasksApi } from '@/lib/tasks/api';
-import type { ChecklistTemplate } from '@/lib/tasks/types';
+import type { ChecklistItemKind, ChecklistTemplate, ReferenceChecklist } from '@/lib/tasks/types';
+
+const KIND_LABEL: Record<ChecklistItemKind, string> = {
+  CHECK: 'Tick',
+  NUMBER: 'Number',
+  TEXT: 'Text',
+  RATING: 'Rating 1–5',
+  DATE: 'Date',
+};
 import styles from '@/components/tasks/tasks.module.css';
 
 /**
@@ -36,6 +44,25 @@ export default function ChecklistsPage() {
   const [busy, setBusy] = useState(false);
   const [name, setName] = useState('');
   const [itemsText, setItemsText] = useState('');
+  const [library, setLibrary] = useState<ReferenceChecklist[]>([]);
+
+  // The reference library: starter definitions for the reference routines.
+  // Loaded alongside the list, and again after any change so "installed" is true.
+  const loadLibrary = useCallback(async () => {
+    if (!ctx) return;
+    try {
+      const next = await tasksApi.referenceLibrary(ctx);
+      if (Array.isArray(next)) setLibrary(next);
+    } catch {
+      // The library is optional help; the checklists list above still works.
+    }
+  }, [ctx]);
+
+  useEffect(() => {
+    void (async () => {
+      await loadLibrary();
+    })();
+  }, [loadLibrary]);
 
   const refresh = useCallback(async () => {
     if (!ctx) return;
@@ -67,20 +94,29 @@ export default function ChecklistsPage() {
       setActionError(e instanceof Error ? e.message : 'The action failed');
     } finally {
       await refresh();
+      await loadLibrary();
       setBusy(false);
     }
   };
 
-  /** A line ending in "?" is optional; everything else is required. */
+  /**
+   * One item per line. A line ending in "?" is optional; everything else is
+   * required. A leading [number], [text], [rating] or [date] makes the item
+   * ask for that kind of answer instead of a tick.
+   */
   const parsedItems = itemsText
     .split('\n')
     .map((l) => l.trim())
     .filter(Boolean)
-    .map((line) =>
-      line.endsWith('?')
-        ? { label: line.slice(0, -1).trim(), is_required: false }
-        : { label: line, is_required: true },
-    );
+    .map((raw) => {
+      const typed = /^\[(number|text|rating|date)\]\s*/i.exec(raw);
+      const kind = typed ? (typed[1].toUpperCase() as ChecklistItemKind) : ('CHECK' as const);
+      const line = typed ? raw.slice(typed[0].length) : raw;
+      return line.endsWith('?')
+        ? { label: line.slice(0, -1).trim(), is_required: false, kind }
+        : { label: line, is_required: true, kind };
+    })
+    .filter((i) => i.label.length > 0);
 
   if (loading) {
     return (
@@ -144,8 +180,9 @@ export default function ChecklistsPage() {
               onChange={(e) => setItemsText(e.target.value)}
             />
             <p className={styles.hint}>
-              End a line with “?” to make that item optional. Everything else must be ticked before a
-              task can be completed.
+              End a line with “?” to make that item optional. Start a line with [number], [text], [rating] or
+              [date] to ask for that answer instead of a tick — e.g. “[number] Electricity meter reading”.
+              Required items must be ticked or answered before a task can be completed.
             </p>
           </div>
           <div className={styles.actions}>
@@ -158,6 +195,42 @@ export default function ChecklistsPage() {
             </button>
           </div>
         </form>
+      ) : null}
+
+      {mayManage && library.length > 0 ? (
+        <section className={styles.panel} aria-labelledby="library-title">
+          <h2 className={styles.panelTitle} id="library-title">
+            Reference routines
+          </h2>
+          <p className={styles.hint}>
+            Starter checklists for the standard daily routines. Installing one adds an ordinary checklist you
+            can edit and attach to a routine. Photo evidence is not captured yet.
+          </p>
+          <ul className={styles.items}>
+            {library.map((r) => (
+              <li key={r.key} className={styles.item}>
+                <span className={styles.itemLabel}>
+                  <strong>{r.name}</strong> · {r.items.length} items — {r.description}
+                </span>
+                {r.installed ? (
+                  <span className={styles.badge}>Installed</span>
+                ) : (
+                  <button
+                    type="button"
+                    className={styles.action}
+                    disabled={busy}
+                    aria-label={`Install ${r.name}`}
+                    onClick={() =>
+                      void run(() => tasksApi.installReference(ctx!, r.key), `${r.name} installed.`)
+                    }
+                  >
+                    Install
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+        </section>
       ) : null}
 
       {!listed ? null : templates.length === 0 ? (
@@ -180,6 +253,7 @@ export default function ChecklistsPage() {
                 {c.items.map((i) => (
                   <li key={i.id} className={styles.item}>
                     <span className={styles.itemLabel}>{i.label}</span>
+                    {i.kind !== 'CHECK' ? <span className={styles.badge}>{KIND_LABEL[i.kind]}</span> : null}
                     {i.is_required ? (
                       <span className={styles.badge}>Required</span>
                     ) : (

@@ -6,6 +6,8 @@ import { RealtimeChannel } from '../../common/realtime/channels.js';
 import type { PrismaService } from '../../core/database/prisma.service.js';
 import type { AuditLogService } from '../audit-logs/audit-logs.service.js';
 import type { EventBroker } from '../../common/realtime/event-broker.js';
+import type { AuthorizationService } from '../../common/authorization/authorization.service.js';
+import { ForbiddenException } from '@nestjs/common';
 
 const COMPANY = '11111111-1111-4111-8111-111111111111';
 const BRANCH = '22222222-2222-4222-8222-222222222222';
@@ -17,8 +19,9 @@ const PACKAGE = '77777777-7777-4777-8777-777777777777';
 
 const ctx = { companyId: COMPANY, branchId: BRANCH, actorUserId: USER };
 
-const STARTS = '2026-11-20T12:00:00.000Z';
-const ENDS = '2026-11-20T18:00:00.000Z';
+// Far enough ahead that "the event has not started yet" stays true.
+const STARTS = '2036-11-20T12:00:00.000Z';
+const ENDS = '2036-11-20T18:00:00.000Z';
 
 function makeBooking(over: Record<string, unknown> = {}) {
   return {
@@ -29,16 +32,22 @@ function makeBooking(over: Record<string, unknown> = {}) {
     customer: { id: CUSTOMER, name: 'Meera Iyer' },
     hall_id: HALL,
     hall: { id: HALL, name: 'Crystal', capacity: 200 },
+    hall_name: 'Crystal',
     package_id: PACKAGE,
     starts_at: new Date(STARTS),
     ends_at: new Date(ENDS),
     guest_count: 80,
+    extra_pax: 0,
     status: BanquetBookingStatus.DRAFT,
     package_name: 'Gold Veg',
     price_per_guest_minor: 125_000,
     currency: 'INR',
+    gst_rate_bps: 0,
     total_amount_minor: 10_000_000,
+    paid_minor: 0,
     notes: null,
+    cancellation_reason: null,
+    adjustments: [] as Array<Record<string, unknown>>,
     confirmed_at: null,
     completed_at: null,
     cancelled_at: null,
@@ -61,22 +70,46 @@ const payment = (over: Record<string, unknown> = {}) => ({
   paid_at: new Date('2026-09-07T11:00:00.000Z'),
   method: 'cash',
   reference: null,
+  kind: 'ADVANCE',
   actor_user_id: USER,
+  verification: null,
   created_at: new Date('2026-09-07T11:00:00.000Z'),
   ...over,
 });
+
+const OTHER_USER = '88888888-8888-4888-8888-888888888888';
 
 describe('BanquetBookingsService', () => {
   let tx: any;
   let prisma: any;
   let audit: { create: ReturnType<typeof vi.fn> };
   let broker: { publish: ReturnType<typeof vi.fn>; subscribe: ReturnType<typeof vi.fn>; subscriberCount: ReturnType<typeof vi.fn> };
+  let authorization: { hasBranchPermission: ReturnType<typeof vi.fn> };
   let service: BanquetBookingsService;
 
   beforeEach(() => {
     tx = {
       customer: { findFirst: vi.fn().mockResolvedValue({ id: CUSTOMER, status: 'ACTIVE' }) },
-      banquetHall: { findFirst: vi.fn().mockResolvedValue({ id: HALL, status: 'ACTIVE', capacity: 200 }) },
+      branch: { findUnique: vi.fn().mockResolvedValue({ banquet_gst_rate_bps: 0 }) },
+      banquetHall: {
+        findFirst: vi.fn().mockResolvedValue({ id: HALL, name: 'Crystal', status: 'ACTIVE', capacity: 200 }),
+      },
+      banquetBookingAdjustment: {
+        create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => ({
+          id: 'adj-new',
+          reverses_id: null,
+          created_at: new Date(),
+          ...data,
+        })),
+      },
+      banquetPaymentVerification: {
+        create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => ({
+          id: 'ver-1',
+          verified_at: new Date(),
+          note: null,
+          ...data,
+        })),
+      },
       banquetPackage: {
         findFirst: vi.fn().mockResolvedValue({
           id: PACKAGE,
@@ -94,7 +127,11 @@ describe('BanquetBookingsService', () => {
         updateMany: vi.fn().mockResolvedValue({ count: 1 }),
         update: vi.fn().mockResolvedValue(makeBooking()),
       },
-      banquetPayment: { findMany: vi.fn().mockResolvedValue([]), create: vi.fn().mockResolvedValue(payment()) },
+      banquetPayment: {
+        findMany: vi.fn().mockResolvedValue([]),
+        findFirst: vi.fn().mockResolvedValue(payment({ actor_user_id: OTHER_USER })),
+        create: vi.fn().mockResolvedValue(payment()),
+      },
       // The payment path takes a row lock before reading the history.
       $queryRaw: vi.fn().mockResolvedValue([{ id: BOOKING }]),
       banquetEventPlan: {
@@ -115,10 +152,12 @@ describe('BanquetBookingsService', () => {
     };
     audit = { create: vi.fn().mockResolvedValue(undefined) };
     broker = { publish: vi.fn(), subscribe: vi.fn(), subscriberCount: vi.fn() };
+    authorization = { hasBranchPermission: vi.fn().mockResolvedValue(true) };
     service = new BanquetBookingsService(
       prisma as unknown as PrismaService,
       audit as unknown as AuditLogService,
       broker as unknown as EventBroker,
+      authorization as unknown as AuthorizationService,
     );
   });
 
@@ -134,6 +173,30 @@ describe('BanquetBookingsService', () => {
   // ── creation & snapshots ────────────────────────────────────────────────
 
   describe('create', () => {
+    it('snapshots the hall name and the branch GST rate; no-GST mode on request', async () => {
+      tx.branch.findUnique.mockResolvedValue({ banquet_gst_rate_bps: 500 });
+      await service.create(ctx, { ...createDto, extra_pax: 10 });
+      let data = tx.banquetBooking.create.mock.calls[0][0].data;
+      expect(data.hall_name).toBe('Crystal');
+      expect(data.gst_rate_bps).toBe(500);
+      expect(data.extra_pax).toBe(10);
+      // (80 + 10) × 125,000 = 11,250,000 taxable; + 5% = 562,500
+      expect(data.total_amount_minor).toBe(11_812_500);
+
+      tx.banquetBooking.create.mockClear();
+      await service.create(ctx, { ...createDto, apply_gst: false });
+      data = tx.banquetBooking.create.mock.calls[0][0].data;
+      expect(data.gst_rate_bps).toBe(0);
+      expect(data.total_amount_minor).toBe(10_000_000);
+    });
+
+    it('checks hall capacity against guaranteed guests plus extra pax', async () => {
+      tx.banquetHall.findFirst.mockResolvedValue({ id: HALL, name: 'Crystal', status: 'ACTIVE', capacity: 85 });
+      await expect(service.create(ctx, { ...createDto, extra_pax: 10 })).rejects.toBeInstanceOf(
+        ConflictException,
+      );
+    });
+
     it('starts as a DRAFT and snapshots the package commercials', async () => {
       await service.create(ctx, createDto);
       const data = tx.banquetBooking.create.mock.calls[0][0].data;
@@ -273,13 +336,207 @@ describe('BanquetBookingsService', () => {
       );
     });
 
-    it('refuses to edit anything but a draft', async () => {
+    it.each([BanquetBookingStatus.COMPLETED, BanquetBookingStatus.CANCELLED])(
+      'refuses to edit a %s booking',
+      async (status) => {
+        tx.banquetBooking.findFirst.mockResolvedValue(makeBooking({ status }));
+        await expect(service.update(ctx, BOOKING, { guest_count: 90 })).rejects.toBeInstanceOf(
+          ConflictException,
+        );
+        expect(tx.banquetBooking.updateMany).not.toHaveBeenCalled();
+      },
+    );
+
+    it('edits a CONFIRMED booking conditionally on its status and tells the kitchen', async () => {
+      const confirmed = makeBooking({ status: BanquetBookingStatus.CONFIRMED });
+      tx.banquetBooking.findFirst.mockResolvedValue(confirmed);
+      tx.banquetBooking.findUniqueOrThrow.mockResolvedValue({ ...confirmed, guest_count: 90 });
+      await service.update(ctx, BOOKING, { guest_count: 90 });
+      const [{ where }] = tx.banquetBooking.updateMany.mock.calls[0];
+      expect(where).toEqual({ id: BOOKING, status: BanquetBookingStatus.CONFIRMED });
+      expect(broker.publish.mock.calls[0][1]).toBe(BANQUET_EVENT_TYPES.BOOKING_UPDATED);
+    });
+
+    it('audits old and new values of what changed, never the note text', async () => {
+      await service.update(ctx, BOOKING, { guest_count: 100, notes: 'Bride wants the window table' });
+      const payload = audit.create.mock.calls[0][0].payload;
+      expect(payload.changes).toEqual({
+        guest_count: { from: 80, to: 100 },
+        total_amount_minor: { from: 10_000_000, to: 12_500_000 },
+      });
+      expect(payload.notes_changed).toBe(true);
+      expect(JSON.stringify(payload)).not.toContain('window table');
+    });
+
+    it('takes the row lock before reading the booking', async () => {
+      const order: string[] = [];
+      tx.$queryRaw.mockImplementation(async () => {
+        order.push('lock');
+        return [{ id: BOOKING }];
+      });
+      tx.banquetBooking.findFirst.mockImplementation(async () => {
+        order.push('read');
+        return makeBooking();
+      });
+      await service.update(ctx, BOOKING, { guest_count: 81 });
+      expect(order.slice(0, 2)).toEqual(['lock', 'read']);
+    });
+
+    it('refuses a change that would push the total below what is already paid', async () => {
       tx.banquetBooking.findFirst.mockResolvedValue(
-        makeBooking({ status: BanquetBookingStatus.CONFIRMED }),
+        makeBooking({ payments: [payment({ amount_minor: 9_000_000 })] }),
       );
-      await expect(service.update(ctx, BOOKING, { guest_count: 90 })).rejects.toBeInstanceOf(
-        ConflictException,
+      const err = await service.update(ctx, BOOKING, { guest_count: 40 }).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(ConflictException);
+      expect((err as Error).message).toMatch(/already paid/);
+      expect(tx.banquetBooking.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('re-applies the branch GST rate only when asked, and never takes a rate from the client', async () => {
+      tx.branch.findUnique.mockResolvedValue({ banquet_gst_rate_bps: 500 });
+      await service.update(ctx, BOOKING, { apply_gst: true });
+      const data = tx.banquetBooking.updateMany.mock.calls[0][0].data;
+      expect(data.gst_rate_bps).toBe(500);
+      expect(data.total_amount_minor).toBe(10_500_000);
+
+      tx.banquetBooking.updateMany.mockClear();
+      await service.update(ctx, BOOKING, { apply_gst: false });
+      expect(tx.banquetBooking.updateMany.mock.calls[0][0].data.gst_rate_bps).toBe(0);
+    });
+  });
+
+  // ── past-date control ───────────────────────────────────────────────────
+
+  describe('past events', () => {
+    const past = () =>
+      makeBooking({
+        status: BanquetBookingStatus.CONFIRMED,
+        starts_at: new Date('2020-01-01T10:00:00.000Z'),
+        ends_at: new Date('2020-01-01T16:00:00.000Z'),
+      });
+
+    it('does not consult the edit_past permission for a future event', async () => {
+      await service.update(ctx, BOOKING, { guest_count: 81 });
+      expect(authorization.hasBranchPermission).not.toHaveBeenCalled();
+    });
+
+    it('refuses to change a started event without banquet.booking.edit_past', async () => {
+      tx.banquetBooking.findFirst.mockResolvedValue(past());
+      authorization.hasBranchPermission.mockResolvedValue(false);
+      await expect(service.update(ctx, BOOKING, { guest_count: 81 })).rejects.toBeInstanceOf(
+        ForbiddenException,
       );
+      expect(authorization.hasBranchPermission).toHaveBeenCalledWith(
+        USER,
+        COMPANY,
+        BRANCH,
+        'banquet.booking.edit_past',
+      );
+      expect(tx.banquetBooking.updateMany).not.toHaveBeenCalled();
+      expect(audit.create).not.toHaveBeenCalled();
+    });
+
+    it('allows it with the permission and marks the audit record', async () => {
+      tx.banquetBooking.findFirst.mockResolvedValue(past());
+      await service.update(ctx, BOOKING, { guest_count: 81 });
+      expect(audit.create.mock.calls[0][0].payload.past_event).toBe(true);
+    });
+
+    it('applies to pricing lines too', async () => {
+      tx.banquetBooking.findFirst.mockResolvedValue(past());
+      authorization.hasBranchPermission.mockImplementation(
+        async (_u: string, _c: string, _b: string, key: string) => key !== 'banquet.booking.edit_past',
+      );
+      await expect(
+        service.addAdjustment(ctx, BOOKING, { kind: 'EXTRA_CHARGE', description: 'DJ', amount_minor: 100 }),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(tx.banquetBookingAdjustment.create).not.toHaveBeenCalled();
+    });
+  });
+
+  // ── pricing adjustments ─────────────────────────────────────────────────
+
+  describe('adjustments', () => {
+    it('appends the line, re-prices from the snapshot and audits the total change', async () => {
+      await service.addAdjustment(ctx, BOOKING, {
+        kind: 'EXTRA_CHARGE',
+        description: 'Decoration',
+        amount_minor: 500_000,
+      });
+      expect(tx.banquetBookingAdjustment.create.mock.calls[0][0].data).toMatchObject({
+        booking_id: BOOKING,
+        company_id: COMPANY,
+        branch_id: BRANCH,
+        kind: 'EXTRA_CHARGE',
+        amount_minor: 500_000,
+        actor_user_id: USER,
+      });
+      expect(tx.banquetBooking.update.mock.calls[0][0].data).toEqual({ total_amount_minor: 10_500_000 });
+      expect(audit.create.mock.calls[0][0].payload.changes).toEqual({
+        total_amount_minor: { from: 10_000_000, to: 10_500_000 },
+      });
+    });
+
+    it.each([
+      ['EXTRA_CHARGE', 'banquet.charge.manage'],
+      ['LINE_DISCOUNT', 'banquet.discount.apply'],
+      ['PER_HEAD_DISCOUNT', 'banquet.discount.apply'],
+      ['ADMIN_DISCOUNT', 'banquet.discount.admin'],
+    ] as const)('a %s needs %s specifically', async (kind, key) => {
+      authorization.hasBranchPermission.mockResolvedValue(false);
+      await expect(
+        service.addAdjustment(ctx, BOOKING, { kind, description: 'x', amount_minor: 1 }),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(authorization.hasBranchPermission).toHaveBeenCalledWith(USER, COMPANY, BRANCH, key);
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+    });
+
+    it('refuses discounts larger than the booking value', async () => {
+      await expect(
+        service.addAdjustment(ctx, BOOKING, { kind: 'ADMIN_DISCOUNT', description: 'x', amount_minor: 10_000_001 }),
+      ).rejects.toBeInstanceOf(ConflictException);
+    });
+
+    it('refuses to re-price a completed or cancelled booking', async () => {
+      tx.banquetBooking.findFirst.mockResolvedValue(makeBooking({ status: BanquetBookingStatus.COMPLETED }));
+      await expect(
+        service.addAdjustment(ctx, BOOKING, { kind: 'EXTRA_CHARGE', description: 'x', amount_minor: 1 }),
+      ).rejects.toBeInstanceOf(ConflictException);
+      expect(tx.banquetBookingAdjustment.create).not.toHaveBeenCalled();
+    });
+
+    it('withdraws a line by appending a reversal, once', async () => {
+      const line = { id: 'adj-1', kind: 'ADMIN_DISCOUNT', description: 'Loyalty', amount_minor: 1_000_000, reverses_id: null, actor_user_id: USER, created_at: new Date() };
+      tx.banquetBooking.findFirst.mockResolvedValue(
+        makeBooking({ adjustments: [line], total_amount_minor: 9_000_000 }),
+      );
+      await service.reverseAdjustment(ctx, BOOKING, 'adj-1');
+      expect(tx.banquetBookingAdjustment.create.mock.calls[0][0].data).toMatchObject({
+        kind: 'ADMIN_DISCOUNT',
+        amount_minor: 1_000_000,
+        reverses_id: 'adj-1',
+      });
+      expect(tx.banquetBooking.update.mock.calls[0][0].data).toEqual({ total_amount_minor: 10_000_000 });
+
+      tx.banquetBooking.findFirst.mockResolvedValue(
+        makeBooking({
+          adjustments: [line, { ...line, id: 'adj-2', reverses_id: 'adj-1' }],
+        }),
+      );
+      await expect(service.reverseAdjustment(ctx, BOOKING, 'adj-1')).rejects.toBeInstanceOf(ConflictException);
+      await expect(service.reverseAdjustment(ctx, BOOKING, 'adj-2')).rejects.toBeInstanceOf(ConflictException);
+      await expect(service.reverseAdjustment(ctx, BOOKING, 'nope')).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    it('exposes the invoice and which lines are in force on the detail view', async () => {
+      const line = { id: 'adj-1', kind: 'EXTRA_CHARGE', description: 'DJ', amount_minor: 200_000, reverses_id: null, actor_user_id: USER, created_at: new Date() };
+      prisma.banquetBooking.findFirst.mockResolvedValue(
+        makeBooking({ adjustments: [line], total_amount_minor: 10_200_000, gst_rate_bps: 0 }),
+      );
+      const detail = await service.get(BRANCH, BOOKING);
+      expect(detail.invoice.extra_charges_minor).toBe(200_000);
+      expect(detail.invoice.total_minor).toBe(10_200_000);
+      expect(detail.adjustments[0]).toMatchObject({ id: 'adj-1', active: true, reversed_by_id: null });
     });
 
     it('re-prices from the SNAPSHOT when the guest count changes, not from the live package', async () => {
@@ -381,11 +638,54 @@ describe('BanquetBookingsService', () => {
 
     it('exposes no way to amend or remove a recorded payment', () => {
       // Append-only is enforced by database triggers; this asserts the service
-      // offers no route to them either — only create and read.
+      // offers no route to them either — create, read, and a separate
+      // verification record.
       const api = Object.getOwnPropertyNames(Object.getPrototypeOf(service));
       const paymentApi = api.filter((m) => /payment/i.test(m) && !m.startsWith('to'));
-      expect(paymentApi.sort()).toEqual(['createPayment', 'listPayments']);
+      expect(paymentApi.sort()).toEqual(['createPayment', 'listPayments', 'verifyPayment']);
       expect(api.some((m) => /^(update|delete|void|refund|amend).*payment/i.test(m))).toBe(false);
+    });
+
+    it('decides the settlement stage itself and refreshes the stored paid amount', async () => {
+      await service.createPayment(ctx, BOOKING, dto);
+      expect(tx.banquetPayment.create.mock.calls[0][0].data.kind).toBe('ADVANCE');
+      expect(tx.banquetBooking.update.mock.calls[0][0].data).toEqual({ paid_minor: 2_500_000 });
+
+      tx.banquetPayment.create.mockClear();
+      tx.banquetPayment.findMany.mockResolvedValue([{ amount_minor: 7_500_000 }]);
+      await service.createPayment(ctx, BOOKING, dto);
+      expect(tx.banquetPayment.create.mock.calls[0][0].data.kind).toBe('FINAL');
+    });
+  });
+
+  describe('payment verification', () => {
+    it('records a separate verification by a second person', async () => {
+      const view = await service.verifyPayment(ctx, 'p1', { note: 'Seen in bank' });
+      expect(tx.banquetPayment.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 'p1', branch_id: BRANCH, company_id: COMPANY } }),
+      );
+      expect(tx.banquetPaymentVerification.create.mock.calls[0][0].data).toMatchObject({
+        payment_id: 'p1',
+        verified_by_user_id: USER,
+      });
+      expect(view.verification?.verified_by_user_id).toBe(USER);
+      expect(audit.create.mock.calls[0][0].entityType).toBe('BANQUET_PAYMENT_VERIFICATION');
+    });
+
+    it('never lets the recorder verify their own payment', async () => {
+      tx.banquetPayment.findFirst.mockResolvedValue(payment({ actor_user_id: USER }));
+      await expect(service.verifyPayment(ctx, 'p1', {})).rejects.toBeInstanceOf(ForbiddenException);
+      expect(tx.banquetPaymentVerification.create).not.toHaveBeenCalled();
+    });
+
+    it('verifies once, and 404s a payment of another branch', async () => {
+      tx.banquetPayment.findFirst.mockResolvedValue(
+        payment({ actor_user_id: OTHER_USER, verification: { verified_by_user_id: USER, verified_at: new Date(), note: null } }),
+      );
+      await expect(service.verifyPayment(ctx, 'p1', {})).rejects.toBeInstanceOf(ConflictException);
+
+      tx.banquetPayment.findFirst.mockResolvedValue(null);
+      await expect(service.verifyPayment(ctx, 'p1', {})).rejects.toBeInstanceOf(NotFoundException);
     });
   });
 
@@ -448,6 +748,14 @@ describe('BanquetBookingsService', () => {
         BOOKING,
       );
       expect(broker.publish.mock.calls[0][1]).toBe(expected);
+    });
+
+    it('cancel keeps the reason on the booking but only its presence in the audit', async () => {
+      await service.cancel(ctx, BOOKING, 'Family emergency');
+      expect(tx.banquetBooking.updateMany.mock.calls[0][0].data.cancellation_reason).toBe('Family emergency');
+      const payload = audit.create.mock.calls[0][0].payload;
+      expect(payload.has_reason).toBe(true);
+      expect(JSON.stringify(payload)).not.toContain('Family emergency');
     });
 
     it('complete publishes its own event from CONFIRMED', async () => {

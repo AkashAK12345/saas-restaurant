@@ -36,7 +36,10 @@ function makeProvider(overrides: Partial<ReportDefinition> = {}) {
 
 describe('ReportsService', () => {
   let prisma: any;
-  let authorization: { hasBranchPermission: ReturnType<typeof vi.fn> };
+  let authorization: {
+    hasBranchPermission: ReturnType<typeof vi.fn>;
+    branchPermissionsFor: ReturnType<typeof vi.fn>;
+  };
   let registry: ReportRegistry;
   let service: ReportsService;
 
@@ -44,7 +47,10 @@ describe('ReportsService', () => {
     prisma = {
       branch: { findFirst: vi.fn().mockResolvedValue({ timezone: 'Asia/Kolkata' }) },
     };
-    authorization = { hasBranchPermission: vi.fn().mockResolvedValue(true) };
+    authorization = {
+      hasBranchPermission: vi.fn().mockResolvedValue(true),
+      branchPermissionsFor: vi.fn().mockResolvedValue(new Set<string>()),
+    };
     registry = new ReportRegistry();
     service = new ReportsService(
       prisma as unknown as PrismaService,
@@ -100,13 +106,28 @@ describe('ReportsService', () => {
       });
       registry.register(queue);
       registry.register(banquet);
-      authorization.hasBranchPermission.mockImplementation(
-        async (_u: string, _c: string, _b: string, permission: string) =>
-          permission === PERMISSION_KEYS.QUEUE_VIEW,
-      );
+      authorization.branchPermissionsFor.mockResolvedValue(new Set([PERMISSION_KEYS.QUEUE_VIEW]));
 
       const listed = await service.listAvailable(COMPANY, BRANCH, USER);
       expect(listed.map((d) => d.key)).toEqual(['queue.tokens']);
+      // Resolved ONCE for the whole catalogue, not once per report.
+      expect(authorization.branchPermissionsFor).toHaveBeenCalledTimes(1);
+      expect(authorization.branchPermissionsFor).toHaveBeenCalledWith(USER, COMPANY, BRANCH);
+    });
+
+    it('offers nothing when branch access itself fails', async () => {
+      registry.register(makeProvider().provider);
+      authorization.branchPermissionsFor.mockResolvedValue(null);
+      expect(await service.listAvailable(COMPANY, BRANCH, USER)).toEqual([]);
+    });
+
+    it('carries the branch name and the drill-down target in the response', async () => {
+      const { provider } = makeProvider({ drilldown: { id_key: 'booking_id', path: '/banquet/:id' } });
+      registry.register(provider);
+      prisma.branch.findFirst.mockResolvedValue({ timezone: 'Asia/Kolkata', name: 'Alpha Main' });
+      const res = await service.run(COMPANY, BRANCH, USER, { reportKey: 'queue.tokens' });
+      expect(res.branch_name).toBe('Alpha Main');
+      expect(res.drilldown).toEqual({ id_key: 'booking_id', path: '/banquet/:id' });
     });
   });
 

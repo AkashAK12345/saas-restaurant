@@ -39,12 +39,14 @@ const CUSTOMER_BOARD: QueueCustomerBoard = {
   now_serving: [{ token_number: 21, table_label: 'T2', called_at: '2026-09-07T10:00:00.000Z' }],
   recently_seated: [],
   waiting_count: 3,
+  waiting_tokens: [22, 23, 24],
 };
 
 const ADMIN_BOARD: QueueAdminBoard = {
   branch_id: 'br-1',
   service_date: '2026-09-07',
-  counts: { waiting: 3, called: 1, seated: 0, no_show: 0, cancelled: 0 },
+  counts: { scheduled: 0, waiting: 3, called: 1, seated: 0, no_show: 0, cancelled: 0 },
+  totals: { parties: 3, adults: 6, kids: 1 },
   waiting: [],
   called: [],
   seated: [],
@@ -151,7 +153,13 @@ describe('queue display screen', () => {
     expect(screen.queryByRole('link')).toBeNull();
     expect(screen.queryByRole('combobox')).toBeNull();
     expect(screen.queryByText(/sign (in|out)/i)).toBeNull();
-    expect(screen.queryByRole('button')).toBeNull();
+    // The only buttons a paired screen has are the wall-screen presentation
+    // controls (full screen, density) — none reads or changes queue data.
+    const controls = screen.getByRole('group', { name: 'Screen controls' });
+    for (const button of screen.queryAllByRole('button')) {
+      expect(controls.contains(button)).toBe(true);
+      expect(['Compact', 'Larger text', 'Full screen', 'Exit full screen']).toContain(button.textContent);
+    }
   });
 
   it('the chef display renders standalone and asks to be paired', async () => {

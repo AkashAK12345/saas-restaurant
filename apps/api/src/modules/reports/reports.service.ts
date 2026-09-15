@@ -59,13 +59,13 @@ export class ReportsService {
     companyId: string,
     branchId: string,
     actorUserId: string,
-  ): Promise<ReportContext> {
+  ): Promise<ReportContext & { branchName: string }> {
     const branch = await this.prisma.branch.findFirst({
       where: { id: branchId, company_id: companyId },
-      select: { timezone: true },
+      select: { timezone: true, name: true },
     });
     if (!branch) throw new NotFoundException();
-    return { companyId, branchId, actorUserId, timezone: branch.timezone };
+    return { companyId, branchId, actorUserId, timezone: branch.timezone, branchName: branch.name ?? '' };
   }
 
   private async mayRun(ctx: ReportContext, definition: ReportDefinition): Promise<boolean> {
@@ -83,13 +83,13 @@ export class ReportsService {
     branchId: string,
     actorUserId: string,
   ): Promise<ReportDefinition[]> {
-    const ctx = await this.contextFor(companyId, branchId, actorUserId);
-    const allowed: ReportDefinition[] = [];
-    // Sequential and small: one cheap permission check per registered report.
-    for (const definition of this.registry.definitions()) {
-      if (await this.mayRun(ctx, definition)) allowed.push(definition);
-    }
-    return allowed;
+    await this.contextFor(companyId, branchId, actorUserId);
+    // The caller's permissions are resolved ONCE and every report is tested
+    // against that set — the same answer as asking per report, without
+    // repeating the membership and branch checks for each one.
+    const permissions = await this.authorization.branchPermissionsFor(actorUserId, companyId, branchId);
+    if (!permissions) return [];
+    return this.registry.definitions().filter((d) => permissions.has(d.permission));
   }
 
   async describe(
@@ -112,7 +112,9 @@ export class ReportsService {
     input: RunReportInput,
     pageCap = REPORT_MAX_PAGE_SIZE,
   ): Promise<ReportResponse> {
-    const ctx = await this.contextFor(companyId, branchId, actorUserId);
+    // The branch name is for the response envelope only; providers get the
+    // ReportContext contract and nothing more.
+    const { branchName, ...ctx } = await this.contextFor(companyId, branchId, actorUserId);
     const provider = this.providerOrThrow(input.reportKey);
     await this.assertMayRun(ctx, provider);
 
@@ -139,6 +141,7 @@ export class ReportsService {
       kind: provider.definition.kind,
       generated_at: new Date().toISOString(),
       timezone: ctx.timezone,
+      branch_name: branchName,
       filters: {
         branch_id: ctx.branchId,
         from: range.fromLocal,
@@ -146,6 +149,7 @@ export class ReportsService {
         options,
       },
       columns: provider.definition.columns,
+      drilldown: provider.definition.drilldown ?? null,
       option_specs: provider.definition.options ?? [],
       exportable: provider.definition.exportable,
       metrics: result.metrics ?? [],

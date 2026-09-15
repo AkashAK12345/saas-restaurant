@@ -23,7 +23,10 @@ const noShow = vi.fn();
 const cancel = vi.fn();
 const assignTable = vi.fn();
 const releaseTable = vi.fn();
-const tables = vi.fn();
+const skip = vi.fn();
+const checkIn = vi.fn();
+const contact = vi.fn();
+const tableAvailability = vi.fn();
 
 vi.mock('@/lib/queue/api', () => ({
   queueApi: {
@@ -33,16 +36,20 @@ vi.mock('@/lib/queue/api', () => ({
     cancel: (...a: unknown[]) => cancel(...a),
     assignTable: (...a: unknown[]) => assignTable(...a),
     releaseTable: (...a: unknown[]) => releaseTable(...a),
-    tables: (...a: unknown[]) => tables(...a),
+    skip: (...a: unknown[]) => skip(...a),
+    checkIn: (...a: unknown[]) => checkIn(...a),
+    contact: (...a: unknown[]) => contact(...a),
+    tableAvailability: (...a: unknown[]) => tableAvailability(...a),
   },
 }));
 
 let branchPermissions: string[] = [];
+let companyPermissions: string[] = [];
 vi.mock('@/lib/context/app-context-provider', () => ({
   useAppContext: () => ({
     selectedCompanyId: 'co-1',
     selectedBranchId: 'br-1',
-    companyPermissions: [],
+    companyPermissions,
     branchPermissions,
     loading: false,
   }),
@@ -69,6 +76,8 @@ const token = (over: Partial<QueueToken> = {}): QueueToken => ({
   seated_at: null,
   cancelled_at: null,
   no_show_at: null,
+  skipped_at: null,
+  skip_count: 0,
   created_at: '2026-09-07T10:00:00.000Z',
   updated_at: '2026-09-07T10:00:00.000Z',
   ...over,
@@ -77,33 +86,48 @@ const token = (over: Partial<QueueToken> = {}): QueueToken => ({
 const makeBoard = (over: Partial<QueueBoard> = {}): QueueBoard => ({
   branch_id: 'br-1',
   service_date: '2026-09-07',
-  counts: { waiting: 1, called: 1, seated: 0, no_show: 0, cancelled: 0 },
-  next_waiting: token({ id: 'w-1', token_number: 5, customer: { id: 'c-1', name: 'Asha Rao' } }),
-  waiting: [token({ id: 'w-1', token_number: 5, customer: { id: 'c-1', name: 'Asha Rao' } })],
+  counts: { scheduled: 0, waiting: 1, called: 1, seated: 0, no_show: 0, cancelled: 0 },
+  totals: { parties: 1, adults: 2, kids: 0 },
+  next_waiting: token({ id: 'w-1', token_number: 5, customer_id: 'c-1', customer: { id: 'c-1', name: 'Asha Rao' } }),
+  scheduled: [],
+  waiting: [token({ id: 'w-1', token_number: 5, customer_id: 'c-1', customer: { id: 'c-1', name: 'Asha Rao' } })],
   called: [token({ id: 'c-1', token_number: 4, status: 'CALLED', called_at: '2026-09-07T10:05:00.000Z' })],
   seated: [],
   ...over,
 });
 
-const ALL = ['queue.view', 'queue.call', 'queue.seat', 'queue.no_show', 'queue.cancel', 'tables.view'];
+const FREE = (id: string, label: string, capacity: number) => ({
+  id,
+  label,
+  capacity,
+  zone: null,
+  status: 'ACTIVE' as const,
+  occupied_by: null,
+});
+
+const ALL = ['queue.view', 'queue.call', 'queue.seat', 'queue.no_show', 'queue.cancel', 'queue.register', 'tables.view'];
 
 describe('Podium operator', () => {
   beforeEach(() => {
-    for (const m of [call, seat, noShow, cancel, assignTable, releaseTable, refresh]) m.mockReset();
+    for (const m of [call, seat, noShow, cancel, assignTable, releaseTable, skip, checkIn, contact, refresh]) m.mockReset();
     refresh.mockResolvedValue(undefined);
     call.mockResolvedValue(token({ status: 'CALLED', token_number: 5 }));
     seat.mockResolvedValue(token({ status: 'SEATED', token_number: 4 }));
     noShow.mockResolvedValue(token({ status: 'NO_SHOW', token_number: 4 }));
     cancel.mockResolvedValue(token({ status: 'CANCELLED', token_number: 5 }));
     releaseTable.mockResolvedValue(token({ status: 'SEATED', token_number: 4 }));
-    tables.mockResolvedValue({
-      data: [
-        { id: 'tbl-1', branch_id: 'br-1', label: 'T1', capacity: 4, zone: null, status: 'ACTIVE' },
-        { id: 'tbl-2', branch_id: 'br-1', label: 'T2', capacity: 2, zone: null, status: 'ACTIVE' },
-      ],
-      meta: { total: 2, limit: 100, offset: 0 },
+    skip.mockResolvedValue(token({ status: 'WAITING', token_number: 4, skip_count: 1 }));
+    checkIn.mockResolvedValue(token({ status: 'WAITING', token_number: 9 }));
+    contact.mockResolvedValue({
+      token_id: 'w-1',
+      customer_name: 'Asha Rao',
+      phone: '+919876500001',
+      tel_url: 'tel:+919876500001',
+      whatsapp_url: 'https://wa.me/919876500001',
     });
+    tableAvailability.mockReset().mockResolvedValue([FREE('tbl-1', 'T1', 4), FREE('tbl-2', 'T2', 2)]);
     branchPermissions = [...ALL];
+    companyPermissions = [];
     board = makeBoard();
     stream = 'open';
   });
@@ -135,7 +159,7 @@ describe('Podium operator', () => {
 
   it('seats a called party, with a table when one is chosen', async () => {
     render(<PodiumPage />);
-    await waitFor(() => expect(tables).toHaveBeenCalled());
+    await waitFor(() => expect(tableAvailability).toHaveBeenCalled());
 
     fireEvent.change(await screen.findByLabelText('Table for token 4'), { target: { value: 'tbl-2' } });
     fireEvent.click(screen.getByRole('button', { name: 'Seat at table' }));
@@ -175,7 +199,7 @@ describe('Podium operator', () => {
           assigned_table: { id: 'tbl-1', label: 'T1' },
         }),
       ],
-      counts: { waiting: 1, called: 0, seated: 1, no_show: 0, cancelled: 0 },
+      counts: { scheduled: 0, waiting: 1, called: 0, seated: 1, no_show: 0, cancelled: 0 },
     });
     render(<PodiumPage />);
 
@@ -216,10 +240,81 @@ describe('Podium operator', () => {
     board = makeBoard({
       waiting: [],
       next_waiting: null,
-      counts: { waiting: 0, called: 1, seated: 0, no_show: 0, cancelled: 0 },
+      counts: { scheduled: 0, waiting: 0, called: 1, seated: 0, no_show: 0, cancelled: 0 },
     });
     render(<PodiumPage />);
     expect(screen.getByText('Nobody is waiting.')).toBeTruthy();
+  });
+
+  it('skips a called party that did not respond', async () => {
+    render(<PodiumPage />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Skip' }));
+    await waitFor(() => expect(skip).toHaveBeenCalledWith({ companyId: 'co-1', branchId: 'br-1' }, 'c-1'));
+    await waitFor(() => expect(refresh).toHaveBeenCalled());
+  });
+
+  it('lists advance bookings separately and checks one in', async () => {
+    board = makeBoard({
+      scheduled: [
+        token({ id: 'sc-1', token_number: 9, status: 'SCHEDULED', advance_booking_at: '2026-09-07T13:30:00.000Z' }),
+      ],
+      counts: { scheduled: 1, waiting: 1, called: 1, seated: 0, no_show: 0, cancelled: 0 },
+    });
+    render(<PodiumPage />);
+    const section = screen.getByRole('heading', { name: 'Scheduled' }).closest('div')!.parentElement!;
+    expect(within(section).getByText(/Booked for/)).toBeTruthy();
+    fireEvent.click(within(section).getByRole('button', { name: 'Check in' }));
+    await waitFor(() => expect(checkIn).toHaveBeenCalledWith({ companyId: 'co-1', branchId: 'br-1' }, 'sc-1'));
+  });
+
+  it('offers no check-in without queue.register', () => {
+    branchPermissions = ALL.filter((p) => p !== 'queue.register');
+    board = makeBoard({ scheduled: [token({ id: 'sc-1', token_number: 9, status: 'SCHEDULED' })] });
+    render(<PodiumPage />);
+    expect(screen.queryByRole('button', { name: 'Check in' })).toBeNull();
+  });
+
+  it('reveals a phone and WhatsApp link only on request, and only with customers.view', async () => {
+    render(<PodiumPage />);
+    // queue.call alone is not enough to read a phone number.
+    expect(screen.queryByRole('button', { name: 'Contact' })).toBeNull();
+  });
+
+  it('fetches contact details on demand and offers a call and a WhatsApp message', async () => {
+    companyPermissions = ['customers.view'];
+    render(<PodiumPage />);
+    fireEvent.click((await screen.findAllByRole('button', { name: 'Contact' }))[0]);
+    await waitFor(() => expect(contact).toHaveBeenCalledWith({ companyId: 'co-1', branchId: 'br-1' }, 'w-1'));
+    expect((await screen.findByRole('link', { name: /Phone \+919876500001/ })).getAttribute('href')).toBe(
+      'tel:+919876500001',
+    );
+    expect(screen.getByRole('link', { name: 'WhatsApp' }).getAttribute('href')).toBe('https://wa.me/919876500001');
+  });
+
+  it('never offers a table still held by a party seated on an earlier day', async () => {
+    tableAvailability.mockResolvedValue([
+      { ...FREE('tbl-1', 'T1', 4), occupied_by: { token_id: 'old', token_number: 88, service_date: '2026-09-06' } },
+      FREE('tbl-2', 'T2', 2),
+    ]);
+    render(<PodiumPage />);
+    await waitFor(() => expect(tableAvailability).toHaveBeenCalled());
+    const select = await screen.findByLabelText('Table for token 4');
+    const options = within(select).getAllByRole('option').map((o) => o.textContent);
+    expect(options.some((o) => o?.includes('T2'))).toBe(true);
+    expect(options.some((o) => o?.includes('T1'))).toBe(false);
+  });
+
+  it('shows the waiting totals — parties, adults and kids', () => {
+    board = makeBoard({ totals: { parties: 3, adults: 7, kids: 2 } });
+    render(<PodiumPage />);
+    expect(screen.getByLabelText('Waiting totals').textContent).toMatch(/3\s*parties waiting · 7\s*adults · 2\s*kids/);
+  });
+
+  it('shows a live wait time counted from when the party joined', () => {
+    vi.setSystemTime(new Date('2026-09-07T10:12:30.000Z'));
+    render(<PodiumPage />);
+    expect(screen.getByText(/waiting 12 min/)).toBeTruthy();
+    vi.useRealTimers();
   });
 
   it('shows the live connection state and keeps a manual refresh available', () => {

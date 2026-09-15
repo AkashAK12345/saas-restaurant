@@ -67,3 +67,34 @@ export interface DashboardResponse {
   filters: { from: string; to: string };
   widgets: DashboardWidgetResponse[];
 }
+
+// ── All branches ─────────────────────────────────────────────────────────────
+
+/**
+ * One widget summed across every branch the caller may see.
+ *
+ * AGGREGATE ONLY, and only where adding up is honest: counts and money (per
+ * currency) are summed. A percentage, a duration or an average cannot be
+ * added across branches, so it is never faked — it appears per branch only,
+ * and is listed in `not_summed` so the tile can say so.
+ */
+export interface AllBranchesWidgetResponse extends DashboardWidgetDefinition {
+  metrics: WidgetMetric[];
+  not_summed: string[];
+  branches: Array<{
+    branch_id: string;
+    branch_name: string;
+    metrics: WidgetMetric[];
+    error?: string;
+  }>;
+}
+
+export interface AllBranchesDashboardResponse {
+  scope: 'all_branches';
+  company_id: string;
+  generated_at: string;
+  /** Branch-local dates, applied in each branch's own timezone. */
+  filters: { from: string | null; to: string | null };
+  branches: Array<{ id: string; name: string; timezone: string }>;
+  widgets: AllBranchesWidgetResponse[];
+}

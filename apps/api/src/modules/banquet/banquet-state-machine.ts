@@ -62,9 +62,14 @@ export function occupiesHall(status: BanquetBookingStatus): boolean {
   return HALL_OCCUPYING_STATUSES.includes(status);
 }
 
-/** Commercial details may only be edited while the booking is still a draft. */
+/**
+ * Details and price may change while a booking is live — a draft being quoted
+ * or a confirmed event whose head count moves. A completed or cancelled
+ * booking is history and closed. (Once an event has STARTED, the service
+ * additionally requires banquet.booking.edit_past.)
+ */
 export function isEditable(status: BanquetBookingStatus): boolean {
-  return status === BanquetBookingStatus.DRAFT;
+  return status === BanquetBookingStatus.DRAFT || status === BanquetBookingStatus.CONFIRMED;
 }
 
 export function isTerminalBookingStatus(status: BanquetBookingStatus): boolean {

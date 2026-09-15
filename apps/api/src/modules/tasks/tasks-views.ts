@@ -1,4 +1,5 @@
 import type {
+  ChecklistItemKind,
   ChecklistTemplateStatus,
   RoutineFrequency,
   RoutineStatus,
@@ -25,10 +26,35 @@ export interface ChecklistItemView {
   id: string;
   label: string;
   position: number;
+  /** CHECK is a tick; other kinds are done when answered. */
+  kind: ChecklistItemKind;
   is_required: boolean;
   is_done: boolean;
+  /** The canonical answer for a non-CHECK item; null while unanswered. */
+  value: string | null;
   done_at: Date | null;
   done_by: string | null;
+}
+
+/**
+ * A routine's "transposed log": checklist items down the side, occurrence
+ * dates across the top. The reference system's compliance view — it shows a
+ * restroom check failed three weeks running at a glance.
+ */
+export interface RoutineLogView {
+  routine_id: string;
+  routine_name: string;
+  from: string;
+  to: string;
+  /** Branch-local occurrence dates that have a task, oldest first. */
+  dates: string[];
+  occurrences: Array<{ date: string; task_id: string; status: string; completed_at: Date | null; late: boolean }>;
+  rows: Array<{
+    label: string;
+    kind: ChecklistItemKind;
+    /** Keyed by date; absent when that occurrence did not have this item. */
+    cells: Record<string, { done: boolean; value: string | null }>;
+  }>;
 }
 
 export interface ChecklistProgressView {
@@ -53,6 +79,15 @@ export interface TaskView {
   overdue: boolean;
   assignee_id: string | null;
   assignee: StaffRefView | null;
+  /** Who made the current assignment, and when. */
+  assigned_by: string | null;
+  assigner: StaffRefView | null;
+  assigned_at: Date | null;
+  /** Times responsibility moved from one person to another. */
+  reassignment_count: number;
+  /** Who raised the task; null for routine-generated tasks. */
+  created_by: string | null;
+  creator: StaffRefView | null;
   source: TaskSource;
   routine_id: string | null;
   routine_name: string | null;
@@ -71,11 +106,30 @@ export interface TaskDetailView extends TaskView {
   checklist: ChecklistItemView[];
 }
 
+/** A note on a task. REST only, behind the same visibility as the task. */
+export interface TaskCommentView {
+  id: string;
+  task_id: string;
+  author: StaffRefView;
+  body: string;
+  created_at: Date;
+}
+
 export interface ChecklistTemplateItemView {
   id: string;
   label: string;
   position: number;
+  kind: ChecklistItemKind;
   is_required: boolean;
+}
+
+export interface ReferenceChecklistView {
+  key: string;
+  name: string;
+  description: string;
+  items: Array<{ label: string; kind: ChecklistItemKind; is_required: boolean }>;
+  /** A template with this name already exists in the company. */
+  installed: boolean;
 }
 
 export interface ChecklistTemplateView {
@@ -97,6 +151,8 @@ export interface RoutineView {
   description: string | null;
   frequency: RoutineFrequency;
   time_of_day: string;
+  /** Branch-local submission deadline, "HH:MM"; null = due at time_of_day. */
+  due_time: string | null;
   weekdays: number[];
   priority: TaskPriority;
   status: RoutineStatus;

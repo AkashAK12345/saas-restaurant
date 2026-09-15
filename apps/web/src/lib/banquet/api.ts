@@ -2,12 +2,16 @@ import { api } from '@/lib/api/client';
 import type { StreamTicketResponse } from '@/lib/api/types';
 import type { Paginated, Customer } from '@/lib/queue/types';
 import type {
+  Availability,
+  BanquetAdjustmentKind,
+  BanquetBill,
   BanquetBooking,
   BanquetBookingDetail,
   BanquetBookingItem,
   BanquetBookingStatus,
   BanquetEventPlan,
   BanquetHall,
+  BanquetHallSlot,
   BanquetPackage,
   BanquetPayment,
   StaffKdsBoard,
@@ -36,6 +40,23 @@ const qs = (params: Record<string, string | number | undefined>) => {
   return s ? `?${s}` : '';
 };
 
+export type BookingTab = 'drafts' | 'upcoming' | 'past' | 'cancelled' | 'all';
+export type PaymentFilter = 'pending' | 'paid' | 'unverified';
+export type DateField = 'event' | 'advance' | 'final';
+
+export interface ListBookingsParams {
+  status?: BanquetBookingStatus;
+  tab?: BookingTab;
+  payment?: PaymentFilter;
+  date_field?: DateField;
+  from?: string;
+  to?: string;
+  hall_id?: string;
+  q?: string;
+  limit?: number;
+  offset?: number;
+}
+
 export const banquetApi = {
   // Halls
   listHalls: (ctx: BanquetContext, limit = 100) =>
@@ -47,6 +68,19 @@ export const banquetApi = {
     id: string,
     body: { name?: string; capacity?: number; status?: BanquetHall['status'] },
   ) => api.patch<BanquetHall>(`/banquet/halls/${id}`, body, branch(ctx)),
+  createSlot: (
+    ctx: BanquetContext,
+    hallId: string,
+    body: { name: string; start_time: string; end_time: string; position?: number },
+  ) => api.post<BanquetHallSlot>(`/banquet/halls/${hallId}/slots`, body, branch(ctx)),
+  updateSlot: (
+    ctx: BanquetContext,
+    hallId: string,
+    slotId: string,
+    body: Partial<{ name: string; start_time: string; end_time: string; position: number; status: BanquetHallSlot['status'] }>,
+  ) => api.patch<BanquetHallSlot>(`/banquet/halls/${hallId}/slots/${slotId}`, body, branch(ctx)),
+  availability: (ctx: BanquetContext, params: { from: string; to: string; hall_id?: string }) =>
+    api.get<Availability>(`/banquet/availability${qs(params)}`, branch(ctx)),
 
   // Packages (company-scoped)
   listPackages: (ctx: BanquetContext, limit = 100) =>
@@ -75,12 +109,12 @@ export const banquetApi = {
   ) => api.patch<BanquetPackage>(`/banquet/packages/${id}`, body, company(ctx)),
 
   // Bookings
-  listBookings: (
-    ctx: BanquetContext,
-    params: { status?: BanquetBookingStatus; from?: string; to?: string; hall_id?: string; limit?: number; offset?: number } = {},
-  ) => api.get<Paginated<BanquetBooking>>(`/banquet/bookings${qs(params)}`, branch(ctx)),
+  listBookings: (ctx: BanquetContext, params: ListBookingsParams = {}) =>
+    api.get<Paginated<BanquetBooking>>(`/banquet/bookings${qs({ ...params })}`, branch(ctx)),
   getBooking: (ctx: BanquetContext, id: string) =>
     api.get<BanquetBookingDetail>(`/banquet/bookings/${id}`, branch(ctx)),
+  getBill: (ctx: BanquetContext, id: string) =>
+    api.get<BanquetBill>(`/banquet/bookings/${id}/bill`, branch(ctx)),
   createBooking: (
     ctx: BanquetContext,
     body: {
@@ -90,23 +124,50 @@ export const banquetApi = {
       starts_at: string;
       ends_at: string;
       guest_count: number;
+      extra_pax?: number;
+      apply_gst?: boolean;
       notes?: string;
     },
   ) => api.post<BanquetBookingDetail>('/banquet/bookings', body, branch(ctx)),
   updateBooking: (
     ctx: BanquetContext,
     id: string,
-    body: Partial<{ hall_id: string; starts_at: string; ends_at: string; guest_count: number; notes: string | null }>,
+    body: Partial<{
+      hall_id: string;
+      starts_at: string;
+      ends_at: string;
+      guest_count: number;
+      extra_pax: number;
+      apply_gst: boolean;
+      notes: string | null;
+    }>,
   ) => api.patch<BanquetBookingDetail>(`/banquet/bookings/${id}`, body, branch(ctx)),
 
   confirmBooking: (ctx: BanquetContext, id: string) =>
     api.post<BanquetBookingDetail>(`/banquet/bookings/${id}/confirm`, undefined, branch(ctx)),
   completeBooking: (ctx: BanquetContext, id: string) =>
     api.post<BanquetBookingDetail>(`/banquet/bookings/${id}/complete`, undefined, branch(ctx)),
-  cancelBooking: (ctx: BanquetContext, id: string) =>
-    api.post<BanquetBookingDetail>(`/banquet/bookings/${id}/cancel`, undefined, branch(ctx)),
+  cancelBooking: (ctx: BanquetContext, id: string, reason?: string) =>
+    api.post<BanquetBookingDetail>(
+      `/banquet/bookings/${id}/cancel`,
+      reason ? { reason } : undefined,
+      branch(ctx),
+    ),
 
-  // Advance & balance
+  // Pricing lines
+  addAdjustment: (
+    ctx: BanquetContext,
+    id: string,
+    body: { kind: BanquetAdjustmentKind; description: string; amount_minor: number },
+  ) => api.post<BanquetBookingDetail>(`/banquet/bookings/${id}/adjustments`, body, branch(ctx)),
+  reverseAdjustment: (ctx: BanquetContext, id: string, adjustmentId: string) =>
+    api.post<BanquetBookingDetail>(
+      `/banquet/bookings/${id}/adjustments/${adjustmentId}/reverse`,
+      undefined,
+      branch(ctx),
+    ),
+
+  // Payments
   listPayments: (ctx: BanquetContext, id: string) =>
     api.get<BanquetPayment[]>(`/banquet/bookings/${id}/payments`, branch(ctx)),
   createPayment: (
@@ -117,6 +178,12 @@ export const banquetApi = {
     api.post<{ payment: BanquetPayment; balance: BanquetBookingDetail['balance'] }>(
       `/banquet/bookings/${id}/payments`,
       body,
+      branch(ctx),
+    ),
+  verifyPayment: (ctx: BanquetContext, paymentId: string, note?: string) =>
+    api.post<BanquetPayment>(
+      `/banquet/payments/${paymentId}/verify`,
+      note ? { note } : {},
       branch(ctx),
     ),
 

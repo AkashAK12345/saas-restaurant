@@ -1,4 +1,4 @@
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   ArrayNotEmpty,
@@ -18,6 +18,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 import {
+  ChecklistItemKind,
   ChecklistTemplateStatus,
   RoutineFrequency,
   TaskPriority,
@@ -25,6 +26,15 @@ import {
 } from '@samco/database';
 import { PaginationQueryDto } from '../../common/pagination.dto.js';
 import { TIME_OF_DAY_PATTERN } from './routine-schedule.js';
+
+/**
+ * A query-string flag. `@Type(() => Boolean)` would read the STRING "false" as
+ * true (any non-empty string is truthy), so `?overdue=false` used to filter to
+ * overdue tasks. Only the literal words are accepted; anything else is left
+ * as-is for @IsBoolean to reject.
+ */
+export const queryBoolean = ({ value }: { value: unknown }): unknown =>
+  value === 'true' ? true : value === 'false' ? false : value;
 
 /**
  * Scope always comes from the guard-verified context headers, never a body.
@@ -39,6 +49,11 @@ export class ChecklistItemDto {
   @IsNotEmpty()
   @MaxLength(200)
   label!: string;
+
+  /** What the item asks for; a tick when omitted. */
+  @IsOptional()
+  @IsEnum(ChecklistItemKind)
+  kind?: ChecklistItemKind;
 
   @IsOptional()
   @IsBoolean()
@@ -149,9 +164,37 @@ export class AssignTaskDto {
   assignee_id?: string | null;
 }
 
+export class AddTaskCommentDto {
+  /** Trimmed before validation, so a comment of only spaces is empty and refused. */
+  @Transform(({ value }: { value: unknown }) => (typeof value === 'string' ? value.trim() : value))
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(2000)
+  body!: string;
+}
+
 export class ToggleChecklistItemDto {
   @IsBoolean()
   is_done!: boolean;
+
+  /**
+   * The answer, for a NUMBER / TEXT / RATING / DATE item: required when
+   * marking it done, ignored-as-null when clearing it, refused on a tick item.
+   * Validated per kind in checklist-values.ts.
+   */
+  @IsOptional()
+  @IsString()
+  @MaxLength(1000)
+  value?: string;
+}
+
+/** A branch-local window for a routine's transposed log. */
+export class RoutineLogQueryDto {
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'from must be YYYY-MM-DD' })
+  from!: string;
+
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'to must be YYYY-MM-DD' })
+  to!: string;
 }
 
 export class ListTasksQueryDto extends PaginationQueryDto {
@@ -171,14 +214,14 @@ export class ListTasksQueryDto extends PaginationQueryDto {
 
   /** Only tasks with no one responsible yet. */
   @IsOptional()
+  @Transform(queryBoolean)
   @IsBoolean()
-  @Type(() => Boolean)
   unassigned?: boolean;
 
   /** Only open tasks whose due time has passed. */
   @IsOptional()
+  @Transform(queryBoolean)
   @IsBoolean()
-  @Type(() => Boolean)
   overdue?: boolean;
 
   @IsOptional()
@@ -225,6 +268,15 @@ export class CreateRoutineDto {
   @Matches(TIME_OF_DAY_PATTERN, { message: 'time_of_day must be a 24-hour HH:MM value' })
   time_of_day!: string;
 
+  /**
+   * Optional submission deadline on the same branch-local day, not earlier
+   * than time_of_day. The generated task is due then instead of the moment it
+   * appears.
+   */
+  @IsOptional()
+  @Matches(TIME_OF_DAY_PATTERN, { message: 'due_time must be a 24-hour HH:MM value' })
+  due_time?: string;
+
   /** Required for WEEKLY: 0 = Sunday … 6 = Saturday, branch-local. */
   @IsOptional()
   @IsArray()
@@ -266,6 +318,11 @@ export class UpdateRoutineDto {
   @IsOptional()
   @Matches(TIME_OF_DAY_PATTERN, { message: 'time_of_day must be a 24-hour HH:MM value' })
   time_of_day?: string;
+
+  /** Null clears the deadline. */
+  @IsOptional()
+  @Matches(TIME_OF_DAY_PATTERN, { message: 'due_time must be a 24-hour HH:MM value' })
+  due_time?: string | null;
 
   @IsOptional()
   @IsArray()

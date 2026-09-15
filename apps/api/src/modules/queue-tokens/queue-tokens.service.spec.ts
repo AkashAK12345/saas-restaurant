@@ -36,6 +36,8 @@ function makeToken(overrides: Record<string, unknown> = {}) {
     seated_at: null,
     cancelled_at: null,
     no_show_at: null,
+    skipped_at: null,
+    skip_count: 0,
     created_at: new Date('2026-09-07T10:00:00.000Z'),
     updated_at: new Date('2026-09-07T10:00:00.000Z'),
     ...overrides,
@@ -180,6 +182,81 @@ describe('QueueTokensService', () => {
     it('fails loudly if the counter returns nothing usable', async () => {
       tx.$queryRaw.mockResolvedValue([]);
       await expect(service.register(ctx, { adults: 2 })).rejects.toThrow();
+      expect(broker.publish).not.toHaveBeenCalled();
+    });
+
+    it('holds an advance booking for later today as SCHEDULED', async () => {
+      vi.setSystemTime(new Date('2026-09-07T04:00:00.000Z')); // 09:30 in Kolkata
+      await service.register(ctx, { adults: 2, advance_booking_at: '2026-09-07T10:00:00.000Z' }); // 15:30 IST
+      expect(tx.queueToken.create.mock.calls[0][0].data.status).toBe(QueueTokenStatus.SCHEDULED);
+      expect(tx.queueTokenEvent.create.mock.calls[0][0].data.new_status).toBe(QueueTokenStatus.SCHEDULED);
+      vi.useRealTimers();
+    });
+
+    it('refuses an advance booking that falls on the NEXT branch-local day', async () => {
+      vi.setSystemTime(new Date('2026-09-07T16:00:00.000Z')); // 21:30 in Kolkata
+      // 03:30 IST on the 8th — within 24 hours, but tomorrow's service date.
+      await expect(
+        service.register(ctx, { adults: 2, advance_booking_at: '2026-09-07T22:00:00.000Z' }),
+      ).rejects.toThrow(/later today/);
+      expect(tx.queueToken.create).not.toHaveBeenCalled();
+      vi.useRealTimers();
+    });
+  });
+
+  describe('skip, check-in and activation', () => {
+    it('skip moves CALLED -> WAITING, clears called_at and counts the skip', async () => {
+      tx.queueToken.findFirst.mockResolvedValue(makeToken({ status: QueueTokenStatus.CALLED }));
+      tx.queueToken.findUniqueOrThrow.mockResolvedValue(makeToken({ status: QueueTokenStatus.WAITING, skip_count: 1 }));
+      await service.skip(ctx, TOKEN);
+
+      const [{ where, data }] = tx.queueToken.updateMany.mock.calls[0];
+      expect(where).toEqual({ id: TOKEN, status: QueueTokenStatus.CALLED });
+      expect(data).toMatchObject({ status: QueueTokenStatus.WAITING, called_at: null, skip_count: { increment: 1 } });
+      expect(data.skipped_at).toBeInstanceOf(Date);
+      expect(tx.queueTokenEvent.create.mock.calls[0][0].data.event_type).toBe(QueueTokenEventType.SKIPPED);
+      expect(broker.publish.mock.calls[0][1]).toBe(QUEUE_EVENT_TYPES.SKIPPED);
+    });
+
+    it('skip refuses a party that is not called', async () => {
+      tx.queueToken.findFirst.mockResolvedValue(makeToken({ status: QueueTokenStatus.WAITING }));
+      await expect(service.skip(ctx, TOKEN)).rejects.toBeInstanceOf(ConflictException);
+      expect(broker.publish).not.toHaveBeenCalled();
+    });
+
+    it('check-in moves SCHEDULED -> WAITING with a CHECKED_IN history row', async () => {
+      tx.queueToken.findFirst.mockResolvedValue(makeToken({ status: QueueTokenStatus.SCHEDULED }));
+      await service.checkIn(ctx, TOKEN);
+      expect(tx.queueToken.updateMany.mock.calls[0][0].where).toEqual({ id: TOKEN, status: QueueTokenStatus.SCHEDULED });
+      expect(tx.queueTokenEvent.create.mock.calls[0][0].data.event_type).toBe(QueueTokenEventType.CHECKED_IN);
+    });
+
+    it('activation surfaces a due booking as a SYSTEM event with no actor', async () => {
+      prisma.queueToken.findMany.mockResolvedValue([{ id: TOKEN, company_id: COMPANY, branch_id: BRANCH }]);
+      const result = await service.activateDueScheduled(new Date('2026-09-07T12:00:00.000Z'));
+
+      expect(result).toEqual({ activated: 1 });
+      expect(tx.queueToken.updateMany.mock.calls[0][0]).toEqual({
+        where: { id: TOKEN, status: QueueTokenStatus.SCHEDULED },
+        data: { status: QueueTokenStatus.WAITING },
+      });
+      const event = tx.queueTokenEvent.create.mock.calls[0][0].data;
+      expect(event).toMatchObject({ event_type: QueueTokenEventType.ACTIVATED, actor_user_id: null });
+      expect(audit.create.mock.calls[0][0]).toMatchObject({
+        actorUserId: null,
+        companyId: COMPANY,
+        branchId: BRANCH,
+        systemEvent: true,
+      });
+      expect(broker.publish.mock.calls[0][1]).toBe(QUEUE_EVENT_TYPES.ACTIVATED);
+    });
+
+    it('activation is a no-op for a booking another runner or a check-in already moved', async () => {
+      prisma.queueToken.findMany.mockResolvedValue([{ id: TOKEN, company_id: COMPANY, branch_id: BRANCH }]);
+      tx.queueToken.updateMany.mockResolvedValue({ count: 0 });
+      expect(await service.activateDueScheduled()).toEqual({ activated: 0 });
+      expect(tx.queueTokenEvent.create).not.toHaveBeenCalled();
+      expect(audit.create).not.toHaveBeenCalled();
       expect(broker.publish).not.toHaveBeenCalled();
     });
   });
@@ -427,6 +504,8 @@ describe('QueueTokensService', () => {
           'customer_id',
           'id',
           'no_show_at',
+          'skipped_at',
+          'skip_count',
           'adults',
           'kids',
           'party_size',
@@ -471,9 +550,36 @@ describe('QueueTokensService', () => {
       const board = await service.board(BRANCH);
       expect(prisma.queueToken.findMany).toHaveBeenCalledTimes(1);
       expect(prisma.queueToken.findMany.mock.calls[0][0].where.branch_id).toBe(BRANCH);
-      expect(board.counts).toEqual({ waiting: 2, called: 2, seated: 1, no_show: 1, cancelled: 1 });
+      expect(board.counts).toEqual({ scheduled: 0, waiting: 2, called: 2, seated: 1, no_show: 1, cancelled: 1 });
       expect(board.waiting.map((t) => t.token_number)).toEqual([4, 5]);
       expect(board.seated.map((t) => t.token_number)).toEqual([1]);
+      expect(board.totals).toEqual({ parties: 2, adults: 4, kids: 0 });
+    });
+
+    it('puts a skipped party behind everyone not yet called', async () => {
+      prisma.queueToken.findMany.mockResolvedValue([
+        makeToken({ id: 's', token_number: 2, status: QueueTokenStatus.WAITING, skipped_at: new Date('2026-09-07T12:00:00Z') }),
+        makeToken({ id: 'a', token_number: 3, status: QueueTokenStatus.WAITING }),
+        makeToken({ id: 'b', token_number: 9, status: QueueTokenStatus.WAITING }),
+      ]);
+      const board = await service.board(BRANCH);
+      expect(board.waiting.map((t) => t.token_number)).toEqual([3, 9, 2]);
+      expect(board.next_waiting?.token_number).toBe(3);
+      expect((await service.customerBoard(BRANCH)).waiting_tokens).toEqual([3, 9, 2]);
+    });
+
+    it('lists scheduled bookings separately, soonest first, and counts them', async () => {
+      prisma.queueToken.findMany.mockResolvedValue([
+        makeToken({ id: 'late', token_number: 1, status: QueueTokenStatus.SCHEDULED, advance_booking_at: new Date('2026-09-07T15:00:00Z') }),
+        makeToken({ id: 'soon', token_number: 2, status: QueueTokenStatus.SCHEDULED, advance_booking_at: new Date('2026-09-07T13:00:00Z') }),
+        makeToken({ id: 'w', token_number: 3, status: QueueTokenStatus.WAITING }),
+      ]);
+      const board = await service.board(BRANCH);
+      expect(board.scheduled.map((t) => t.id)).toEqual(['soon', 'late']);
+      expect(board.counts.scheduled).toBe(2);
+      // A scheduled booking is not waiting, and not next.
+      expect(board.waiting.map((t) => t.id)).toEqual(['w']);
+      expect((await service.customerBoard(BRANCH)).waiting_count).toBe(1);
     });
 
     it('names the lowest-numbered waiting token as next — first come, first served', async () => {
@@ -493,7 +599,8 @@ describe('QueueTokensService', () => {
 
     it('the admin board carries no customer object', async () => {
       const board = await service.adminBoard(BRANCH);
-      expect(board.counts).toEqual({ waiting: 2, called: 2, seated: 1, no_show: 1, cancelled: 1 });
+      expect(board.counts).toEqual({ scheduled: 0, waiting: 2, called: 2, seated: 1, no_show: 1, cancelled: 1 });
+      expect(board.totals).toEqual({ parties: 2, adults: 4, kids: 0 });
       for (const t of [...board.waiting, ...board.called, ...board.seated]) {
         expect(t).not.toHaveProperty('customer');
       }
@@ -510,6 +617,7 @@ describe('QueueTokensService', () => {
         { token_number: 1, table_label: 'T5', called_at: null },
       ]);
       expect(board.waiting_count).toBe(2);
+      expect(board.waiting_tokens).toEqual([4, 5]);
 
       const json = JSON.stringify(board);
       expect(json).not.toContain('Asha Rao');

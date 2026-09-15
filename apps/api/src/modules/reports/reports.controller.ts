@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Controller,
   Get,
   Headers,
@@ -9,6 +10,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import type { Response } from 'express';
+import { isUUID } from 'class-validator';
 import { AuditEventType } from '@samco/database';
 import { ReportsService, REPORT_MAX_PAGE_SIZE } from './reports.service.js';
 import { DashboardService } from './dashboard.service.js';
@@ -148,6 +150,7 @@ export class ReportsController {
         to: report.filters.to,
         row_count: report.rows.length,
         options: report.filters.options,
+        branch_name: report.branch_name,
       },
     });
 
@@ -168,6 +171,27 @@ export class ReportsController {
     @Req() req: AuthenticatedRequest,
   ) {
     return this.dashboard.build(companyId, branchId, req.user.id, query.from, query.to);
+  }
+
+  /**
+   * Every widget summed across the company's branches the caller may see.
+   *
+   * No PermissionGuard decorator on purpose: there is no single branch to
+   * guard. The service proves EACH branch through AuthorizationService (active
+   * company, active membership, branch in company and active, dashboard.view
+   * there) and refuses if none qualifies. The company header is still only a
+   * request — a company the caller is not a member of yields no branches.
+   */
+  @Get('dashboard/all-branches')
+  getAllBranchesDashboard(
+    @Headers('x-company-id') companyId: string | undefined,
+    @Query() query: ReportRangeQueryDto,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    if (!companyId || !isUUID(companyId)) {
+      throw new BadRequestException('X-Company-ID header is required');
+    }
+    return this.dashboard.buildAllBranches(companyId, req.user.id, query.from, query.to);
   }
 
   /** Exposed so the frontend can show the page cap without hard-coding it. */

@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { BadRequestException } from '@nestjs/common';
 import {
   MAX_OPTION_LENGTH,
+  REPORT_MAX_OFFSET,
   RESERVED_QUERY_KEYS,
   parseExportQuery,
   parseReportQuery,
@@ -59,6 +60,12 @@ describe('report query parsing', () => {
 
     it.each(['0', '-1', '1.5', '12abc', '1e3', 'many'])('rejects the limit %j', (limit) => {
       expect(() => parseReportQuery({ limit })).toThrow(BadRequestException);
+    });
+
+    it('caps how deep a page may be requested', () => {
+      expect(parseReportQuery({ offset: String(REPORT_MAX_OFFSET) }).offset).toBe(REPORT_MAX_OFFSET);
+      expect(() => parseReportQuery({ offset: String(REPORT_MAX_OFFSET + 1) })).toThrow(BadRequestException);
+      expect(() => parseReportQuery({ offset: '9007199254740991' })).toThrow(BadRequestException);
     });
 
     it('rejects a negative offset', () => {

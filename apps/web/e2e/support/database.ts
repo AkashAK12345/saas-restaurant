@@ -107,13 +107,17 @@ export async function resetBrowserDatabase(prisma: PrismaClient, url: string): P
   await prisma.$executeRawUnsafe('TRUNCATE TABLE "queue_token_events"');
   await prisma.queueToken.deleteMany();
   await prisma.queueCounter.deleteMany();
-  await prisma.$executeRawUnsafe('TRUNCATE TABLE "banquet_payments"');
+  await prisma.$executeRawUnsafe(
+    'TRUNCATE TABLE "banquet_payment_verifications", "banquet_payments", "banquet_booking_adjustments"',
+  );
   await prisma.banquetEventPlan.deleteMany();
   await prisma.banquetBookingItem.deleteMany();
   await prisma.banquetBooking.deleteMany();
+  await prisma.banquetHallSlot.deleteMany();
   await prisma.banquetHall.deleteMany();
   await prisma.banquetPackageItem.deleteMany();
   await prisma.banquetPackage.deleteMany();
+  await prisma.$executeRawUnsafe('TRUNCATE TABLE "task_comments"');
   await prisma.taskChecklistItem.deleteMany();
   await prisma.task.deleteMany();
   await prisma.taskRoutine.deleteMany();

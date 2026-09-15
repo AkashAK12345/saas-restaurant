@@ -5,6 +5,7 @@ import {
   Headers,
   HttpCode,
   HttpStatus,
+  NotFoundException,
   Param,
   ParseUUIDPipe,
   Patch,
@@ -18,11 +19,13 @@ import { TasksService } from './tasks.service.js';
 import { RoutinesService } from './routines.service.js';
 import { ChecklistTemplatesService } from './checklist-templates.service.js';
 import {
+  AddTaskCommentDto,
   AssignTaskDto,
   CreateChecklistTemplateDto,
   CreateRoutineDto,
   CreateTaskDto,
   ListTasksQueryDto,
+  RoutineLogQueryDto,
   TaskSummaryQueryDto,
   ToggleChecklistItemDto,
   UpdateChecklistTemplateDto,
@@ -42,6 +45,9 @@ import type { TaskActorContext, TaskCompanyContext } from './tasks-context.js';
 interface AuthenticatedRequest {
   user: { id: string };
 }
+
+/** Either task read: the whole branch, or the caller's own tasks. */
+const TASK_READ = [PERMISSION_KEYS.TASKS_VIEW, PERMISSION_KEYS.TASKS_VIEW_OWN] as const;
 
 /**
  * Tasks, checklists and routines.
@@ -89,6 +95,27 @@ export class TasksController {
     return this.checklists.list(companyId, page);
   }
 
+  /** Starter definitions for the reference routines (declared before :id). */
+  @Get('checklists/library')
+  @UseGuards(PermissionGuard)
+  @RequireCompanyPermission(PERMISSION_KEYS.TASKS_VIEW)
+  checklistLibrary(@Headers('x-company-id') companyId: string) {
+    return this.checklists.library(companyId);
+  }
+
+  @Post('checklists/library/:key')
+  @HttpCode(HttpStatus.CREATED)
+  @UseGuards(PermissionGuard)
+  @RequireCompanyPermission(PERMISSION_KEYS.TASKS_CHECKLIST_MANAGE)
+  installReferenceChecklist(
+    @Param('key') key: string,
+    @Headers('x-company-id') companyId: string,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    if (!/^[a-z0-9-]{1,60}$/.test(key)) throw new NotFoundException();
+    return this.checklists.installReference(this.companyCtx(companyId, req), key);
+  }
+
   @Get('checklists/:id')
   @UseGuards(PermissionGuard)
   @RequireCompanyPermission(PERMISSION_KEYS.TASKS_VIEW)
@@ -134,6 +161,18 @@ export class TasksController {
   @RequireBranchPermission(PERMISSION_KEYS.TASKS_VIEW)
   getRoutine(@Param('id', ParseUUIDPipe) id: string, @Headers('x-branch-id') branchId: string) {
     return this.routines.get(id, branchId);
+  }
+
+  /** Transposed compliance log: checklist items × occurrence dates. */
+  @Get('routines/:id/log')
+  @UseGuards(PermissionGuard)
+  @RequireBranchPermission(PERMISSION_KEYS.TASKS_REPORTS_VIEW)
+  routineLog(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Headers('x-branch-id') branchId: string,
+    @Query() query: RoutineLogQueryDto,
+  ) {
+    return this.routines.log(branchId, id, query);
   }
 
   @Post('routines')
@@ -222,9 +261,28 @@ export class TasksController {
     return this.tasks.summary(this.branchCtx(companyId, branchId, req), query);
   }
 
+  /**
+   * The people a task at this branch may be handed to. Behind tasks.assign
+   * (not users.view): it exists for the assignment picker and returns display
+   * names only. Declared before :id.
+   */
+  @Get('tasks/assignable-staff')
+  @UseGuards(PermissionGuard)
+  @RequireBranchPermission(PERMISSION_KEYS.TASKS_ASSIGN)
+  assignableStaff(
+    @Headers('x-company-id') companyId: string,
+    @Headers('x-branch-id') branchId: string,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.tasks.assignableStaff(this.branchCtx(companyId, branchId, req));
+  }
+
+  // tasks.view shows the whole branch; tasks.view_own only the caller's own
+  // tasks. The guard admits either; TasksService narrows for the second.
+
   @Get('tasks')
   @UseGuards(PermissionGuard)
-  @RequireBranchPermission(PERMISSION_KEYS.TASKS_VIEW)
+  @RequireBranchPermission(TASK_READ)
   listTasks(
     @Headers('x-company-id') companyId: string,
     @Headers('x-branch-id') branchId: string,
@@ -236,7 +294,7 @@ export class TasksController {
 
   @Get('tasks/:id')
   @UseGuards(PermissionGuard)
-  @RequireBranchPermission(PERMISSION_KEYS.TASKS_VIEW)
+  @RequireBranchPermission(TASK_READ)
   getTask(
     @Param('id', ParseUUIDPipe) id: string,
     @Headers('x-company-id') companyId: string,
@@ -244,6 +302,33 @@ export class TasksController {
     @Req() req: AuthenticatedRequest,
   ) {
     return this.tasks.get(this.branchCtx(companyId, branchId, req), id);
+  }
+
+  @Get('tasks/:id/comments')
+  @UseGuards(PermissionGuard)
+  @RequireBranchPermission(TASK_READ)
+  listComments(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Headers('x-company-id') companyId: string,
+    @Headers('x-branch-id') branchId: string,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.tasks.listComments(this.branchCtx(companyId, branchId, req), id);
+  }
+
+  /** Commenting is working on the task, so it rides on tasks.update like ticking an item. */
+  @Post('tasks/:id/comments')
+  @HttpCode(HttpStatus.CREATED)
+  @UseGuards(PermissionGuard)
+  @RequireBranchPermission(PERMISSION_KEYS.TASKS_UPDATE)
+  addComment(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Headers('x-company-id') companyId: string,
+    @Headers('x-branch-id') branchId: string,
+    @Body() dto: AddTaskCommentDto,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.tasks.addComment(this.branchCtx(companyId, branchId, req), id, dto);
   }
 
   @Post('tasks')
@@ -342,6 +427,7 @@ export class TasksController {
       id,
       itemId,
       dto.is_done,
+      dto.value,
     );
   }
 }

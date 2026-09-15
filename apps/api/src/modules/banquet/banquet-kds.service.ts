@@ -57,15 +57,24 @@ export class BanquetKdsService {
     @Inject(EVENT_BROKER) private readonly broker: EventBroker,
   ) {}
 
-  /** Staff board: the chef projection plus who each event is for. */
-  async staffBoard(branchId: string, serviceDate?: string): Promise<StaffKdsBoardView> {
+  /**
+   * Staff board: the chef projection plus who each event is for. The name is
+   * customer data, so it is only filled when the caller also holds
+   * banquet.view — the controller decides; a kitchen role with
+   * banquet.kds.view alone sees what the wall screen sees.
+   */
+  async staffBoard(
+    branchId: string,
+    serviceDate?: string,
+    includeCustomer = false,
+  ): Promise<StaffKdsBoardView> {
     const { date, rows } = await this.boardRows(branchId, serviceDate);
     return {
       branch_id: branchId,
       service_date: date,
       bookings: rows.map((b) => ({
         ...this.bookings.toChefView(b),
-        customer_name: b.customer?.name ?? null,
+        customer_name: includeCustomer ? (b.customer?.name ?? null) : null,
       })),
       counts: this.countItems(rows),
     };
@@ -213,7 +222,7 @@ export class BanquetKdsService {
         starts_at: { gte: start, lt: end },
       },
       include: BOOKING_INCLUDE,
-      orderBy: { starts_at: 'asc' },
+      orderBy: [{ starts_at: 'asc' }, { id: 'asc' }],
       take: BOARD_MAX_BOOKINGS,
     });
     return { date, rows };

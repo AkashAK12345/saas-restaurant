@@ -8,7 +8,7 @@ import { useQueueBoard } from '@/lib/queue/use-queue-board';
 import { useQueueActions } from '@/lib/queue/use-queue-actions';
 import { QueueTokenCard } from '@/components/queue/queue-token-card';
 import { QueueStatusBar } from '@/components/queue/queue-status-bar';
-import type { RestaurantTable } from '@/lib/queue/types';
+import type { QueueTableAvailability, QueueToken, RestaurantTable } from '@/lib/queue/types';
 import queue from '@/components/queue/queue.module.css';
 import styles from './podium.module.css';
 
@@ -26,7 +26,7 @@ import styles from './podium.module.css';
  * the API returns 409, the message is shown, and the board is refetched.
  */
 export default function PodiumPage() {
-  const { selectedCompanyId, selectedBranchId, branchPermissions } = useAppContext();
+  const { selectedCompanyId, selectedBranchId, branchPermissions, companyPermissions } = useAppContext();
   const ctx = useMemo(
     () =>
       selectedCompanyId && selectedBranchId
@@ -37,23 +37,26 @@ export default function PodiumPage() {
 
   const { board, loading, error, stream, updatedAt, refresh } = useQueueBoard(ctx);
   const actions = useQueueActions(ctx, refresh);
-  const [tables, setTables] = useState<RestaurantTable[]>([]);
+  const [tables, setTables] = useState<QueueTableAvailability[]>([]);
 
   const mayCall = hasPermission(branchPermissions, 'queue.call');
   const maySeat = hasPermission(branchPermissions, 'queue.seat');
   const mayNoShow = hasPermission(branchPermissions, 'queue.no_show');
   const mayCancel = hasPermission(branchPermissions, 'queue.cancel');
-  const mayViewTables = hasPermission(branchPermissions, 'tables.view');
+  const mayRegister = hasPermission(branchPermissions, 'queue.register');
+  // Reading a phone number is customer data: both keys, and the API re-checks both.
+  const mayContact = mayCall && hasPermission(companyPermissions, 'customers.view');
 
-  // Tables change rarely; fetch once per branch. Assignment still fails
-  // cleanly if one is taken in the meantime.
+  // Occupancy comes from the API across EVERY service date — a party seated
+  // before midnight still holds its table. Refetched whenever the board
+  // changes, since seating and releasing are what change it.
   useEffect(() => {
-    if (!ctx || !mayViewTables) return;
+    if (!ctx || !maySeat) return;
     let cancelled = false;
     void (async () => {
       try {
-        const page = await queueApi.tables(ctx);
-        if (!cancelled) setTables(page.data);
+        const rows = await queueApi.tableAvailability(ctx);
+        if (!cancelled) setTables(rows);
       } catch {
         if (!cancelled) setTables([]);
       }
@@ -61,16 +64,27 @@ export default function PodiumPage() {
     return () => {
       cancelled = true;
     };
-  }, [ctx, mayViewTables]);
+  }, [ctx, maySeat, updatedAt]);
 
-  /** Tables not currently held by a seated party, per the authoritative board. */
-  const freeTables = useMemo(() => {
+  /**
+   * Tables free right now: active, held by nobody on any day, and not taken
+   * on the board in the moment since availability was last read. Seating
+   * still fails cleanly if one is taken in the meantime.
+   */
+  const freeTables = useMemo<RestaurantTable[]>(() => {
     if (!board) return [];
     const taken = new Set(
       board.seated.map((t) => t.assigned_table_id).filter((id): id is string => id !== null),
     );
-    return tables.filter((t) => t.status === 'ACTIVE' && !taken.has(t.id));
+    return tables
+      .filter((t) => t.status === 'ACTIVE' && t.occupied_by === null && !taken.has(t.id))
+      .map((t) => ({ id: t.id, branch_id: board.branch_id, label: t.label, capacity: t.capacity, zone: t.zone, status: t.status }));
   }, [tables, board]);
+
+  const loadContact = useMemo(
+    () => (mayContact && ctx ? (t: QueueToken) => queueApi.contact(ctx, t.id) : undefined),
+    [mayContact, ctx],
+  );
 
   if (loading) {
     return (
@@ -150,8 +164,40 @@ export default function PodiumPage() {
         <p className={styles.idle}>Nobody is waiting.</p>
       )}
 
-      {mayViewTables && freeTables.length === 0 && tables.length > 0 ? (
+      <p className={queue.totals} aria-label="Waiting totals">
+        <strong>{board.totals.parties}</strong> {board.totals.parties === 1 ? 'party' : 'parties'} waiting ·{' '}
+        <strong>{board.totals.adults}</strong> adults · <strong>{board.totals.kids}</strong> kids
+        {maySeat && tables.length > 0 ? (
+          <>
+            {' · '}
+            <strong>{freeTables.length}</strong> of {tables.filter((t) => t.status === 'ACTIVE').length} tables free
+          </>
+        ) : null}
+      </p>
+
+      {maySeat && freeTables.length === 0 && tables.length > 0 ? (
         <p className={styles.tablesNote}>Every table is occupied — seat parties without a table, or release one.</p>
+      ) : null}
+
+      {board.scheduled.length > 0 ? (
+        <div className={queue.column} style={{ marginBottom: 'var(--gap-lg)' }}>
+          <div className={queue.columnHead}>
+            <h2 className={queue.columnTitle}>Scheduled</h2>
+            <span className={queue.count}>{board.scheduled.length}</span>
+          </div>
+          <ul className={queue.list}>
+            {board.scheduled.map((t) => (
+              <QueueTokenCard
+                key={t.id}
+                token={t}
+                busy={actions.busy}
+                onCheckIn={mayRegister ? actions.checkIn : undefined}
+                onCancel={mayCancel ? actions.cancel : undefined}
+                loadContact={loadContact}
+              />
+            ))}
+          </ul>
+        </div>
       ) : null}
 
       <div className={queue.columns}>
@@ -171,8 +217,10 @@ export default function PodiumPage() {
                   tables={freeTables}
                   busy={actions.busy}
                   onSeat={maySeat ? actions.seat : undefined}
+                  onSkip={mayCall ? actions.skip : undefined}
                   onNoShow={mayNoShow ? actions.noShow : undefined}
                   onCancel={mayCancel ? actions.cancel : undefined}
+                  loadContact={loadContact}
                 />
               ))}
             </ul>
@@ -196,6 +244,7 @@ export default function PodiumPage() {
                   highlight={t.id === next?.id}
                   onCall={mayCall ? actions.call : undefined}
                   onCancel={mayCancel ? actions.cancel : undefined}
+                  loadContact={loadContact}
                 />
               ))}
             </ul>

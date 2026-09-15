@@ -17,8 +17,21 @@ import type {
   ContextCompanySummary,
 } from '@/lib/api/types';
 
-const COMPANY_KEY = 'samco.ctx.company';
-const BRANCH_KEY = 'samco.ctx.branch';
+type StoredField = 'company' | 'branch';
+const COMPANY_KEY: StoredField = 'company';
+const BRANCH_KEY: StoredField = 'branch';
+
+/**
+ * The working company and branch are remembered PER USER in localStorage, so a
+ * reload, a new tab or a deep link opens where the operator was working
+ * (SRS §4.1: a persistent branch selector). Keys carry the user id so two
+ * people sharing a tablet never inherit each other's branch.
+ *
+ * Only the ids are stored — never permissions. The server re-validates the
+ * pick on every load and a stale one is dropped (see below).
+ */
+const storageKey = (userId: string | null, field: StoredField) =>
+  userId ? `samco.ctx.${userId}.${field}` : `samco.ctx.${field}`;
 
 export interface AppContextState {
   loading: boolean;
@@ -45,19 +58,26 @@ export interface AppContextState {
 
 const AppContext = createContext<AppContextState | null>(null);
 
-function readStored(key: string): string | null {
+function readStored(userId: string | null, field: StoredField): string | null {
   try {
-    return typeof window === 'undefined' ? null : window.sessionStorage.getItem(key);
+    if (typeof window === 'undefined') return null;
+    return (
+      window.localStorage.getItem(storageKey(userId, field)) ??
+      // One-time carry-over from the earlier per-tab storage.
+      window.sessionStorage.getItem(`samco.ctx.${field}`)
+    );
   } catch {
     return null;
   }
 }
-function writeStored(key: string, value: string | null): void {
+function writeStored(userId: string | null, field: StoredField, value: string | null): void {
   try {
-    if (value) window.sessionStorage.setItem(key, value);
-    else window.sessionStorage.removeItem(key);
+    const key = storageKey(userId, field);
+    if (value) window.localStorage.setItem(key, value);
+    else window.localStorage.removeItem(key);
+    window.sessionStorage.removeItem(`samco.ctx.${field}`);
   } catch {
-    /* ignore */
+    /* storage unavailable (private mode): the pick lasts until reload */
   }
 }
 
@@ -86,13 +106,14 @@ const requestKey = (companyId: string | null, branchId: string | null) =>
  *
  * Mount order matters: this provider sits inside AuthGate, which renders only
  * once the session is confirmed on the client. It therefore never takes part
- * in server rendering or hydration, so reading sessionStorage in the lazy
- * initialisers below is safe.
+ * in server rendering or hydration, so reading browser storage in the lazy
+ * initialisers below is safe — and the signed-in user is already known.
  */
 export function AppContextProvider({ children }: { children: ReactNode }) {
-  const { status } = useAuth();
-  const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(() => readStored(COMPANY_KEY));
-  const [selectedBranchId, setSelectedBranchId] = useState<string | null>(() => readStored(BRANCH_KEY));
+  const { status, user } = useAuth();
+  const userId = user?.id ?? null;
+  const [selectedCompanyId, setSelectedCompanyId] = useState<string | null>(() => readStored(userId, COMPANY_KEY));
+  const [selectedBranchId, setSelectedBranchId] = useState<string | null>(() => readStored(userId, BRANCH_KEY));
   const [result, setResult] = useState<LoadResult | null>(null);
   const [reloadNonce, setReloadNonce] = useState(0);
 
@@ -112,7 +133,7 @@ export function AppContextProvider({ children }: { children: ReactNode }) {
         // The server is the authority on what exists for this user.
         if (selectedCompanyId && !ctx.company) {
           setSelectedCompanyId(null);
-          writeStored(COMPANY_KEY, null);
+          writeStored(userId, COMPANY_KEY, null);
         }
         // A branch of the user's company where they hold no role is not theirs
         // to work in: the server still names it, marked has_roles=false, and
@@ -122,7 +143,7 @@ export function AppContextProvider({ children }: { children: ReactNode }) {
           : false;
         if (selectedBranchId && !branchReachable) {
           setSelectedBranchId(null);
-          writeStored(BRANCH_KEY, null);
+          writeStored(userId, BRANCH_KEY, null);
         }
         setResult({ key, data: ctx, error: null });
       } catch (err) {
@@ -132,8 +153,8 @@ export function AppContextProvider({ children }: { children: ReactNode }) {
           // effect re-runs for the cleared selection.
           setSelectedCompanyId(null);
           setSelectedBranchId(null);
-          writeStored(COMPANY_KEY, null);
-          writeStored(BRANCH_KEY, null);
+          writeStored(userId, COMPANY_KEY, null);
+          writeStored(userId, BRANCH_KEY, null);
           return;
         }
         setResult({
@@ -147,20 +168,20 @@ export function AppContextProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [status, selectedCompanyId, selectedBranchId, key, reloadNonce]);
+  }, [status, selectedCompanyId, selectedBranchId, key, reloadNonce, userId]);
 
   const selectCompany = useCallback((companyId: string | null) => {
     setSelectedCompanyId(companyId);
-    writeStored(COMPANY_KEY, companyId);
+    writeStored(userId, COMPANY_KEY, companyId);
     // A branch belongs to one company; changing company clears it.
     setSelectedBranchId(null);
-    writeStored(BRANCH_KEY, null);
-  }, []);
+    writeStored(userId, BRANCH_KEY, null);
+  }, [userId]);
 
   const selectBranch = useCallback((branchId: string | null) => {
     setSelectedBranchId(branchId);
-    writeStored(BRANCH_KEY, branchId);
-  }, []);
+    writeStored(userId, BRANCH_KEY, branchId);
+  }, [userId]);
 
   const reload = useCallback(async () => {
     setReloadNonce((n) => n + 1);

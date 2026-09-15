@@ -1,0 +1,52 @@
+/* Printable banquet documents: the bill and the KOT.
+   On screen the sheet sits in the app like any page. On paper everything but
+   the sheet is hidden, so the staff chrome never prints. */
+
+.sheet {
+  background: #fff;
+  color: #000;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 24px;
+  max-width: 820px;
+}
+
+.toolbar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: var(--gap-lg); }
+
+.heading { margin: 0 0 4px; font-size: 1.4rem; }
+.banner {
+  margin: 12px 0;
+  padding: 8px;
+  border: 2px solid #000;
+  text-align: center;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+.muted { color: #444; font-size: 0.9rem; margin: 2px 0; }
+
+.table { width: 100%; border-collapse: collapse; margin: 16px 0; }
+.table th,
+.table td { padding: 6px 4px; border-bottom: 1px solid #ccc; text-align: left; }
+.table td.num,
+.table th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.total td { font-weight: 800; border-top: 2px solid #000; }
+
+.meta { display: grid; gap: 4px 24px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+
+.kotItems { list-style: none; padding: 0; margin: 16px 0; display: grid; gap: 8px; font-size: 1.15rem; }
+.kotItems li { border-bottom: 1px dashed #999; padding: 6px 0; }
+
+@media print {
+  :global(body *) { visibility: hidden; }
+  .sheet,
+  .sheet * { visibility: visible; }
+  .sheet {
+    position: absolute;
+    inset: 0 auto auto 0;
+    width: 100%;
+    max-width: none;
+    border: 0;
+    padding: 0;
+  }
+  .toolbar { display: none; }
+}

@@ -1,5 +1,6 @@
 import { api, apiDownload, type DownloadedFile } from '@/lib/api/client';
 import type {
+  AllBranchesDashboardResponse,
   DashboardResponse,
   ExportFormat,
   ReportCatalogue,
@@ -70,6 +71,15 @@ export const reportsApi = {
 
   dashboard: (ctx: ReportContext, from?: string, to?: string) =>
     api.get<DashboardResponse>(`/dashboard${qs({ from, to })}`, branch(ctx)),
+
+  /**
+   * Every branch of the company the caller may open, summed. Sends only the
+   * company: the server proves each branch on its own.
+   */
+  dashboardAllBranches: (ctx: { companyId: string }, from?: string, to?: string) =>
+    api.get<AllBranchesDashboardResponse>(`/dashboard/all-branches${qs({ from, to })}`, {
+      companyId: ctx.companyId,
+    }),
 };
 
 /**

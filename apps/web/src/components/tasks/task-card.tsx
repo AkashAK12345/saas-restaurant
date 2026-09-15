@@ -76,7 +76,12 @@ export function TaskCard({
       </div>
 
       <div className={styles.meta}>
-        {task.assignee ? `Assigned to ${task.assignee.name}` : 'Unassigned'}
+        {task.assignee
+          ? `${task.assigner ? `${task.assigner.name} → ` : ''}Assigned to ${task.assignee.name}`
+          : 'Unassigned'}
+        {task.reassignment_count > 0
+          ? ` · reassigned ${task.reassignment_count} ${task.reassignment_count === 1 ? 'time' : 'times'}`
+          : ''}
         {task.routine_name ? ` · ${task.routine_name}` : ''}
         {task.completer ? ` · Completed by ${task.completer.name}` : ''}
       </div>

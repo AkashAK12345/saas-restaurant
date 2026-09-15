@@ -9,9 +9,13 @@ vi.mock('@/lib/api/client', async (importOriginal) => {
 });
 
 let authStatus: 'loading' | 'authenticated' | 'unauthenticated' = 'authenticated';
+let authUserId = 'u1';
 vi.mock('@/lib/auth/auth-provider', () => ({
-  useAuth: () => ({ status: authStatus, user: { id: 'u1' }, login: vi.fn(), logout: vi.fn() }),
+  useAuth: () => ({ status: authStatus, user: { id: authUserId }, login: vi.fn(), logout: vi.fn() }),
 }));
+
+/** Where the selection is remembered: localStorage, per user. */
+const stored = (field: 'company' | 'branch', userId = 'u1') => window.localStorage.getItem(`samco.ctx.${userId}.${field}`);
 
 import { AppContextProvider, useAppContext } from './app-context-provider';
 import { ApiError } from '@/lib/api/client';
@@ -49,6 +53,9 @@ describe('AppContextProvider', () => {
   beforeEach(() => {
     apiGet.mockReset();
     authStatus = 'authenticated';
+    authUserId = 'u1';
+    window.localStorage.clear();
+    window.sessionStorage.clear();
   });
 
   it('loads selectable companies with no selection', async () => {
@@ -88,9 +95,29 @@ describe('AppContextProvider', () => {
     await waitFor(() => expect(screen.getByTestId('branch').textContent).toBe('br-1'));
     expect(apiGet).toHaveBeenLastCalledWith('/auth/context', { companyId: 'co-A', branchId: 'br-1' });
     expect(screen.getByTestId('bperms').textContent).toBe('tables.view');
-    // Selection is remembered for the tab.
-    expect(window.sessionStorage.getItem('samco.ctx.company')).toBe('co-A');
-    expect(window.sessionStorage.getItem('samco.ctx.branch')).toBe('br-1');
+    // Selection is remembered across reloads and tabs, for THIS user.
+    expect(stored('company')).toBe('co-A');
+    expect(stored('branch')).toBe('br-1');
+  });
+
+  it('reopens where the user was working after a reload', async () => {
+    window.localStorage.setItem('samco.ctx.u1.company', 'co-A');
+    window.localStorage.setItem('samco.ctx.u1.branch', 'br-1');
+    apiGet.mockImplementation(async (_p: string, o: { branchId: string | null }) => twoBranches(o.branchId));
+    render(<AppContextProvider><Probe /></AppContextProvider>);
+    await waitFor(() => expect(screen.getByTestId('branch').textContent).toBe('br-1'));
+    expect(apiGet).toHaveBeenCalledWith('/auth/context', { companyId: 'co-A', branchId: 'br-1' });
+  });
+
+  it('never hands one user another user’s remembered branch on a shared device', async () => {
+    window.localStorage.setItem('samco.ctx.u1.company', 'co-A');
+    window.localStorage.setItem('samco.ctx.u1.branch', 'br-1');
+    authUserId = 'u2';
+    apiGet.mockResolvedValue(base);
+    render(<AppContextProvider><Probe /></AppContextProvider>);
+    await waitFor(() => expect(screen.getByTestId('loading').textContent).toBe('false'));
+    expect(apiGet).toHaveBeenLastCalledWith('/auth/context', { companyId: null, branchId: null });
+    expect(screen.getByTestId('company').textContent).toBe('-');
   });
 
   // The server lists every branch of the company and flags the ones the user
@@ -118,6 +145,7 @@ describe('AppContextProvider', () => {
     expect(screen.getByTestId('branches').textContent).toBe('br-1');
   });
 
+  // Also proves the one-time carry-over from the earlier per-tab storage.
   it('drops a remembered branch where the user holds no role', async () => {
     window.sessionStorage.setItem('samco.ctx.company', 'co-A');
     window.sessionStorage.setItem('samco.ctx.branch', 'br-2');
@@ -126,6 +154,7 @@ describe('AppContextProvider', () => {
     await waitFor(() => expect(apiGet).toHaveBeenLastCalledWith('/auth/context', { companyId: 'co-A', branchId: null }));
     await waitFor(() => expect(screen.getByTestId('loading').textContent).toBe('false'));
     expect(screen.getByTestId('branch').textContent).toBe('-');
+    expect(stored('branch')).toBeNull();
     expect(window.sessionStorage.getItem('samco.ctx.branch')).toBeNull();
   });
 
@@ -142,11 +171,11 @@ describe('AppContextProvider', () => {
     expect(screen.getByTestId('company').textContent).toBe('-');
     expect(screen.getByTestId('cperms').textContent).toBe('');
     expect(screen.getByTestId('error').textContent).toBe('-'); // silently reset, not an app error
-    expect(window.sessionStorage.getItem('samco.ctx.company')).toBeNull();
+    expect(stored('company')).toBeNull();
   });
 
   it('a stale remembered selection is validated against the server on load', async () => {
-    window.sessionStorage.setItem('samco.ctx.company', 'co-gone');
+    window.localStorage.setItem('samco.ctx.u1.company', 'co-gone');
     apiGet.mockImplementation(async (_p: string, o: { companyId: string | null }) => {
       if (o.companyId === 'co-gone') throw new ApiError(404, { statusCode: 404, message: 'Not Found' }, 'nf');
       return base;
@@ -154,7 +183,7 @@ describe('AppContextProvider', () => {
     render(<AppContextProvider><Probe /></AppContextProvider>);
     await waitFor(() => expect(screen.getByTestId('loading').textContent).toBe('false'));
     expect(screen.getByTestId('company').textContent).toBe('-');
-    expect(window.sessionStorage.getItem('samco.ctx.company')).toBeNull();
+    expect(stored('company')).toBeNull();
   });
 
   it('non-404 failures surface as an error the shell can show', async () => {

@@ -302,7 +302,10 @@ test.describe('Display security', () => {
 
     for (const path of ['/', '/queue', '/queue/podium', '/banquet/kitchen', '/tasks']) {
       await page.goto(path);
-      await expect(page, `${path} must send a display to sign-in`).toHaveURL(/\/login$/);
+      // Sign-in now carries the page asked for as `next` (validated on return),
+      // so a signed-out deep link lands where it pointed. The screen still gets
+      // no staff shell.
+      await expect(page, `${path} must send a display to sign-in`).toHaveURL(/\/login(\?next=[^&]*)?$/);
       await expect(mainNav(page)).toHaveCount(0);
     }
     expect(await page.evaluate(() => window.sessionStorage.getItem('samco.refresh'))).toBeNull();

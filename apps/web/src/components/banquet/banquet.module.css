@@ -238,6 +238,60 @@
 .itemCooking { background: color-mix(in srgb, var(--color-primary) 14%, var(--color-surface-muted)); }
 .itemReady { background: color-mix(in srgb, var(--color-success) 16%, var(--color-surface-muted)); }
 
+/* ── list filters ────────────────────────────────────────────────────────── */
+
+.tabs { display: flex; gap: 8px; flex-wrap: wrap; }
+.tabOn {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: var(--color-primary-contrast);
+}
+.search { display: flex; gap: 8px; flex: 1 1 260px; min-width: 0; }
+.search .input { flex: 1 1 auto; min-width: 0; }
+
+.badgePaid { background: color-mix(in srgb, var(--color-success) 18%, transparent); color: var(--color-success); }
+.badgePartial { background: var(--color-warning-bg); color: var(--color-text); }
+.badgeUnpaid { background: var(--color-danger-bg); color: var(--color-danger); }
+
+/* ── pricing ─────────────────────────────────────────────────────────────── */
+
+.discount { color: var(--color-success); }
+.withdrawn { text-decoration: line-through; color: var(--color-text-muted); }
+.subtotal { font-weight: 600; }
+.warning {
+  padding: var(--gap);
+  margin-bottom: var(--gap);
+  background: var(--color-warning-bg);
+  border-radius: var(--radius);
+}
+.check { display: inline-flex; align-items: center; gap: 8px; min-height: var(--tap-min); }
+.check input { width: 20px; height: 20px; }
+
+/* ── availability calendar ───────────────────────────────────────────────── */
+
+/* Only the table scrolls sideways on a phone; the page never does. */
+.calendarWrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.calendar { border-collapse: collapse; min-width: 100%; }
+.calendar th,
+.calendar td {
+  border: 1px solid var(--color-border);
+  padding: 8px;
+  vertical-align: top;
+  text-align: left;
+  min-width: 160px;
+}
+.calendar th:first-child,
+.calendar td:first-child { min-width: 110px; position: sticky; left: 0; background: var(--color-surface); }
+.slots { list-style: none; margin: 6px 0 0; padding: 0; display: grid; gap: 4px; }
+.slot { font-size: 0.85rem; padding: 4px 8px; border-radius: var(--radius-sm); }
+.slotavailable { background: color-mix(in srgb, var(--color-success) 14%, var(--color-surface)); }
+.slottentative { background: var(--color-warning-bg); }
+.slotbooked { background: var(--color-danger-bg); color: var(--color-danger); }
+.dayavailable { color: var(--color-success); }
+.daypartial { color: var(--color-text); }
+.dayfull { color: var(--color-danger); }
+.legend { display: flex; gap: var(--gap); flex-wrap: wrap; font-size: 0.9rem; margin-bottom: var(--gap); }
+
 .stream {
   display: inline-flex;
   align-items: center;

@@ -62,6 +62,8 @@ const ROUTINE_COLUMNS = [
   { key: 'routine_name', label: 'Routine', type: 'string' },
   { key: 'generated', label: 'Occurrences', type: 'number' },
   { key: 'completed', label: 'Completed', type: 'number' },
+  { key: 'on_time', label: 'On time', type: 'number' },
+  { key: 'late', label: 'Late', type: 'number' },
   { key: 'missed', label: 'Missed', type: 'number' },
   { key: 'completion_rate', label: 'Completion', type: 'percent' },
 ] as const;
@@ -292,13 +294,27 @@ export class TaskRoutineReport implements ReportProvider {
 
   async run({ ctx, range }: ReportQuery): Promise<ReportResult> {
     // Routine-generated tasks only: an ad-hoc task has no adherence to report.
+    // Compliance, not just completion: a checklist signed off after its
+    // submission deadline (due_at) is counted LATE, the reference system's
+    // "submitted after time". A task with no deadline cannot be late.
     const rows = await this.prisma.$queryRaw<
-      Array<{ routine_name: string; generated: bigint; completed: bigint; cancelled: bigint }>
+      Array<{
+        routine_name: string;
+        generated: bigint;
+        completed: bigint;
+        late: bigint;
+        cancelled: bigint;
+      }>
     >(Prisma.sql`
       SELECT
         r."name"                                         AS "routine_name",
         COUNT(*)                                         AS "generated",
         COUNT(*) FILTER (WHERE t."status" = 'COMPLETED') AS "completed",
+        COUNT(*) FILTER (
+          WHERE t."status" = 'COMPLETED'
+            AND t."due_at" IS NOT NULL
+            AND t."completed_at" > t."due_at"
+        ) AS "late",
         COUNT(*) FILTER (WHERE t."status" = 'CANCELLED') AS "cancelled"
       FROM "tasks" t
       JOIN "task_routines" r ON r."id" = t."routine_id"
@@ -310,17 +326,22 @@ export class TaskRoutineReport implements ReportProvider {
 
     let generated = 0;
     let completed = 0;
+    let late = 0;
 
     const shaped = rows.map((row) => {
       const rowGenerated = toReportNumber(row.generated);
       const rowCompleted = toReportNumber(row.completed);
       const rowCancelled = toReportNumber(row.cancelled);
+      const rowLate = toReportNumber(row.late);
       generated += rowGenerated;
       completed += rowCompleted;
+      late += rowLate;
       return {
         routine_name: row.routine_name,
         generated: rowGenerated,
         completed: rowCompleted,
+        on_time: rowCompleted - rowLate,
+        late: rowLate,
         // Anything neither done nor called off is a missed occurrence.
         missed: rowGenerated - rowCompleted - rowCancelled,
         completion_rate: rate(rowCompleted, rowGenerated - rowCancelled),
@@ -334,10 +355,17 @@ export class TaskRoutineReport implements ReportProvider {
         { key: 'routines', label: 'Routines run', value: shaped.length, type: 'number' },
         { key: 'generated', label: 'Occurrences', value: generated, type: 'number' },
         { key: 'completed', label: 'Completed', value: completed, type: 'number' },
+        { key: 'late', label: 'Completed late', value: late, type: 'number' },
         {
           key: 'completion_rate',
           label: 'Adherence',
           value: rate(completed, generated),
+          type: 'percent',
+        },
+        {
+          key: 'on_time_rate',
+          label: 'On time',
+          value: rate(completed - late, generated),
           type: 'percent',
         },
       ],

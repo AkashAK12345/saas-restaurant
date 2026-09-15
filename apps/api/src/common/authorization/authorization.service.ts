@@ -186,21 +186,65 @@ export class AuthorizationService {
     branchId: string,
     permission: string,
   ): Promise<boolean> {
-    if (!(await this.isCompanyOperational(companyId))) return false;
+    const perms = await this.verifiedBranchPermissions(userId, companyId, branchId);
+    return perms !== null && perms.has(permission);
+  }
+
+  /**
+   * As hasBranchPermission, satisfied by ANY of the listed permissions. Every
+   * precondition (operational company, active membership, branch in company
+   * and ACTIVE) is identical; only the final test differs. An empty list
+   * authorizes nothing.
+   */
+  async hasAnyBranchPermission(
+    userId: string,
+    companyId: string,
+    branchId: string,
+    permissions: readonly string[],
+  ): Promise<boolean> {
+    const perms = await this.verifiedBranchPermissions(userId, companyId, branchId);
+    return perms !== null && permissions.some((p) => perms.has(p));
+  }
+
+  /**
+   * The caller's verified permission set at a branch — every precondition of
+   * hasBranchPermission resolved ONCE — or null when branch access fails.
+   *
+   * For callers that must test many keys in one request (the report catalogue,
+   * the dashboard's widgets) without repeating the company, membership and
+   * branch checks per key. It answers exactly what hasBranchPermission would.
+   */
+  async branchPermissionsFor(
+    userId: string,
+    companyId: string,
+    branchId: string,
+  ): Promise<ReadonlySet<string> | null> {
+    return this.verifiedBranchPermissions(userId, companyId, branchId);
+  }
+
+  /**
+   * The caller's permissions at a branch, or null when any precondition of
+   * branch-scoped access fails. The single implementation of that chain.
+   */
+  private async verifiedBranchPermissions(
+    userId: string,
+    companyId: string,
+    branchId: string,
+  ): Promise<Set<string> | null> {
+    if (!(await this.isCompanyOperational(companyId))) return null;
 
     const hasMembership = await this.hasActiveMembership(userId, companyId);
-    if (!hasMembership) return false;
+    if (!hasMembership) return null;
 
     // Verify branch belongs to the claimed company — prevents cross-company branch spoofing
-    if (!isUUID(branchId)) return false;
+    if (!isUUID(branchId)) return null;
 
     const branch = await this.prisma.branch.findUnique({ where: { id: branchId } });
-    if (!branch || branch.company_id !== companyId) return false;
+    if (!branch || branch.company_id !== companyId) return null;
 
     // A disabled branch cannot be the target of branch-scoped operations
-    if (branch.status !== BranchStatus.ACTIVE) return false;
+    if (branch.status !== BranchStatus.ACTIVE) return null;
 
-    const perms = await this.getEffectiveBranchPermissions(userId, branchId);
-    return perms.has(permission);
+    return this.getEffectiveBranchPermissions(userId, branchId);
   }
 }

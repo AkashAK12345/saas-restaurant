@@ -131,6 +131,23 @@ describe('AuditLogService', () => {
       expect(prisma.auditLog.create).not.toHaveBeenCalled();
     });
 
+    // Platform work on a tenant's behalf (a scheduled routine generating a
+    // task) belongs to that company's audit trail, but has no human actor.
+    it('accepts a company-scoped SYSTEM event with no actor, attributed to the company', async () => {
+      await service.create({ ...baseParams(), actorUserId: null, systemEvent: true });
+      expect(prisma.auditLog.create).toHaveBeenCalledTimes(1);
+      const data = prisma.auditLog.create.mock.calls[0][0].data;
+      expect(data.company_id).toBe(COMPANY);
+      expect(data.user_id).toBeNull();
+    });
+
+    it('refuses a system event that names an actor', async () => {
+      await expect(
+        service.create({ ...baseParams(), systemEvent: true }),
+      ).rejects.toBeInstanceOf(InternalServerErrorException);
+      expect(prisma.auditLog.create).not.toHaveBeenCalled();
+    });
+
     it('rejects an actor with no membership in the company', async () => {
       prisma.companyMembership.findUnique.mockResolvedValue(null);
       await expect(service.create(baseParams())).rejects.toBeInstanceOf(

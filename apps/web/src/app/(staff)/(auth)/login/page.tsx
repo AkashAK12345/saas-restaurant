@@ -5,7 +5,16 @@ import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth/auth-provider';
 import { ApiError } from '@/lib/api/client';
 import { Logo } from '@/components/brand/logo';
+import { safeNextPath } from '@/lib/auth/next-path';
 import styles from './login.module.css';
+
+/**
+ * Read at the moment of navigation rather than during render, so the page
+ * needs no search-params hook (and no suspense boundary) to be prerendered.
+ */
+function nextFromAddressBar(): string {
+  return safeNextPath(new URLSearchParams(window.location.search).get('next'));
+}
 
 export default function LoginPage() {
   const { status, login } = useAuth();
@@ -15,9 +24,9 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  // Already signed in (e.g. back button) → straight to the app.
+  // Already signed in (e.g. back button) → straight to where they were going.
   useEffect(() => {
-    if (status === 'authenticated') router.replace('/');
+    if (status === 'authenticated') router.replace(nextFromAddressBar());
   }, [status, router]);
 
   async function onSubmit(e: FormEvent) {
@@ -26,7 +35,7 @@ export default function LoginPage() {
     setBusy(true);
     try {
       await login(email, password);
-      router.replace('/');
+      router.replace(nextFromAddressBar());
     } catch (err) {
       // The backend's message is generic by design ("Invalid credentials",
       // "Too many failed login attempts…"); show it verbatim.

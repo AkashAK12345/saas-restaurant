@@ -7,6 +7,7 @@ import {
   HttpException,
   HttpStatus,
   Logger,
+  NotFoundException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
@@ -95,7 +96,7 @@ export class AuthService {
     return d;
   }
 
-  async login(loginDto: LoginDto, ip: string) {
+  async login(loginDto: LoginDto, ip: string, userAgent?: string) {
     const email = this.normalizeEmail(loginDto.email);
 
     // Throttle check happens before any database lookup, and is keyed only on
@@ -166,6 +167,10 @@ export class AuthService {
           token_hash: tokenHash,
           expires_at: this.slidingExpiry(now),
           absolute_expires_at: this.absoluteExpiry(now),
+          // For the owner's "signed-in devices" list only.
+          user_agent: userAgent ? userAgent.slice(0, 300) : null,
+          ip_address: ip && ip !== 'unknown' ? ip.slice(0, 64) : null,
+          last_used_at: now,
         },
       });
 
@@ -310,6 +315,7 @@ export class AuthService {
       data: {
         token_hash: newTokenHash,
         expires_at: newExpiresAt,
+        last_used_at: now,
       },
     });
 
@@ -328,6 +334,66 @@ export class AuthService {
       accessToken: this.signAccessToken(session.user.id, sessionId),
       refreshToken: `${sessionId}.${newRawToken}`,
     };
+  }
+
+  /**
+   * An opaque handle for a session, for the owner's device list.
+   *
+   * The session id is deliberately never returned: it is one half of the
+   * refresh-token material (`<id>.<secret>`). The handle is a one-way digest of
+   * it, so a leaked device list reveals nothing that helps forge a token.
+   */
+  sessionHandle(sessionId: string): string {
+    return crypto.createHash('sha256').update(`samco-session-handle:${sessionId}`).digest('hex').slice(0, 32);
+  }
+
+  /** The caller's live logins, most recently used first. Their own, only. */
+  async listSessions(userId: string, currentSessionId: string) {
+    const now = new Date();
+    const rows = await this.prisma.userSession.findMany({
+      where: {
+        user_id: userId,
+        revoked_at: null,
+        expires_at: { gt: now },
+        absolute_expires_at: { gt: now },
+      },
+      orderBy: [{ last_used_at: 'desc' }, { created_at: 'desc' }],
+      select: {
+        id: true,
+        created_at: true,
+        last_used_at: true,
+        expires_at: true,
+        user_agent: true,
+        ip_address: true,
+      },
+    });
+    return rows.map(({ id, ...row }) => ({
+      handle: this.sessionHandle(id),
+      ...row,
+      current: id === currentSessionId,
+    }));
+  }
+
+  /**
+   * Sign one of the caller's own logins out, from any of their devices. The
+   * revoked session's access token stops working immediately (JwtStrategy
+   * checks the session on every request) and its refresh token can never be
+   * used again. Another user's session is simply not found.
+   */
+  async revokeOwnSession(
+    userId: string,
+    currentSessionId: string,
+    handle: string,
+  ): Promise<{ revoked: true; current: boolean }> {
+    const sessions = await this.prisma.userSession.findMany({
+      where: { user_id: userId, revoked_at: null },
+      select: { id: true },
+    });
+    const target = sessions.find((s) => this.sessionHandle(s.id) === handle);
+    if (!target) throw new NotFoundException();
+    const current = target.id === currentSessionId;
+    await this.revokeSession(target.id, userId, 'revoke_session', current ? 'self' : 'remote');
+    return { revoked: true, current };
   }
 
   async logout(refreshTokenStr: string) {

@@ -3,6 +3,7 @@ import { QueueTokenStatus } from '@samco/database';
 import {
   ACTIVE_QUEUE_STATUSES,
   INITIAL_QUEUE_STATUS,
+  INITIAL_SCHEDULED_STATUS,
   InvalidQueueTransitionError,
   QUEUE_TRANSITIONS,
   assertTransition,
@@ -13,33 +14,40 @@ import {
 const ALL = Object.values(QueueTokenStatus);
 
 describe('queue state machine', () => {
-  it('starts at WAITING', () => {
+  it('a walk-in starts WAITING; an advance booking starts SCHEDULED', () => {
     expect(INITIAL_QUEUE_STATUS).toBe(QueueTokenStatus.WAITING);
+    expect(INITIAL_SCHEDULED_STATUS).toBe(QueueTokenStatus.SCHEDULED);
   });
 
   describe('valid transitions', () => {
     it.each([
+      [QueueTokenStatus.SCHEDULED, QueueTokenStatus.WAITING], // check-in / activation
+      [QueueTokenStatus.SCHEDULED, QueueTokenStatus.CANCELLED],
       [QueueTokenStatus.WAITING, QueueTokenStatus.CALLED],
       [QueueTokenStatus.WAITING, QueueTokenStatus.CANCELLED],
       [QueueTokenStatus.CALLED, QueueTokenStatus.SEATED],
       [QueueTokenStatus.CALLED, QueueTokenStatus.NO_SHOW],
       [QueueTokenStatus.CALLED, QueueTokenStatus.CANCELLED],
+      [QueueTokenStatus.CALLED, QueueTokenStatus.WAITING], // skip
     ])('%s -> %s is allowed', (from, to) => {
       expect(canTransition(from, to)).toBe(true);
       expect(() => assertTransition(from, to)).not.toThrow();
     });
 
-    it('allows exactly those five transitions and no others', () => {
+    it('allows exactly those eight transitions and no others', () => {
       const allowed = ALL.flatMap((from) =>
         ALL.filter((to) => canTransition(from, to)).map((to) => `${from}->${to}`),
       );
       expect(allowed.sort()).toEqual(
         [
+          'SCHEDULED->WAITING',
+          'SCHEDULED->CANCELLED',
           'WAITING->CALLED',
           'WAITING->CANCELLED',
           'CALLED->SEATED',
           'CALLED->NO_SHOW',
           'CALLED->CANCELLED',
+          'CALLED->WAITING',
         ].sort(),
       );
     });
@@ -50,13 +58,19 @@ describe('queue state machine', () => {
       // Skipping CALLED entirely — a party cannot be seated straight off the list.
       [QueueTokenStatus.WAITING, QueueTokenStatus.SEATED],
       [QueueTokenStatus.WAITING, QueueTokenStatus.NO_SHOW],
-      // No recall: the model has no CALLED -> WAITING edge (see the module doc).
-      [QueueTokenStatus.CALLED, QueueTokenStatus.WAITING],
+      // A live party is never pushed back into the future.
+      [QueueTokenStatus.WAITING, QueueTokenStatus.SCHEDULED],
+      [QueueTokenStatus.CALLED, QueueTokenStatus.SCHEDULED],
+      // A scheduled party must surface before it can be called or seated.
+      [QueueTokenStatus.SCHEDULED, QueueTokenStatus.CALLED],
+      [QueueTokenStatus.SCHEDULED, QueueTokenStatus.SEATED],
+      [QueueTokenStatus.SCHEDULED, QueueTokenStatus.NO_SHOW],
       // Nothing leaves a terminal state.
       [QueueTokenStatus.SEATED, QueueTokenStatus.CALLED],
+      [QueueTokenStatus.SEATED, QueueTokenStatus.WAITING],
       [QueueTokenStatus.SEATED, QueueTokenStatus.CANCELLED],
       [QueueTokenStatus.NO_SHOW, QueueTokenStatus.CALLED],
-      [QueueTokenStatus.NO_SHOW, QueueTokenStatus.SEATED],
+      [QueueTokenStatus.NO_SHOW, QueueTokenStatus.WAITING],
       [QueueTokenStatus.CANCELLED, QueueTokenStatus.WAITING],
       [QueueTokenStatus.CANCELLED, QueueTokenStatus.CALLED],
     ])('%s -> %s is rejected', (from, to) => {
@@ -71,8 +85,6 @@ describe('queue state machine', () => {
     });
 
     it('rejects a repeated transition once it has been applied', () => {
-      // WAITING -> CALLED succeeds; calling the same token again starts from
-      // CALLED, where CALLED is no longer a legal destination.
       expect(canTransition(QueueTokenStatus.WAITING, QueueTokenStatus.CALLED)).toBe(true);
       expect(canTransition(QueueTokenStatus.CALLED, QueueTokenStatus.CALLED)).toBe(false);
     });
@@ -104,23 +116,23 @@ describe('queue state machine', () => {
       },
     );
 
-    it.each([QueueTokenStatus.WAITING, QueueTokenStatus.CALLED])('%s is not terminal', (status) => {
-      expect(isTerminalQueueStatus(status)).toBe(false);
-    });
+    it.each([QueueTokenStatus.SCHEDULED, QueueTokenStatus.WAITING, QueueTokenStatus.CALLED])(
+      '%s is not terminal',
+      (status) => {
+        expect(isTerminalQueueStatus(status)).toBe(false);
+      },
+    );
 
-    it('lists WAITING and CALLED as the active statuses', () => {
+    it('lists WAITING and CALLED as the statuses holding a place in the live queue', () => {
       expect([...ACTIVE_QUEUE_STATUSES].sort()).toEqual(
         [QueueTokenStatus.CALLED, QueueTokenStatus.WAITING].sort(),
       );
-      for (const status of ACTIVE_QUEUE_STATUSES) {
-        expect(isTerminalQueueStatus(status)).toBe(false);
-      }
     });
   });
 
-  it('every status is reachable from WAITING', () => {
-    const seen = new Set<QueueTokenStatus>([INITIAL_QUEUE_STATUS]);
-    const queue: QueueTokenStatus[] = [INITIAL_QUEUE_STATUS];
+  const reachableFrom = (start: QueueTokenStatus) => {
+    const seen = new Set<QueueTokenStatus>([start]);
+    const queue: QueueTokenStatus[] = [start];
     while (queue.length) {
       for (const next of QUEUE_TRANSITIONS[queue.shift()!]) {
         if (!seen.has(next)) {
@@ -129,6 +141,16 @@ describe('queue state machine', () => {
         }
       }
     }
-    expect([...seen].sort()).toEqual([...ALL].sort());
+    return [...seen].sort();
+  };
+
+  it('every status is reachable from an advance booking', () => {
+    expect(reachableFrom(QueueTokenStatus.SCHEDULED)).toEqual([...ALL].sort());
+  });
+
+  it('a walk-in reaches everything except being scheduled', () => {
+    expect(reachableFrom(QueueTokenStatus.WAITING)).toEqual(
+      ALL.filter((s) => s !== QueueTokenStatus.SCHEDULED).sort(),
+    );
   });
 });

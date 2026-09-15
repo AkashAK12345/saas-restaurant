@@ -33,6 +33,14 @@ export interface CreateAuditLogParams {
   companyId?: string | null;
   /** The branch context. Nullable. */
   branchId?: string | null;
+  /**
+   * Declares a company-scoped event with NO human actor — work the platform
+   * did on a tenant's behalf, such as a scheduled routine generating a task.
+   * Without this flag a company-scoped event must name an actor who belongs
+   * to the company; with it, the actor must be absent. It is an explicit
+   * opt-in so that a call site which merely forgot the actor still fails.
+   */
+  systemEvent?: boolean;
   eventType: AuditEventType;
   entityType: string;
   entityId: string;
@@ -144,7 +152,13 @@ export class AuditLogService {
 
     try {
       // 1. Coherence validation
-      if (params.companyId) {
+      if (params.companyId && params.systemEvent) {
+        // A system event carries no actor by definition. Naming one would
+        // attribute platform work to a person.
+        if (params.actorUserId) {
+          throw new Error('Audit constraint: a system event cannot name an actorUserId');
+        }
+      } else if (params.companyId) {
         if (!params.actorUserId) {
           throw new Error('Audit constraint: Company-scoped events require an actorUserId');
         }

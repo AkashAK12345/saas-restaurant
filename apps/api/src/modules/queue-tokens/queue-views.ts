@@ -36,6 +36,9 @@ export interface QueueTokenPublicView {
   seated_at: Date | null;
   cancelled_at: Date | null;
   no_show_at: Date | null;
+  /** When a called party was last skipped back to the list; null if never. */
+  skipped_at: Date | null;
+  skip_count: number;
   created_at: Date;
   updated_at: Date;
 }
@@ -45,11 +48,47 @@ export interface QueueTokenView extends QueueTokenPublicView {
 }
 
 export interface QueueCounts {
+  scheduled: number;
   waiting: number;
   called: number;
   seated: number;
   no_show: number;
   cancelled: number;
+}
+
+/** Guests still waiting, split — what a host matches against free tables. */
+export interface QueueWaitingTotals {
+  parties: number;
+  adults: number;
+  kids: number;
+}
+
+/** A branch table and whether a seated party currently holds it (any day). */
+export interface QueueTableAvailability {
+  id: string;
+  label: string;
+  capacity: number;
+  zone: string | null;
+  status: 'ACTIVE' | 'INACTIVE';
+  occupied_by: { token_id: string; token_number: number; service_date: string } | null;
+}
+
+/**
+ * A waiting party's contact details, fetched on demand for a call or a
+ * message. REST only, behind queue.call AND customers.view, and audited:
+ * a phone number is never part of any board, broadcast or default view.
+ */
+export interface QueueTokenContactView {
+  token_id: string;
+  customer_name: string;
+  phone: string;
+  /** `tel:` link for a phone call. */
+  tel_url: string;
+  /**
+   * `https://wa.me/…` link, only when the stored number carries an
+   * international prefix — a local number cannot be turned into one safely.
+   */
+  whatsapp_url: string | null;
 }
 
 /**
@@ -62,7 +101,10 @@ export interface QueueBoard {
   branch_id: string;
   service_date: string;
   counts: QueueCounts;
+  totals: QueueWaitingTotals;
   next_waiting: QueueTokenView | null;
+  /** Advance bookings not yet surfaced, soonest first. */
+  scheduled: QueueTokenView[];
   waiting: QueueTokenView[];
   called: QueueTokenView[];
   seated: QueueTokenView[];
@@ -73,6 +115,7 @@ export interface QueueAdminBoard {
   branch_id: string;
   service_date: string;
   counts: QueueCounts;
+  totals: QueueWaitingTotals;
   waiting: QueueTokenPublicView[];
   called: QueueTokenPublicView[];
   seated: QueueTokenPublicView[];
@@ -91,4 +134,6 @@ export interface QueueCustomerBoard {
   now_serving: QueueDisplayEntry[];
   recently_seated: QueueDisplayEntry[];
   waiting_count: number;
+  /** Token numbers still waiting, in calling order. Numbers only. */
+  waiting_tokens: number[];
 }

@@ -7,6 +7,7 @@ import {
 } from '@nestjs/common';
 import {
   AuditEventType,
+  ChecklistItemKind,
   ChecklistTemplateStatus,
   MembershipStatus,
   Prisma,
@@ -15,6 +16,8 @@ import {
 } from '@samco/database';
 import { PrismaService } from '../../core/database/prisma.service.js';
 import { AuditLogService } from '../audit-logs/audit-logs.service.js';
+import { AuthorizationService } from '../../common/authorization/authorization.service.js';
+import { PERMISSION_KEYS } from '../../common/authorization/permission-keys.js';
 import {
   EVENT_BROKER,
   type EventBroker,
@@ -23,6 +26,7 @@ import {
 import { RealtimeChannel } from '../../common/realtime/channels.js';
 import type { Paginated } from '../../common/pagination.dto.js';
 import type { TaskActorContext } from './tasks-context.js';
+import { normalizeChecklistValue } from './checklist-values.js';
 import {
   ChecklistIncompleteError,
   INITIAL_TASK_STATUS,
@@ -35,11 +39,13 @@ import type {
   ChecklistItemView,
   ChecklistProgressView,
   StaffRefView,
+  TaskCommentView,
   TaskDetailView,
   TaskSummaryView,
   TaskView,
 } from './tasks-views.js';
 import type {
+  AddTaskCommentDto,
   AssignTaskDto,
   CreateTaskDto,
   ListTasksQueryDto,
@@ -56,13 +62,19 @@ export const TASK_EVENT_TYPES = {
   CANCELLED: 'task.cancelled',
   CHECKLIST_UPDATED: 'task.checklist.updated',
   ROUTINE_MATERIALIZED: 'task.routine.materialized',
+  UPDATED: 'task.updated',
+  COMMENT_ADDED: 'task.comment.added',
 } as const;
 
 const AUDIT_TASK = 'TASK';
 
+const STAFF_SELECT = { select: { id: true, first_name: true, last_name: true } } as const;
+
 export const TASK_INCLUDE = {
-  assignee: { select: { id: true, first_name: true, last_name: true } },
-  completer: { select: { id: true, first_name: true, last_name: true } },
+  assignee: STAFF_SELECT,
+  completer: STAFF_SELECT,
+  creator: STAFF_SELECT,
+  assigner: STAFF_SELECT,
   routine: { select: { id: true, name: true } },
   checklist: { orderBy: { position: 'asc' } },
 } satisfies Prisma.TaskInclude;
@@ -84,7 +96,28 @@ export class TasksService {
     private readonly prisma: PrismaService,
     private readonly auditLogService: AuditLogService,
     @Inject(EVENT_BROKER) private readonly broker: EventBroker,
+    private readonly authorization: AuthorizationService,
   ) {}
+
+  // ── Visibility ────────────────────────────────────────────────────────────
+
+  /**
+   * Whose tasks the caller may see at this branch.
+   *
+   * tasks.view is the whole branch. A caller holding only tasks.view_own —
+   * the guard has already proved they hold one of the two — sees the tasks
+   * assigned to them or raised by them, and nothing else: not in the list,
+   * not by id, and not as the target of an action. Returns null for the
+   * whole branch, otherwise the narrowing filter.
+   *
+   * Being assigned still grants no ACTION: what the caller may do to a task
+   * they can see is decided by the operation's own permission, as before.
+   */
+  private async visibility(ctx: TaskActorContext): Promise<Prisma.TaskWhereInput | null> {
+    const perms = await this.authorization.getEffectiveBranchPermissions(ctx.actorUserId, ctx.branchId);
+    if (perms.has(PERMISSION_KEYS.TASKS_VIEW)) return null;
+    return { OR: [{ assignee_id: ctx.actorUserId }, { created_by: ctx.actorUserId }] };
+  }
 
   // ── Reads ─────────────────────────────────────────────────────────────────
 
@@ -94,7 +127,8 @@ export class TasksService {
    */
   async list(ctx: TaskActorContext, query: ListTasksQueryDto): Promise<Paginated<TaskView>> {
     const now = new Date();
-    const where: Prisma.TaskWhereInput = { branch_id: ctx.branchId };
+    const own = await this.visibility(ctx);
+    const where: Prisma.TaskWhereInput = { branch_id: ctx.branchId, ...(own ? { AND: [own] } : {}) };
 
     if (query.status) where.status = query.status;
     if (query.priority) where.priority = query.priority;
@@ -138,12 +172,88 @@ export class TasksService {
 
   /** Scoped by id AND branch in one query; 404 for anything out of scope. */
   async get(ctx: TaskActorContext, taskId: string): Promise<TaskDetailView> {
+    const own = await this.visibility(ctx);
     const task = await this.prisma.task.findFirst({
-      where: { id: taskId, branch_id: ctx.branchId },
+      where: { id: taskId, branch_id: ctx.branchId, ...(own ? { AND: [own] } : {}) },
       include: TASK_INCLUDE,
     });
     if (!task) throw new NotFoundException();
     return this.toDetailView(task);
+  }
+
+  /**
+   * Who a task at this branch may be handed to: ACTIVE users with ACTIVE
+   * membership of the company who hold a role at THIS branch — exactly the
+   * set resolveAssignee accepts, so the picker can never offer a name the
+   * API would refuse. Display names only; never an email.
+   */
+  async assignableStaff(ctx: TaskActorContext): Promise<StaffRefView[]> {
+    const users = await this.prisma.user.findMany({
+      where: {
+        status: UserStatus.ACTIVE,
+        memberships: { some: { company_id: ctx.companyId, status: MembershipStatus.ACTIVE } },
+        branch_roles: { some: { branch_id: ctx.branchId } },
+      },
+      select: { id: true, first_name: true, last_name: true },
+      orderBy: [{ first_name: 'asc' }, { last_name: 'asc' }],
+      take: 500,
+    });
+    return users.map((u) => staffName(u)!);
+  }
+
+  // ── Comments ──────────────────────────────────────────────────────────────
+
+  async listComments(ctx: TaskActorContext, taskId: string): Promise<TaskCommentView[]> {
+    // Same visibility as the task itself: a comment is never a side door.
+    await this.get(ctx, taskId);
+    const rows = await this.prisma.taskComment.findMany({
+      where: { task_id: taskId },
+      include: { author: STAFF_SELECT },
+      orderBy: [{ created_at: 'asc' }, { id: 'asc' }],
+      take: 500,
+    });
+    return rows.map((c) => ({
+      id: c.id,
+      task_id: c.task_id,
+      author: staffName(c.author)!,
+      body: c.body,
+      created_at: c.created_at,
+    }));
+  }
+
+  /**
+   * A note on a task. Allowed whatever the task's status — a remark about how
+   * the work went is still worth keeping once it is done — and append-only:
+   * there is no edit or delete, and the database refuses both.
+   */
+  async addComment(ctx: TaskActorContext, taskId: string, dto: AddTaskCommentDto): Promise<TaskCommentView> {
+    const body = dto.body.trim();
+    if (!body) throw new BadRequestException('A comment cannot be empty');
+
+    const { comment, task } = await this.mutate(async (tx) => {
+      const current = await this.loadForMutation(tx, ctx, taskId);
+      const created = await tx.taskComment.create({
+        data: { task_id: current.id, author_id: ctx.actorUserId, body },
+        include: { author: STAFF_SELECT },
+      });
+      // The body is not copied into the audit trail: it is free text and the
+      // comment row is itself immutable history.
+      await this.audit(tx, ctx, AuditEventType.CREATE, current.id, {
+        action: 'comment_task',
+        comment_id: created.id,
+        length: body.length,
+      });
+      return { comment: created, task: current };
+    });
+
+    this.publish(ctx, TASK_EVENT_TYPES.COMMENT_ADDED, task);
+    return {
+      id: comment.id,
+      task_id: comment.task_id,
+      author: staffName(comment.author)!,
+      body: comment.body,
+      created_at: comment.created_at,
+    };
   }
 
   // ── Creation ──────────────────────────────────────────────────────────────
@@ -169,6 +279,9 @@ export class TasksService {
           priority: dto.priority ?? 'NORMAL',
           due_at: dueAt,
           assignee_id: assigneeId,
+          assigned_by: assigneeId ? ctx.actorUserId : null,
+          assigned_at: assigneeId ? new Date() : null,
+          created_by: ctx.actorUserId,
           source: 'MANUAL',
           checklist_template_id: dto.checklist_template_id ?? null,
           checklist: { create: checklist },
@@ -203,11 +316,28 @@ export class TasksService {
       }
 
       const data: Prisma.TaskUncheckedUpdateInput = {};
-      if (dto.title !== undefined) data.title = dto.title;
-      if (dto.description !== undefined) data.description = dto.description;
-      if (dto.priority !== undefined) data.priority = dto.priority;
+      // Old and new value of every field that actually changed, for the audit
+      // trail. A field sent with its current value is not a change.
+      const changes: Record<string, { from: unknown; to: unknown }> = {};
+      const track = (field: string, from: unknown, to: unknown) => {
+        if (from !== to) changes[field] = { from, to };
+      };
+      if (dto.title !== undefined) {
+        data.title = dto.title;
+        track('title', current.title, dto.title);
+      }
+      if (dto.description !== undefined) {
+        data.description = dto.description;
+        track('description', current.description, dto.description);
+      }
+      if (dto.priority !== undefined) {
+        data.priority = dto.priority;
+        track('priority', current.priority, dto.priority);
+      }
       if (dto.due_at !== undefined) {
-        data.due_at = dto.due_at === null ? null : this.parseInstant(dto.due_at, 'due_at');
+        const next = dto.due_at === null ? null : this.parseInstant(dto.due_at, 'due_at');
+        data.due_at = next;
+        track('due_at', current.due_at?.toISOString() ?? null, next?.toISOString() ?? null);
       }
 
       const { count } = await tx.task.updateMany({
@@ -218,11 +348,12 @@ export class TasksService {
 
       await this.audit(tx, ctx, AuditEventType.UPDATE, current.id, {
         action: 'update_task',
-        changed_fields: Object.keys(dto),
+        changed_fields: Object.keys(changes),
+        changes,
       });
       return this.reload(tx, current.id);
     });
-    return this.toDetailView(task);
+    return this.emit(ctx, TASK_EVENT_TYPES.UPDATED, task);
   }
 
   /**
@@ -245,14 +376,25 @@ export class TasksService {
           ? null
           : await this.resolveAssignee(tx, ctx, dto.assignee_id);
 
+      const previousId = current.assignee_id;
+      // Responsibility moving from one person to ANOTHER. Assigning an
+      // unassigned task, clearing one, or re-sending the same person are not.
+      const reassigned = previousId !== null && assigneeId !== null && previousId !== assigneeId;
+
       const { count } = await tx.task.updateMany({
         where: { id: current.id, status: current.status },
-        data: { assignee_id: assigneeId },
+        data: {
+          assignee_id: assigneeId,
+          assigned_by: assigneeId ? ctx.actorUserId : null,
+          assigned_at: assigneeId ? new Date() : null,
+          ...(reassigned ? { reassignment_count: { increment: 1 } } : {}),
+        },
       });
       if (count !== 1) throw new ConflictException('Task was modified concurrently');
 
       await this.audit(tx, ctx, AuditEventType.UPDATE, current.id, {
-        action: assigneeId ? 'assign_task' : 'unassign_task',
+        action: assigneeId ? (reassigned ? 'reassign_task' : 'assign_task') : 'unassign_task',
+        previous_assignee_id: previousId,
         assignee_id: assigneeId,
       });
       return this.reload(tx, current.id);
@@ -340,15 +482,23 @@ export class TasksService {
   // ── Checklist execution ───────────────────────────────────────────────────
 
   /**
-   * Tick or untick one item of a task's OWN checklist snapshot. Conditional on
-   * the item's current state, so two people tapping at once produce one change
-   * and one controlled conflict rather than a lost update.
+   * Tick, untick or ANSWER one item of a task's OWN checklist snapshot.
+   *
+   * A CHECK item is done when ticked. Any other kind (number, text, rating,
+   * date) is done when it holds a valid answer: marking it done requires the
+   * value, clearing it removes the value. Changing an answer on a done item
+   * replaces it.
+   *
+   * Conditional on the item's current state (done flag AND value), so two
+   * people answering at once produce one change and one controlled conflict
+   * rather than a lost update.
    */
   async setChecklistItem(
     ctx: TaskActorContext,
     taskId: string,
     itemId: string,
     isDone: boolean,
+    rawValue?: string,
   ): Promise<TaskDetailView> {
     const task = await this.mutate(async (tx) => {
       const current = await this.loadForMutation(tx, ctx, taskId);
@@ -358,12 +508,20 @@ export class TasksService {
       const item = current.checklist.find((i) => i.id === itemId);
       if (!item) throw new NotFoundException('Checklist item not found');
 
-      if (item.is_done !== isDone) {
+      let value: string | null = null;
+      if (item.kind === ChecklistItemKind.CHECK) {
+        if (rawValue !== undefined) throw new BadRequestException('A tick item takes no value');
+      } else if (isDone) {
+        value = normalizeChecklistValue(item.kind, rawValue);
+      }
+
+      if (item.is_done !== isDone || item.value !== value) {
         const { count } = await tx.taskChecklistItem.updateMany({
-          where: { id: item.id, is_done: item.is_done },
+          where: { id: item.id, is_done: item.is_done, value: item.value },
           data: {
             is_done: isDone,
-            done_at: isDone ? new Date() : null,
+            value,
+            done_at: isDone ? (item.is_done ? item.done_at : new Date()) : null,
             done_by: isDone ? ctx.actorUserId : null,
           },
         });
@@ -373,7 +531,12 @@ export class TasksService {
       await this.audit(tx, ctx, AuditEventType.UPDATE, current.id, {
         action: 'set_checklist_item',
         item_id: item.id,
+        kind: item.kind,
         is_done: isDone,
+        // Answers can be free text about people or incidents: record that one
+        // was given (and whether it changed), never what it says.
+        has_value: value !== null,
+        value_changed: item.value !== value,
       });
       return this.reload(tx, current.id);
     });
@@ -480,7 +643,7 @@ export class TasksService {
     tx: Prisma.TransactionClient,
     companyId: string,
     templateId: string,
-  ): Promise<Array<{ label: string; position: number; is_required: boolean }>> {
+  ): Promise<Array<{ label: string; position: number; kind: ChecklistItemKind; is_required: boolean }>> {
     const template = await tx.checklistTemplate.findFirst({
       where: { id: templateId, company_id: companyId },
       include: { items: { orderBy: { position: 'asc' } } },
@@ -492,6 +655,7 @@ export class TasksService {
     return template.items.map((i) => ({
       label: i.label,
       position: i.position,
+      kind: i.kind,
       is_required: i.is_required,
     }));
   }
@@ -534,13 +698,33 @@ export class TasksService {
     }
   }
 
+  /**
+   * Lock the task row, then read it.
+   *
+   * Every task mutation starts here, so the row lock serialises them all for
+   * the rest of the transaction. The status-conditional updates already stop a
+   * lost update on the task row itself, but they cannot stop WRITE SKEW across
+   * rows: without the lock, "complete" could read a required checklist item as
+   * ticked while a concurrent "untick" commits, and finish a task whose
+   * required item is undone. Locking the parent row first makes the checklist
+   * read and the completion one indivisible step.
+   *
+   * Out-of-scope ids lock nothing (no row matches) and fall through to the 404.
+   */
   private async loadForMutation(
     tx: Prisma.TransactionClient,
     ctx: TaskActorContext,
     taskId: string,
   ): Promise<TaskRecord> {
+    await tx.$queryRaw`SELECT "id" FROM "tasks" WHERE "id" = ${taskId}::uuid AND "branch_id" = ${ctx.branchId}::uuid FOR UPDATE`;
+    const own = await this.visibility(ctx);
     const task = await tx.task.findFirst({
-      where: { id: taskId, branch_id: ctx.branchId, company_id: ctx.companyId },
+      where: {
+        id: taskId,
+        branch_id: ctx.branchId,
+        company_id: ctx.companyId,
+        ...(own ? { AND: [own] } : {}),
+      },
       include: TASK_INCLUDE,
     });
     if (!task) throw new NotFoundException();
@@ -630,6 +814,12 @@ export class TasksService {
       overdue: this.isOverdue(task.status, task.due_at, now),
       assignee_id: task.assignee_id,
       assignee: staffName(task.assignee),
+      assigned_by: task.assigned_by,
+      assigner: staffName(task.assigner),
+      assigned_at: task.assigned_at,
+      reassignment_count: task.reassignment_count,
+      created_by: task.created_by,
+      creator: staffName(task.creator),
       source: task.source,
       routine_id: task.routine_id,
       routine_name: task.routine?.name ?? null,
@@ -655,8 +845,10 @@ export class TasksService {
           id: i.id,
           label: i.label,
           position: i.position,
+          kind: i.kind,
           is_required: i.is_required,
           is_done: i.is_done,
+          value: i.value,
           done_at: i.done_at,
           done_by: i.done_by,
         }),

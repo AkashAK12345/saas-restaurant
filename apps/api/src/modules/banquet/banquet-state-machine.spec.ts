@@ -130,10 +130,10 @@ describe('banquet booking state machine', () => {
   });
 
   describe('editability', () => {
-    it('only a draft may be edited', () => {
-      expect(isEditable(BanquetBookingStatus.DRAFT)).toBe(true);
-      for (const s of ALL_BOOKING.filter((x) => x !== BanquetBookingStatus.DRAFT)) {
-        expect(isEditable(s)).toBe(false);
+    it('a live booking (draft or confirmed) may be edited; history may not', () => {
+      const live: BanquetBookingStatus[] = [BanquetBookingStatus.DRAFT, BanquetBookingStatus.CONFIRMED];
+      for (const s of ALL_BOOKING) {
+        expect([s, isEditable(s)]).toEqual([s, live.includes(s)]);
       }
     });
   });

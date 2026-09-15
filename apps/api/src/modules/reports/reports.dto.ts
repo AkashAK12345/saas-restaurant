@@ -33,6 +33,13 @@ export const RESERVED_QUERY_KEYS = ['from', 'to', 'limit', 'offset', 'format'] a
 /** A filter value is a short scalar; nothing longer could be a legal option. */
 export const MAX_OPTION_LENGTH = 64;
 
+/**
+ * Deepest page a caller may ask for. OFFSET makes the database walk and
+ * discard every skipped row, so an unbounded offset is a cheap way to make
+ * one request expensive. Anything this deep is a narrower filter, not a page.
+ */
+export const REPORT_MAX_OFFSET = 100_000;
+
 export interface ParsedReportQuery {
   from?: string;
   to?: string;
@@ -110,7 +117,7 @@ export function parseReportQuery(query: unknown): ParsedReportQuery {
     from: date(raw, 'from'),
     to: date(raw, 'to'),
     limit: integer(raw, 'limit', 1, REPORT_MAX_PAGE_SIZE),
-    offset: integer(raw, 'offset', 0, Number.MAX_SAFE_INTEGER),
+    offset: integer(raw, 'offset', 0, REPORT_MAX_OFFSET),
     options: reportOptionsFrom(raw),
   };
 }

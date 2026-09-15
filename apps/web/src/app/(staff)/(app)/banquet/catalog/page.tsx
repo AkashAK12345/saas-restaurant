@@ -40,6 +40,9 @@ export default function BanquetCatalogPage() {
   const [busy, setBusy] = useState(false);
 
   const [hallForm, setHallForm] = useState({ name: '', capacity: 100 });
+  // One hall's "add slot" form is open at a time.
+  const [slotFor, setSlotFor] = useState<string | null>(null);
+  const [slotForm, setSlotForm] = useState({ name: '', start_time: '11:00', end_time: '16:00' });
   const [pkgForm, setPkgForm] = useState({ name: '', price: '', currency: 'INR', items: '' });
 
   const refresh = useCallback(async () => {
@@ -179,8 +182,131 @@ export default function BanquetCatalogPage() {
                     <span className={styles.spacer} />
                     <span className={styles.meta}>seats {h.capacity}</span>
                   </div>
+                  {(h.slots ?? []).length > 0 ? (
+                    <ul className={styles.items} aria-label={`${h.name} slots`}>
+                      {(h.slots ?? []).map((s) => (
+                        <li key={s.id} className={styles.item}>
+                          <span className={styles.itemName}>
+                            {s.name} · {s.start_time}–{s.end_time}
+                            {s.end_time <= s.start_time ? ' (next day)' : ''}
+                            {s.status === 'INACTIVE' ? ' · inactive' : ''}
+                          </span>
+                          {mayHall ? (
+                            <button
+                              type="button"
+                              className={styles.action}
+                              disabled={busy}
+                              aria-label={`${s.status === 'ACTIVE' ? 'Deactivate' : 'Reactivate'} slot ${s.name}`}
+                              onClick={() =>
+                                void run(
+                                  () =>
+                                    banquetApi.updateSlot(ctx!, h.id, s.id, {
+                                      status: s.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE',
+                                    }),
+                                  s.status === 'ACTIVE' ? 'Slot deactivated.' : 'Slot reactivated.',
+                                )
+                              }
+                            >
+                              {s.status === 'ACTIVE' ? 'Deactivate' : 'Reactivate'}
+                            </button>
+                          ) : null}
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <div className={styles.meta}>No slots — bookings use their own start and end times.</div>
+                  )}
+                  {mayHall && slotFor === h.id ? (
+                    <form
+                      className={styles.grid}
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        void run(async () => {
+                          await banquetApi.createSlot(ctx!, h.id, {
+                            name: slotForm.name.trim(),
+                            start_time: slotForm.start_time,
+                            end_time: slotForm.end_time,
+                          });
+                          setSlotFor(null);
+                        }, 'Slot added.');
+                      }}
+                    >
+                      <div className={`${styles.grid} ${styles.grid3}`}>
+                        <div>
+                          <label className={styles.label} htmlFor={`s-name-${h.id}`}>
+                            Slot name
+                          </label>
+                          <input
+                            id={`s-name-${h.id}`}
+                            className={styles.input}
+                            maxLength={60}
+                            value={slotForm.name}
+                            onChange={(e) => setSlotForm({ ...slotForm, name: e.target.value })}
+                          />
+                        </div>
+                        <div>
+                          <label className={styles.label} htmlFor={`s-start-${h.id}`}>
+                            From
+                          </label>
+                          <input
+                            id={`s-start-${h.id}`}
+                            type="time"
+                            className={styles.input}
+                            value={slotForm.start_time}
+                            onChange={(e) => setSlotForm({ ...slotForm, start_time: e.target.value })}
+                          />
+                        </div>
+                        <div>
+                          <label className={styles.label} htmlFor={`s-end-${h.id}`}>
+                            To
+                          </label>
+                          <input
+                            id={`s-end-${h.id}`}
+                            type="time"
+                            className={styles.input}
+                            value={slotForm.end_time}
+                            onChange={(e) => setSlotForm({ ...slotForm, end_time: e.target.value })}
+                          />
+                        </div>
+                      </div>
+                      <p className={styles.hint}>
+                        Branch-local times. An end at or before the start runs past midnight.
+                      </p>
+                      <div className={styles.actions}>
+                        <button
+                          type="submit"
+                          className={`${styles.action} ${styles.primary}`}
+                          disabled={
+                            busy ||
+                            !slotForm.name.trim() ||
+                            !/^\d{2}:\d{2}$/.test(slotForm.start_time) ||
+                            !/^\d{2}:\d{2}$/.test(slotForm.end_time) ||
+                            slotForm.start_time === slotForm.end_time
+                          }
+                        >
+                          Save slot
+                        </button>
+                        <button type="button" className={styles.action} onClick={() => setSlotFor(null)}>
+                          Close
+                        </button>
+                      </div>
+                    </form>
+                  ) : null}
                   {mayHall ? (
                     <div className={styles.actions}>
+                      {slotFor !== h.id ? (
+                        <button
+                          type="button"
+                          className={styles.action}
+                          disabled={busy}
+                          onClick={() => {
+                            setSlotForm({ name: '', start_time: '11:00', end_time: '16:00' });
+                            setSlotFor(h.id);
+                          }}
+                        >
+                          Add slot
+                        </button>
+                      ) : null}
                       <button
                         type="button"
                         className={styles.action}

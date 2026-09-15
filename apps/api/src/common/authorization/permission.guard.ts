@@ -75,31 +75,27 @@ export class PermissionGuard implements CanActivate {
         throw new ForbiddenException('Missing required branch context (X-Branch-ID)');
       }
 
-      const allowed = await this.authorizationService.hasBranchPermission(
-        user.id,
-        companyId,
-        branchId,
-        meta.permission,
-      );
-
-      if (!allowed) throw new ForbiddenException();
-    } else if (meta.scope === 'company_status') {
-      // Lifecycle transitions only. Same membership + permission proof as
-      // 'company' scope, without the company-must-be-ACTIVE precondition, so a
-      // disabled company remains recoverable by its own administrators.
-      const allowed = await this.authorizationService.hasCompanyStatusPermission(
-        user.id,
-        companyId,
-        meta.permission,
-      );
+      const allowed =
+        typeof meta.permission === 'string'
+          ? await this.authorizationService.hasBranchPermission(user.id, companyId, branchId, meta.permission)
+          : await this.authorizationService.hasAnyBranchPermission(user.id, companyId, branchId, meta.permission);
 
       if (!allowed) throw new ForbiddenException();
     } else {
-      const allowed = await this.authorizationService.hasCompanyPermission(
-        user.id,
-        companyId,
-        meta.permission,
-      );
+      // Any-of lists are a branch-scope feature only: every company-scoped
+      // route names exactly one key, and keeping it that way keeps these two
+      // paths unchanged.
+      if (typeof meta.permission !== 'string') {
+        throw new ForbiddenException();
+      }
+      // Lifecycle transitions only ('company_status'). Same membership +
+      // permission proof as 'company' scope, without the company-must-be-ACTIVE
+      // precondition, so a disabled company remains recoverable by its own
+      // administrators.
+      const allowed =
+        meta.scope === 'company_status'
+          ? await this.authorizationService.hasCompanyStatusPermission(user.id, companyId, meta.permission)
+          : await this.authorizationService.hasCompanyPermission(user.id, companyId, meta.permission);
 
       if (!allowed) throw new ForbiddenException();
     }

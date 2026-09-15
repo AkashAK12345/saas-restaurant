@@ -50,6 +50,12 @@ export interface ReportMetric {
   currency?: string;
 }
 
+/** Rows carry `id_key`; the row links to `path` with ":id" replaced. */
+export interface ReportDrilldown {
+  id_key: string;
+  path: string;
+}
+
 export interface ReportResponse {
   key: string;
   name: string;
@@ -59,6 +65,9 @@ export interface ReportResponse {
   generated_at: string;
   /** The branch's IANA zone — the authority for every date shown. */
   timezone: string;
+  branch_name?: string;
+  /** Present when rows open a record of their own. */
+  drilldown?: ReportDrilldown | null;
   filters: {
     branch_id: string;
     from: string;
@@ -106,4 +115,23 @@ export interface DashboardResponse {
   generated_at: string;
   filters: { from: string; to: string };
   widgets: DashboardWidget[];
+}
+
+/**
+ * One widget summed across branches. Only counts and money are summed; any
+ * metric that cannot honestly be added is named in `not_summed` and shown per
+ * branch instead.
+ */
+export interface AllBranchesWidget extends DashboardWidget {
+  not_summed: string[];
+  branches: Array<{ branch_id: string; branch_name: string; metrics: WidgetMetric[]; error?: string }>;
+}
+
+export interface AllBranchesDashboardResponse {
+  scope: 'all_branches';
+  company_id: string;
+  generated_at: string;
+  filters: { from: string | null; to: string | null };
+  branches: Array<{ id: string; name: string; timezone: string }>;
+  widgets: AllBranchesWidget[];
 }

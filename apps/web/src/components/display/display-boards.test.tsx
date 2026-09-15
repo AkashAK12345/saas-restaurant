@@ -14,6 +14,7 @@ const customerBoard: QueueCustomerBoard = {
   ],
   recently_seated: [{ token_number: 11, table_label: 'T1', called_at: null }],
   waiting_count: 6,
+  waiting_tokens: [14, 15, 18],
 };
 
 const publicToken = (over: Partial<QueueTokenPublic> = {}): QueueTokenPublic => ({
@@ -34,6 +35,8 @@ const publicToken = (over: Partial<QueueTokenPublic> = {}): QueueTokenPublic => 
   seated_at: null,
   cancelled_at: null,
   no_show_at: null,
+  skipped_at: null,
+  skip_count: 0,
   created_at: '2026-09-07T10:00:00.000Z',
   updated_at: '2026-09-07T10:00:00.000Z',
   ...over,
@@ -42,7 +45,8 @@ const publicToken = (over: Partial<QueueTokenPublic> = {}): QueueTokenPublic => 
 const adminBoard: QueueAdminBoard = {
   branch_id: 'br-1',
   service_date: '2026-09-07',
-  counts: { waiting: 1, called: 1, seated: 1, no_show: 2, cancelled: 3 },
+  counts: { scheduled: 0, waiting: 1, called: 1, seated: 1, no_show: 2, cancelled: 3 },
+  totals: { parties: 1, adults: 4, kids: 0 },
   waiting: [publicToken()],
   called: [publicToken({ id: 'p-2', token_number: 8, status: 'CALLED', called_at: '2026-09-07T10:05:00.000Z' })],
   seated: [
@@ -65,6 +69,17 @@ describe('CustomerQueueBoard', () => {
     // A called party with no table is told where to go instead.
     expect(screen.getByText('Please come to the podium')).toBeTruthy();
     expect(screen.getByText('6')).toBeTruthy();
+  });
+
+  it('shows the waiting token numbers as tiles, in calling order', () => {
+    render(<CustomerQueueBoard board={customerBoard} stream="open" />);
+    const tiles = screen.getByRole('region', { name: 'Waiting' });
+    expect(within(tiles).getAllByRole('listitem').map((li) => li.textContent)).toEqual(['14', '15', '18']);
+  });
+
+  it('shows no waiting tiles when nobody is waiting', () => {
+    render(<CustomerQueueBoard board={{ ...customerBoard, waiting_tokens: [], waiting_count: 0 }} stream="open" />);
+    expect(screen.queryByRole('region', { name: 'Waiting' })).toBeNull();
   });
 
   it('shows a waiting message when nobody has been called', () => {
@@ -108,6 +123,15 @@ describe('AdminQueueBoard', () => {
     // Party sizes are shown per row (every fixture token seats four).
     expect(screen.getAllByText(/4 guests/)).toHaveLength(3);
     expect(screen.getByText(/no show/).textContent).toMatch(/2\s*no show/);
+  });
+
+  it('headlines Total waiting, Total adults and Total kids, and splits each party', () => {
+    render(<AdminQueueBoard board={{ ...adminBoard, totals: { parties: 3, adults: 9, kids: 5 } }} stream="open" />);
+    const tiles = screen.getByLabelText('Waiting totals');
+    expect(within(tiles).getByText('Total waiting').previousSibling?.textContent).toBe('3');
+    expect(within(tiles).getByText('Total adults').previousSibling?.textContent).toBe('9');
+    expect(within(tiles).getByText('Total kids').previousSibling?.textContent).toBe('5');
+    expect(screen.getAllByText(/4 adults, 0 kids/)).toHaveLength(3);
   });
 
   it('is read-only — a device never mutates the queue', () => {

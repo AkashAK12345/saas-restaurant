@@ -8,6 +8,7 @@ import {
 import { MembershipStatus, AuditEventType, UserStatus } from '@samco/database';
 import { PrismaService } from '../../core/database/prisma.service.js';
 import { AuditLogService } from '../audit-logs/audit-logs.service.js';
+import { AuthorizationService } from '../../common/authorization/authorization.service.js';
 import * as bcrypt from 'bcrypt';
 import type {
   CreateUserDto,
@@ -33,6 +34,7 @@ export class UsersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly auditLogService: AuditLogService,
+    private readonly authorizationService: AuthorizationService,
   ) {}
 
   // ── Helpers ────────────────────────────────────────────────────────────────
@@ -388,6 +390,12 @@ export class UsersService {
       );
     }
 
+    // Nobody grants themselves a role. Without this, users.update alone would
+    // let its holder give themselves any role the company has defined.
+    if (targetUserId === actorUserId) {
+      throw new ForbiddenException('You cannot assign a role to yourself');
+    }
+
     // Invariant 1: branch belongs to company
     const branch = await this.prisma.branch.findUnique({
       where: { id: dto.branch_id },
@@ -401,11 +409,38 @@ export class UsersService {
     // Invariant 2: role belongs to company
     const role = await this.prisma.role.findUnique({
       where: { id: dto.role_id },
+      include: { permissions: { include: { permission: true } } },
     });
     if (!role || role.company_id !== companyId) {
       throw new UnprocessableEntityException(
         'Role does not belong to this company',
       );
+    }
+
+    // ── Privilege-escalation containment ──────────────────────────────────
+    //
+    // The same rule setRolePermissions enforces, applied to the other way a
+    // permission reaches a person. Assigning a role hands over every
+    // permission it contains, so an actor may only assign a role whose
+    // permissions they already hold in this company. Otherwise `users.update`
+    // at one branch would be a route to company administrator — for a
+    // confederate, and, before the self-assignment check above, for oneself.
+    //
+    // Resolved server-side through the same AuthorizationService the guard
+    // uses; is_superadmin is deliberately not consulted.
+    if (role.permissions.length > 0) {
+      const actorPermissions = await this.authorizationService.getEffectiveCompanyPermissions(
+        actorUserId,
+        companyId,
+      );
+      const notHeld = role.permissions
+        .map((rp) => rp.permission.name)
+        .filter((name) => !actorPermissions.has(name));
+      if (notHeld.length > 0) {
+        throw new ForbiddenException(
+          `Cannot assign a role carrying permissions you do not hold: ${notHeld.join(', ')}`,
+        );
+      }
     }
 
     // Invariant 3: target user has ACTIVE membership in the company

@@ -45,6 +45,11 @@ export function QueueStatusBar({
   return (
     <div className={styles.bar}>
       <div className={styles.counts}>
+        {counts.scheduled > 0 ? (
+          <span className={styles.countItem}>
+            <strong>{counts.scheduled}</strong> scheduled
+          </span>
+        ) : null}
         <span className={styles.countItem}>
           <strong>{counts.waiting}</strong> waiting
         </span>

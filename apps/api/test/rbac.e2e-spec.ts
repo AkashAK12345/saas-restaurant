@@ -932,6 +932,69 @@ describe('RBAC (e2e)', () => {
       expect(res.status).toBe(422);
     });
 
+    // ── S1: role assignment cannot be used to escalate privileges ───────────
+    //
+    // adminRoleA holds users.update but NOT audit_logs.view. Assigning a role
+    // hands over every permission it carries, so users.update must not become
+    // a way to hand out (or take) permissions the actor does not hold.
+    describe('S1. privilege escalation through role assignment', () => {
+      let privilegedRole: any;
+      let subsetRole: any;
+
+      beforeAll(async () => {
+        const perms = await prisma.permission.findMany({
+          where: { name: { in: ['audit_logs.view', 'pos.order.create'] } },
+        });
+        const byName = new Map(perms.map((p) => [p.name, p.id]));
+        privilegedRole = await prisma.role.create({ data: { company_id: companyA.id, name: 'S1 Privileged' } });
+        subsetRole = await prisma.role.create({ data: { company_id: companyA.id, name: 'S1 Subset' } });
+        await prisma.rolePermission.createMany({
+          data: [
+            { role_id: privilegedRole.id, permission_id: byName.get('audit_logs.view')! },
+            { role_id: subsetRole.id, permission_id: byName.get('pos.order.create')! },
+          ],
+        });
+      });
+
+      afterAll(async () => {
+        await prisma.userBranchRole.deleteMany({ where: { role_id: { in: [privilegedRole.id, subsetRole.id] } } });
+        await prisma.rolePermission.deleteMany({ where: { role_id: { in: [privilegedRole.id, subsetRole.id] } } });
+        await prisma.role.deleteMany({ where: { id: { in: [privilegedRole.id, subsetRole.id] } } });
+      });
+
+      const assign = (userId: string, roleId: string) =>
+        request(app.getHttpServer())
+          .post(`/api/v1/users/${userId}/branch-roles`)
+          .set('Authorization', `Bearer ${adminToken}`)
+          .set('X-Company-ID', companyA.id)
+          .set('X-Branch-ID', branchA.id)
+          .send({ branch_id: branchA.id, role_id: roleId });
+
+      it('S1-a. cannot assign a role carrying a permission the actor does not hold', async () => {
+        const res = await assign(targetUser.id, privilegedRole.id);
+        expect(res.status).toBe(403);
+        expect(res.body.message).toContain('audit_logs.view');
+        const written = await prisma.userBranchRole.findFirst({
+          where: { user_id: targetUser.id, role_id: privilegedRole.id },
+        });
+        expect(written).toBeNull();
+      });
+
+      it('S1-b. cannot assign any role to themselves, even one within their own permissions', async () => {
+        const res = await assign(adminUser.id, subsetRole.id);
+        expect(res.status).toBe(403);
+        const written = await prisma.userBranchRole.findFirst({
+          where: { user_id: adminUser.id, role_id: subsetRole.id },
+        });
+        expect(written).toBeNull();
+      });
+
+      it('S1-c. can still assign a role whose permissions the actor holds', async () => {
+        const res = await assign(targetUser.id, subsetRole.id);
+        expect(res.status).toBe(201);
+      });
+    });
+
     // ── Branch-scoped endpoint requires branch context ────────────────────────
     it('branch-scoped endpoint requires X-Branch-ID header', async () => {
       const res = await request(app.getHttpServer())

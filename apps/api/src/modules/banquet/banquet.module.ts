@@ -9,6 +9,7 @@ import { RealtimeCoreModule } from '../../common/realtime/realtime-core.module.j
 import { ReportingCoreModule } from '../reports/reporting-core.module.js';
 import {
   BanquetBookingsReport,
+  BanquetOutstandingReport,
   BanquetOverviewWidget,
   BanquetPaymentsReport,
   BanquetReportRegistrar,
@@ -31,6 +32,7 @@ import {
     BanquetKdsService,
     BanquetBookingsReport,
     BanquetPaymentsReport,
+    BanquetOutstandingReport,
     BanquetOverviewWidget,
     BanquetReportRegistrar,
   ],

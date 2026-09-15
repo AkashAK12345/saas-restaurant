@@ -7,7 +7,11 @@ const apiMock = vi.hoisted(() => ({
   list: vi.fn(),
   get: vi.fn(),
   create: vi.fn(),
+  update: vi.fn(),
   assign: vi.fn(),
+  assignableStaff: vi.fn(),
+  comments: vi.fn(),
+  addComment: vi.fn(),
   start: vi.fn(),
   complete: vi.fn(),
   cancel: vi.fn(),
@@ -21,6 +25,9 @@ const apiMock = vi.hoisted(() => ({
   listChecklists: vi.fn(),
   createChecklist: vi.fn(),
   updateChecklist: vi.fn(),
+  referenceLibrary: vi.fn(),
+  installReference: vi.fn(),
+  routineLog: vi.fn(),
   streamTicket: vi.fn(),
 }));
 
@@ -61,6 +68,7 @@ import TaskDetailPage from './(staff)/(app)/tasks/[id]/page';
 import RoutinesPage from './(staff)/(app)/tasks/routines/page';
 import ChecklistsPage from './(staff)/(app)/tasks/checklists/page';
 import ReportsPage from './(staff)/(app)/tasks/reports/page';
+import RoutineLogPage from './(staff)/(app)/tasks/routines/[id]/log/page';
 
 // ── fixtures ─────────────────────────────────────────────────────────────────
 
@@ -76,6 +84,12 @@ const task = (over: Partial<Task> = {}): Task => ({
   overdue: false,
   assignee_id: null,
   assignee: null,
+  assigned_by: null,
+  assigner: null,
+  assigned_at: null,
+  reassignment_count: 0,
+  created_by: null,
+  creator: null,
   source: 'MANUAL',
   routine_id: null,
   routine_name: null,
@@ -106,8 +120,8 @@ const detail = (over: Partial<TaskDetail> = {}): TaskDetail => ({
 const withChecklist = (): TaskDetail =>
   detail({
     checklist: [
-      { id: 'i-1', label: 'Unlock the doors', position: 0, is_required: true, is_done: false, done_at: null, done_by: null },
-      { id: 'i-2', label: 'Water the plants', position: 1, is_required: false, is_done: false, done_at: null, done_by: null },
+      { id: 'i-1', label: 'Unlock the doors', position: 0, kind: 'CHECK', is_required: true, is_done: false, value: null, done_at: null, done_by: null },
+      { id: 'i-2', label: 'Water the plants', position: 1, kind: 'CHECK', is_required: false, is_done: false, value: null, done_at: null, done_by: null },
     ],
     checklist_progress: {
       total: 2,
@@ -126,6 +140,7 @@ const routine = (over: Partial<Routine> = {}): Routine => ({
   description: null,
   frequency: 'DAILY',
   time_of_day: '09:00',
+  due_time: null,
   weekdays: [],
   priority: 'NORMAL',
   status: 'ACTIVE',
@@ -146,8 +161,8 @@ const template = (over: Partial<ChecklistTemplate> = {}): ChecklistTemplate => (
   description: null,
   status: 'ACTIVE',
   items: [
-    { id: 'ci-1', label: 'Unlock the doors', position: 0, is_required: true },
-    { id: 'ci-2', label: 'Water the plants', position: 1, is_required: false },
+    { id: 'ci-1', label: 'Unlock the doors', position: 0, kind: 'CHECK', is_required: true },
+    { id: 'ci-2', label: 'Water the plants', position: 1, kind: 'CHECK', is_required: false },
   ],
   created_at: '2027-01-01T09:00:00.000Z',
   updated_at: '2027-01-01T09:00:00.000Z',
@@ -185,6 +200,11 @@ const ALL = [
 
 const page = <T,>(data: T[]) => ({ data, meta: { total: data.length, limit: 50, offset: 0 } });
 
+const STAFF = [
+  { id: 'u-1', name: 'Wes Worker' },
+  { id: 'u-2', name: 'Vic Viewer' },
+];
+
 // ── dashboard ────────────────────────────────────────────────────────────────
 
 describe('Task dashboard', () => {
@@ -197,6 +217,7 @@ describe('Task dashboard', () => {
     apiMock.complete.mockResolvedValue(detail({ status: 'COMPLETED' }));
     apiMock.cancel.mockResolvedValue(detail({ status: 'CANCELLED' }));
     apiMock.create.mockResolvedValue(detail());
+    apiMock.assignableStaff.mockResolvedValue(STAFF);
     apiMock.streamTicket.mockResolvedValue({ ticket: 'a'.repeat(64) });
     branchPermissions = [...ALL];
     companyPermissions = [];
@@ -333,6 +354,63 @@ describe('Task dashboard', () => {
     await screen.findByText('Clean the grease trap');
     expect(screen.getAllByRole('status').some((n) => /Reconnecting|Live/.test(n.textContent ?? ''))).toBe(true);
   });
+
+  // The branch stream carries everyone's tasks, and the API refuses it to a
+  // viewer limited to their own. Dialling it anyway left the board saying
+  // "Reconnecting…" forever.
+  it('a viewer of their own tasks gets a board without dialling the refused stream', async () => {
+    branchPermissions = ['tasks.view_own', 'tasks.start'];
+    render(<TasksPage />);
+    await screen.findByText('Clean the grease trap');
+    await waitFor(() => expect(screen.getByText('Updates when refreshed')).toBeTruthy());
+    expect(apiMock.streamTicket).not.toHaveBeenCalled();
+    expect(FakeEventSource.last()).toBeUndefined();
+    expect(screen.queryByText('Reconnecting…')).toBeNull();
+  });
+
+  it('creates a task with notes and an assignee chosen from the branch’s staff', async () => {
+    render(<TasksPage />);
+    await screen.findByText('Clean the grease trap');
+    fireEvent.click(screen.getByRole('button', { name: 'New task' }));
+    await screen.findByRole('option', { name: 'Wes Worker' });
+    fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Descale the kettle' } });
+    fireEvent.change(screen.getByLabelText('Notes (optional)'), { target: { value: '  Use the white vinegar  ' } });
+    fireEvent.change(screen.getByLabelText('Assign to (optional)'), { target: { value: 'u-1' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Create task' }));
+
+    await waitFor(() => expect(apiMock.create).toHaveBeenCalled());
+    expect(apiMock.create.mock.calls[0][1]).toMatchObject({
+      title: 'Descale the kettle',
+      description: 'Use the white vinegar',
+      assignee_id: 'u-1',
+    });
+  });
+
+  it('offers no assignee picker without tasks.assign', async () => {
+    branchPermissions = ['tasks.view', 'tasks.create'];
+    render(<TasksPage />);
+    await screen.findByText('Clean the grease trap');
+    fireEvent.click(screen.getByRole('button', { name: 'New task' }));
+    expect(screen.queryByLabelText('Assign to (optional)')).toBeNull();
+    expect(apiMock.assignableStaff).not.toHaveBeenCalled();
+  });
+
+  it('shows who assigned a task and how often it has moved', async () => {
+    apiMock.list.mockResolvedValue(
+      page([
+        task({
+          assignee_id: 'u-1',
+          assignee: { id: 'u-1', name: 'Wes Worker' },
+          assigner: { id: 'u-9', name: 'Mina Manager' },
+          reassignment_count: 2,
+        }),
+      ]),
+    );
+    render(<TasksPage />);
+    const card = (await screen.findByText('Clean the grease trap')).closest('li')!;
+    expect(within(card).getByText(/Mina Manager → Assigned to Wes Worker/)).toBeTruthy();
+    expect(within(card).getByText(/reassigned 2 times/)).toBeTruthy();
+  });
 });
 
 // ── layout ───────────────────────────────────────────────────────────────────
@@ -370,6 +448,16 @@ describe('Task sub-navigation', () => {
     expect(screen.getByRole('link', { name: 'Board' }).getAttribute('aria-current')).toBe('page');
   });
 
+  it('a viewer of their own tasks sees only the board', () => {
+    branchPermissions = ['tasks.view_own'];
+    render(
+      <TasksLayout>
+        <p>child</p>
+      </TasksLayout>,
+    );
+    expect(screen.getAllByRole('link').map((l) => l.textContent)).toEqual(['Board']);
+  });
+
   it('drops Completion without tasks.reports.view', () => {
     branchPermissions = ['tasks.view'];
     render(
@@ -394,7 +482,67 @@ describe('Task detail and checklist', () => {
     apiMock.setChecklistItem.mockResolvedValue(withChecklist());
     apiMock.complete.mockResolvedValue(detail({ status: 'COMPLETED' }));
     apiMock.assign.mockResolvedValue(detail());
+    apiMock.update.mockResolvedValue(detail());
+    apiMock.assignableStaff.mockResolvedValue(STAFF);
+    apiMock.comments.mockResolvedValue([]);
+    apiMock.addComment.mockResolvedValue({
+      id: 'cm-1',
+      task_id: 'tk-1',
+      author: { id: 'u-1', name: 'Wes Worker' },
+      body: 'Done early',
+      created_at: '2027-01-01T10:00:00.000Z',
+    });
     branchPermissions = [...ALL];
+  });
+
+  it('assigns the task to a person picked from the branch’s staff', async () => {
+    render(<TaskDetailPage />);
+    await screen.findByText('Unlock the doors');
+    await screen.findByRole('option', { name: 'Vic Viewer' });
+    fireEvent.change(screen.getByLabelText('Assign to'), { target: { value: 'u-2' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Assign' }));
+    await waitFor(() =>
+      expect(apiMock.assign).toHaveBeenCalledWith({ companyId: 'co-1', branchId: 'br-1' }, 'tk-1', 'u-2'),
+    );
+  });
+
+  it('edits only the details that changed', async () => {
+    render(<TaskDetailPage />);
+    await screen.findByText('Unlock the doors');
+    fireEvent.click(screen.getByRole('button', { name: 'Edit details' }));
+    fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Clean the grease trap properly' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(apiMock.update).toHaveBeenCalled());
+    expect(apiMock.update.mock.calls[0][2]).toEqual({ title: 'Clean the grease trap properly' });
+  });
+
+  it('lists comments and posts a new one', async () => {
+    apiMock.comments.mockResolvedValue([
+      {
+        id: 'cm-0',
+        task_id: 'tk-1',
+        author: { id: 'u-9', name: 'Mina Manager' },
+        body: 'Please do this before 11',
+        created_at: '2027-01-01T09:30:00.000Z',
+      },
+    ]);
+    render(<TaskDetailPage />);
+    expect(await screen.findByText('Please do this before 11')).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText('Add a comment'), { target: { value: '  Done early  ' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Post comment' }));
+    await waitFor(() =>
+      expect(apiMock.addComment).toHaveBeenCalledWith({ companyId: 'co-1', branchId: 'br-1' }, 'tk-1', 'Done early'),
+    );
+  });
+
+  it('shows comments but offers neither editing nor commenting without tasks.update', async () => {
+    branchPermissions = ['tasks.view'];
+    render(<TaskDetailPage />);
+    await screen.findByText('Unlock the doors');
+    expect(await screen.findByText('No comments yet.')).toBeTruthy();
+    expect(screen.queryByLabelText('Add a comment')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Edit details' })).toBeNull();
   });
 
   it('renders the checklist in order and marks required items', async () => {
@@ -403,6 +551,39 @@ describe('Task detail and checklist', () => {
     const items = screen.getAllByRole('checkbox');
     expect(items).toHaveLength(2);
     expect(screen.getByTitle('Required')).toBeTruthy();
+  });
+
+  it('asks for an answer on a typed item and sends it; clears it again', async () => {
+    const typed = detail({
+      checklist: [
+        { id: 'n-1', label: 'Meter reading', position: 0, kind: 'NUMBER', is_required: true, is_done: false, value: null, done_at: null, done_by: null },
+        { id: 'r-1', label: 'Reception', position: 1, kind: 'RATING', is_required: true, is_done: true, value: '4', done_at: '2027-01-01T10:00:00.000Z', done_by: 'u-1' },
+      ],
+      checklist_progress: { total: 2, done: 1, required_total: 2, required_done: 1, ready_to_complete: false },
+    });
+    apiMock.get.mockResolvedValue(typed);
+    apiMock.setChecklistItem.mockResolvedValue(typed);
+    render(<TaskDetailPage />);
+    await screen.findByText(/Meter reading/);
+    // Typed items are not checkboxes.
+    expect(screen.queryAllByRole('checkbox')).toHaveLength(0);
+
+    const meter = screen.getByLabelText(/Meter reading/) as HTMLInputElement;
+    const save = () => screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement;
+    fireEvent.change(meter, { target: { value: '12.3456' } });
+    expect(save().disabled).toBe(true); // too many decimals
+    fireEvent.change(meter, { target: { value: '1234.5' } });
+    expect(save().disabled).toBe(false);
+    fireEvent.click(save());
+    await waitFor(() =>
+      expect(apiMock.setChecklistItem).toHaveBeenCalledWith({ companyId: 'co-1', branchId: 'br-1' }, 'tk-1', 'n-1', true, '1234.5'),
+    );
+
+    expect(screen.getByText(/answered 4/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Clear the answer for Reception' }));
+    await waitFor(() =>
+      expect(apiMock.setChecklistItem).toHaveBeenCalledWith({ companyId: 'co-1', branchId: 'br-1' }, 'tk-1', 'r-1', false),
+    );
   });
 
   it('blocks completion until the server says the required items are done', async () => {
@@ -526,6 +707,29 @@ describe('Routine management', () => {
     });
   });
 
+  it('sends a submission deadline, and refuses one earlier than the routine time', async () => {
+    render(<RoutinesPage />);
+    await screen.findByText('Opening checks');
+    fireEvent.click(screen.getByRole('button', { name: 'New routine' }));
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'EOD report' } });
+    fireEvent.change(screen.getByLabelText('At (branch local time)'), { target: { value: '21:00' } });
+
+    fireEvent.change(screen.getByLabelText('Deadline (optional, branch local time)'), { target: { value: '20:00' } });
+    expect((screen.getByRole('button', { name: 'Create routine' }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.getByText(/cannot be earlier/)).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText('Deadline (optional, branch local time)'), { target: { value: '23:30' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Create routine' }));
+    await waitFor(() => expect(apiMock.createRoutine).toHaveBeenCalled());
+    expect(apiMock.createRoutine.mock.calls[0][1]).toMatchObject({ time_of_day: '21:00', due_time: '23:30' });
+  });
+
+  it('shows a routine’s deadline', async () => {
+    apiMock.listRoutines.mockResolvedValue(page([routine({ due_time: '10:30' })]));
+    render(<RoutinesPage />);
+    expect(await screen.findByText(/Every day at 09:00, due by 10:30/)).toBeTruthy();
+  });
+
   it('will not submit a weekly routine with no weekday', async () => {
     render(<RoutinesPage />);
     await screen.findByText('Opening checks');
@@ -605,10 +809,54 @@ describe('Checklist templates', () => {
 
     await waitFor(() => expect(apiMock.createChecklist).toHaveBeenCalled());
     expect(apiMock.createChecklist.mock.calls[0][1].items).toEqual([
-      { label: 'Cash up', is_required: true },
-      { label: 'Lock up', is_required: true },
-      { label: 'Water the plants', is_required: false },
+      { label: 'Cash up', is_required: true, kind: 'CHECK' },
+      { label: 'Lock up', is_required: true, kind: 'CHECK' },
+      { label: 'Water the plants', is_required: false, kind: 'CHECK' },
     ]);
+  });
+
+  it('reads [number], [text], [rating] and [date] as typed items', async () => {
+    render(<ChecklistsPage />);
+    await screen.findByText('Unlock the doors');
+    fireEvent.change(screen.getByLabelText('Checklist name'), { target: { value: 'EOD' } });
+    fireEvent.change(screen.getByLabelText('Items, one per line'), {
+      target: { value: '[number] Meter reading\n[RATING] Reception\n[text] Closing note?\n[date] Last audit\nLights off' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Create checklist' }));
+    await waitFor(() => expect(apiMock.createChecklist).toHaveBeenCalled());
+    expect(apiMock.createChecklist.mock.calls[0][1].items).toEqual([
+      { label: 'Meter reading', is_required: true, kind: 'NUMBER' },
+      { label: 'Reception', is_required: true, kind: 'RATING' },
+      { label: 'Closing note', is_required: false, kind: 'TEXT' },
+      { label: 'Last audit', is_required: true, kind: 'DATE' },
+      { label: 'Lights off', is_required: true, kind: 'CHECK' },
+    ]);
+  });
+
+  it('offers the reference routines and installs one', async () => {
+    apiMock.referenceLibrary.mockResolvedValue([
+      { key: 'banquet-opening', name: 'Banquet Opening Checklist', description: 'Hall readiness', items: [{ label: 'Lights', kind: 'CHECK', is_required: true }], installed: false },
+      { key: 'eod-report', name: 'EOD Report', description: 'Day close', items: [], installed: true },
+    ]);
+    apiMock.installReference.mockResolvedValue(template({ name: 'Banquet Opening Checklist' }));
+    render(<ChecklistsPage />);
+    expect(await screen.findByRole('heading', { name: 'Reference routines' })).toBeTruthy();
+    expect(screen.getByText('Installed')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Install Banquet Opening Checklist' }));
+    await waitFor(() =>
+      expect(apiMock.installReference).toHaveBeenCalledWith({ companyId: 'co-1', branchId: 'br-1' }, 'banquet-opening'),
+    );
+    expect(await screen.findByText('Banquet Opening Checklist installed.')).toBeTruthy();
+  });
+
+  it('shows no library to someone who cannot manage checklists', async () => {
+    companyPermissions = [];
+    apiMock.referenceLibrary.mockResolvedValue([
+      { key: 'eod-report', name: 'EOD Report', description: 'Day close', items: [], installed: false },
+    ]);
+    render(<ChecklistsPage />);
+    await screen.findByText('Unlock the doors');
+    expect(screen.queryByRole('heading', { name: 'Reference routines' })).toBeNull();
   });
 
   it('explains that editing does not rewrite history', async () => {
@@ -623,6 +871,50 @@ describe('Checklist templates', () => {
     await screen.findByText('Unlock the doors');
     expect(screen.queryByRole('button', { name: 'Create checklist' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Retire' })).toBeNull();
+  });
+});
+
+// ── compliance log ───────────────────────────────────────────────────────────
+
+describe('Routine compliance log', () => {
+  beforeEach(() => {
+    for (const fn of Object.values(apiMock)) fn.mockReset();
+    branchPermissions = ['tasks.view', 'tasks.reports.view'];
+    apiMock.routineLog.mockImplementation(async (_ctx: unknown, _id: string, from: string, to: string) => ({
+      routine_id: 'tk-1',
+      routine_name: 'Opening checks',
+      from,
+      to,
+      dates: ['2027-01-01', '2027-01-02'],
+      occurrences: [
+        { date: '2027-01-01', task_id: 't-a', status: 'COMPLETED', completed_at: '2027-01-01T05:00:00.000Z', late: false },
+        { date: '2027-01-02', task_id: 't-b', status: 'COMPLETED', completed_at: '2027-01-02T09:00:00.000Z', late: true },
+      ],
+      rows: [
+        { label: 'Meter reading', kind: 'NUMBER', cells: { '2027-01-01': { done: true, value: '100' }, '2027-01-02': { done: false, value: null } } },
+        { label: 'Restroom check', kind: 'CHECK', cells: { '2027-01-01': { done: true, value: null } } },
+      ],
+    }));
+  });
+
+  it('shows items down the side and dates across, with answers, misses and gaps', async () => {
+    render(<RoutineLogPage />);
+    expect(await screen.findByRole('heading', { name: 'Opening checks' })).toBeTruthy();
+    const table = screen.getByRole('table');
+    const rows = within(table).getAllByRole('row');
+    expect(rows[1].textContent).toBe('Meter reading100✗');
+    expect(rows[2].textContent).toBe('Restroom check✓—');
+    expect(within(table).getByText('late')).toBeTruthy();
+    // A 7-day window by default.
+    const [, , from, to] = apiMock.routineLog.mock.calls[0] as [unknown, string, string, string];
+    expect((Date.parse(to) - Date.parse(from)) / 86_400_000).toBe(6);
+  });
+
+  it('asks for nothing without tasks.reports.view', () => {
+    branchPermissions = ['tasks.view'];
+    render(<RoutineLogPage />);
+    expect(screen.getByText(/do not have access/)).toBeTruthy();
+    expect(apiMock.routineLog).not.toHaveBeenCalled();
   });
 });
 

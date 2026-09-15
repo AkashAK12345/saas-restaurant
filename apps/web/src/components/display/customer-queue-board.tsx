@@ -66,6 +66,19 @@ export function CustomerQueueBoard({
         </p>
       )}
 
+      {board.waiting_tokens.length > 0 ? (
+        <section className={styles.waitingTiles} aria-label="Waiting">
+          <span className={styles.waitingTitle}>Waiting</span>
+          <ul className={styles.waitingList}>
+            {board.waiting_tokens.map((n) => (
+              <li key={n} className={styles.waitingTile}>
+                {n}
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
       <footer className={styles.footer}>
         <span className={styles.waiting}>
           <strong>{board.waiting_count}</strong> waiting
