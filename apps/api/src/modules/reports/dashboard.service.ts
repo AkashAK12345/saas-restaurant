@@ -12,6 +12,7 @@ import type {
   DashboardWidgetProvider,
   DashboardWidgetResponse,
   WidgetMetric,
+  WidgetSeries,
 } from './dashboard-contract.js';
 
 /**
@@ -73,7 +74,11 @@ export class DashboardService {
       permitted.map(async (provider): Promise<DashboardWidgetResponse> => {
         try {
           const result = await provider.run({ ctx, range });
-          return { ...provider.definition, metrics: result.metrics };
+          return {
+            ...provider.definition,
+            metrics: result.metrics,
+            ...(result.series ? { series: result.series } : {}),
+          };
         } catch (e) {
           this.logger.error(`Dashboard widget ${provider.definition.key} failed: ${(e as Error).message}`);
           return { ...provider.definition, metrics: [], error: 'This widget could not be loaded' };
@@ -167,17 +172,19 @@ export class DashboardService {
         .filter((c): c is { branch: (typeof candidates)[number]; widget: DashboardWidgetResponse } => !!c.widget);
       if (contributions.length === 0) continue;
 
-      const { metrics, notSummed } = sumMetrics(
-        contributions.filter((c) => !c.widget.error).map((c) => c.widget.metrics),
-      );
+      const healthy = contributions.filter((c) => !c.widget.error);
+      const { metrics, notSummed } = sumMetrics(healthy.map((c) => c.widget.metrics));
+      const series = sumSeries(healthy.map((c) => c.widget.series).filter((s): s is WidgetSeries => !!s));
       widgets.push({
         ...provider.definition,
         metrics,
+        ...(series ? { series } : {}),
         not_summed: notSummed,
         branches: contributions.map((c) => ({
           branch_id: c.branch.id,
           branch_name: c.branch.name,
           metrics: c.widget.metrics,
+          ...(c.widget.series ? { series: c.widget.series } : {}),
           ...(c.widget.error ? { error: c.widget.error } : {}),
         })),
       });
@@ -223,4 +230,31 @@ export function sumMetrics(sets: WidgetMetric[][]): { metrics: WidgetMetric[]; n
   }
   for (const key of notSummed.keys()) totals.delete(key);
   return { metrics: [...totals.values()], notSummed: [...notSummed.values()] };
+}
+
+/**
+ * Add per-day count series date by date. Branches in different timezones each
+ * report their OWN local dates, so a date present at only some branches still
+ * appears, carrying just those branches' counts. Returns undefined when no
+ * branch produced a series.
+ */
+export function sumSeries(sets: WidgetSeries[]): WidgetSeries | undefined {
+  if (sets.length === 0) return undefined;
+  const keys = new Map<string, string>();
+  const byDate = new Map<string, Record<string, number>>();
+  for (const set of sets) {
+    for (const k of set.keys) keys.set(k.key, k.label);
+    for (const point of set.points) {
+      const into = byDate.get(point.date) ?? {};
+      for (const [key, value] of Object.entries(point.values)) into[key] = (into[key] ?? 0) + value;
+      byDate.set(point.date, into);
+    }
+  }
+  const allKeys = [...keys.keys()];
+  return {
+    keys: [...keys.entries()].map(([key, label]) => ({ key, label })),
+    points: [...byDate.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([date, values]) => ({ date, values: Object.fromEntries(allKeys.map((k) => [k, values[k] ?? 0])) })),
+  };
 }

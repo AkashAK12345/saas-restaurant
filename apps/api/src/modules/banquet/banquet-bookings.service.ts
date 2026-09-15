@@ -78,6 +78,8 @@ export const BANQUET_EVENT_TYPES = {
   BOOKING_COMPLETED: 'banquet.booking.completed',
   EVENT_PLAN_UPDATED: 'banquet.event_plan.updated',
   ITEM_UPDATED: 'banquet.item.updated',
+  /** Payload is { id, booking_id, status } — no dish text, no customer. */
+  PLATE_REQUEST_UPDATED: 'banquet.plate_request.updated',
 } as const;
 
 const AUDIT_BOOKING = 'BANQUET_BOOKING';
@@ -244,7 +246,7 @@ export class BanquetBookingsService {
       this.get(branchId, bookingId),
       this.prisma.branch.findUnique({
         where: { id: branchId },
-        select: { id: true, name: true, timezone: true, gstin: true, fssai_license: true },
+        select: { id: true, name: true, timezone: true, gstin: true, fssai_license: true, banquet_terms: true },
       }),
     ]);
     if (!branch) throw new NotFoundException();

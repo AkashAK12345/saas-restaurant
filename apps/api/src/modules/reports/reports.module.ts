@@ -1,7 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ReportsController } from './reports.controller.js';
 import { ReportsService } from './reports.service.js';
-import { ReportExportService } from './report-export.service.js';
 import { ReportingCoreModule } from './reporting-core.module.js';
 import { AuthModule } from '../auth/auth.module.js';
 import { AuthorizationModule } from '../../common/authorization/authorization.module.js';
@@ -19,7 +18,7 @@ import { AuthorizationModule } from '../../common/authorization/authorization.mo
 @Module({
   imports: [AuthModule, AuthorizationModule, ReportingCoreModule],
   controllers: [ReportsController],
-  providers: [ReportsService, ReportExportService],
+  providers: [ReportsService],
   exports: [ReportsService],
 })
 export class ReportsModule {}

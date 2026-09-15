@@ -13,7 +13,18 @@ import type { ReportContext, ReportRange, ReportValueType } from './report-contr
  * export, a widget is something you glance at. Keeping them separate stops
  * the dashboard from paginating and the reports from pretending to be tiles.
  */
-export type WidgetDisplay = 'metrics' | 'breakdown';
+export type WidgetDisplay = 'metrics' | 'breakdown' | 'series';
+
+/**
+ * A per-day series for a chart tile. `points` holds EVERY branch-local date in
+ * the window, oldest first, with zeroes where nothing happened — a missing day
+ * would otherwise draw as no bar and read as missing data. Values are counts,
+ * so a series may be added across branches date by date.
+ */
+export interface WidgetSeries {
+  keys: Array<{ key: string; label: string }>;
+  points: Array<{ date: string; values: Record<string, number> }>;
+}
 
 export interface WidgetMetric {
   key: string;
@@ -47,6 +58,7 @@ export interface WidgetQuery {
 
 export interface WidgetResult {
   metrics: WidgetMetric[];
+  series?: WidgetSeries;
 }
 
 export interface DashboardWidgetProvider {
@@ -56,6 +68,7 @@ export interface DashboardWidgetProvider {
 
 export interface DashboardWidgetResponse extends DashboardWidgetDefinition {
   metrics: WidgetMetric[];
+  series?: WidgetSeries;
   /** Set when this widget failed; the rest of the dashboard still renders. */
   error?: string;
 }
@@ -80,11 +93,14 @@ export interface DashboardResponse {
  */
 export interface AllBranchesWidgetResponse extends DashboardWidgetDefinition {
   metrics: WidgetMetric[];
+  /** Date-by-date sum of the branches' series, when the widget has one. */
+  series?: WidgetSeries;
   not_summed: string[];
   branches: Array<{
     branch_id: string;
     branch_name: string;
     metrics: WidgetMetric[];
+    series?: WidgetSeries;
     error?: string;
   }>;
 }

@@ -1,4 +1,5 @@
 import { MetricGrid } from './metric-grid';
+import { SeriesChart } from './series-chart';
 import type { DashboardWidget } from '@/lib/reports/types';
 import styles from './reports.module.css';
 
@@ -26,7 +27,10 @@ export function WidgetCard({ widget, timezone }: { widget: DashboardWidget; time
           {widget.error}
         </p>
       ) : (
-        <MetricGrid metrics={widget.metrics} timezone={timezone} />
+        <>
+          <MetricGrid metrics={widget.metrics} timezone={timezone} />
+          {widget.series ? <SeriesChart series={widget.series} title={widget.title} /> : null}
+        </>
       )}
     </section>
   );

@@ -8,6 +8,8 @@ import { SchedulerModule } from '../../common/scheduler/scheduler.module.js';
 import { JobRegistry } from '../../common/scheduler/job-registry.service.js';
 import { ReportingCoreModule } from '../reports/reporting-core.module.js';
 import {
+  QueueDailyWidget,
+  QueueOverviewWidget,
   QueueReportRegistrar,
   QueueSummaryReport,
   QueueTodayWidget,
@@ -56,6 +58,8 @@ export class QueueScheduler implements OnModuleInit {
     QueueSummaryReport,
     QueueTokensReport,
     QueueTodayWidget,
+    QueueOverviewWidget,
+    QueueDailyWidget,
     QueueReportRegistrar,
   ],
   exports: [QueueTokensService],

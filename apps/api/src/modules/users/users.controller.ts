@@ -61,6 +61,21 @@ export class UsersController {
     return this.usersService.getUser(userId, companyId);
   }
 
+  /**
+   * GET /users/:id/branch-roles — the member's role assignments at this
+   * company's branches (branch and role names only). 404 for anyone without an
+   * ACTIVE membership here, exactly like GET /users/:id.
+   */
+  @Get(':id/branch-roles')
+  @UseGuards(PermissionGuard)
+  @RequireCompanyPermission(PERMISSION_KEYS.USERS_VIEW)
+  async listBranchRoles(
+    @Param('id', ParseUUIDPipe) userId: string,
+    @Headers('x-company-id') companyId: string,
+  ) {
+    return this.usersService.listBranchRoles(userId, companyId);
+  }
+
   @Post()
   @HttpCode(HttpStatus.CREATED)
   @UseGuards(PermissionGuard)

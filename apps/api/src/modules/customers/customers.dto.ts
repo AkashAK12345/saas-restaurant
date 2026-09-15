@@ -6,6 +6,23 @@ import {
   MaxLength,
 } from 'class-validator';
 import { CustomerStatus } from '@samco/database';
+import { PaginationQueryDto } from '../../common/pagination.dto.js';
+
+/**
+ * List filters. `q` matches a name (case-insensitive substring) or, when it
+ * carries digits, a phone number containing those digits. Always within the
+ * guard-verified company.
+ */
+export class ListCustomersQueryDto extends PaginationQueryDto {
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  q?: string;
+
+  @IsOptional()
+  @IsEnum(CustomerStatus)
+  status?: CustomerStatus;
+}
 
 /**
  * Customer is company-scoped; the company comes from the guard-verified

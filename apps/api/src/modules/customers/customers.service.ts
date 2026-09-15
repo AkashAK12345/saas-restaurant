@@ -4,7 +4,7 @@ import {
   ConflictException,
   BadRequestException,
 } from '@nestjs/common';
-import { AuditEventType, Prisma } from '@samco/database';
+import { AuditEventType, CustomerStatus, Prisma } from '@samco/database';
 import { PrismaService } from '../../core/database/prisma.service.js';
 import { AuditLogService } from '../audit-logs/audit-logs.service.js';
 import type { Paginated } from '../../common/pagination.dto.js';
@@ -40,8 +40,21 @@ export class CustomersService {
   async listCustomers(
     companyId: string,
     page: { limit: number; offset: number },
+    filters: { q?: string; status?: CustomerStatus } = {},
   ): Promise<Paginated<unknown>> {
-    const where = { company_id: companyId };
+    const where: Prisma.CustomerWhereInput = { company_id: companyId };
+    if (filters.status) where.status = filters.status;
+    const q = filters.q?.trim();
+    if (q) {
+      const digits = q.replace(/\D/g, '');
+      // Prisma passes `contains` to LIKE without escaping, so a typed % or _
+      // would otherwise match everything. Search text is data, not a pattern.
+      const literal = q.replace(/[\\%_]/g, (ch) => `\\${ch}`);
+      where.OR = [
+        { name: { contains: literal, mode: 'insensitive' } },
+        ...(digits.length >= 3 ? [{ phone: { contains: digits } }] : []),
+      ];
+    }
     const [data, total] = await Promise.all([
       this.prisma.customer.findMany({
         where,

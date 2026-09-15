@@ -246,6 +246,9 @@ model User {
   task_comments      TaskComment[]
   checklist_items_done TaskChecklistItem[] @relation("ChecklistItemDoneBy")
   default_for_routines TaskRoutine[]     @relation("RoutineDefaultAssignee")
+  plates_requested     BanquetPlateRequest[] @relation("PlateRequestedBy")
+  plates_decided       BanquetPlateRequest[] @relation("PlateDecidedBy")
+  plates_dispatched    BanquetPlateRequest[] @relation("PlateDispatchedBy")
 
   // Declares the index created by migration 20260906130000_user_status so the
   // schema matches the database; without this Prisma tries to DROP it.
@@ -273,6 +276,7 @@ model Company {
   queue_tokens QueueToken[]
   banquet_packages BanquetPackage[]
   banquet_bookings BanquetBooking[]
+  banquet_plate_requests BanquetPlateRequest[]
   checklist_templates ChecklistTemplate[]
   task_routines       TaskRoutine[]
   tasks               Task[]
@@ -311,6 +315,9 @@ model Branch {
   // GST applied to NEW banquet bookings, in basis points (500 = 5%, split
   // equally into CGST and SGST). 0 is no-GST mode. Snapshotted per booking.
   banquet_gst_rate_bps Int          @default(0)
+  // Terms and conditions printed at the foot of every banquet bill and
+  // quotation from this branch. Free text, at most 4000 characters (CHECK).
+  banquet_terms        String?
   created_at DateTime     @default(now()) @db.Timestamptz(3)
   updated_at DateTime     @updatedAt @db.Timestamptz(3)
 
@@ -324,6 +331,7 @@ model Branch {
   queue_counters  QueueCounter[]
   banquet_halls    BanquetHall[]
   banquet_bookings BanquetBooking[]
+  banquet_plate_requests BanquetPlateRequest[]
   task_routines    TaskRoutine[]
   tasks            Task[]
 
@@ -669,6 +677,7 @@ model BanquetBooking {
   payments    BanquetPayment[]
   adjustments BanquetBookingAdjustment[]
   event_plan  BanquetEventPlan?
+  plate_requests BanquetPlateRequest[]
 
   @@index([branch_id, starts_at])
   @@index([branch_id, status])
@@ -692,10 +701,57 @@ model BanquetBookingItem {
   created_at  DateTime         @default(now()) @db.Timestamptz(3)
   updated_at  DateTime         @updatedAt @db.Timestamptz(3)
 
-  booking BanquetBooking @relation(fields: [booking_id], references: [id], onDelete: Restrict)
+  booking        BanquetBooking        @relation(fields: [booking_id], references: [id], onDelete: Restrict)
+  plate_requests BanquetPlateRequest[]
 
   @@index([booking_id])
   @@map("banquet_booking_items")
+}
+
+enum BanquetPlateRequestStatus {
+  REQUESTED
+  APPROVED
+  REJECTED
+  DISPATCHED
+}
+
+// Plate approval (SRS §5.3.5): service staff ask the kitchen for N plates of
+// one dish of a confirmed event; someone OTHER than the requester approves or
+// rejects; approved plates are dispatched. Portion control for buffets.
+//
+// Lifecycle in banquet-state-machine.ts. The migration adds CHECKs so the
+// stamps always agree with the status, a rejection always carries its reason,
+// and nobody can decide their own request — whatever writes the row.
+model BanquetPlateRequest {
+  id                    String                    @id @default(uuid()) @db.Uuid
+  company_id            String                    @db.Uuid
+  branch_id             String                    @db.Uuid
+  booking_id            String                    @db.Uuid
+  item_id               String                    @db.Uuid
+  plates                Int
+  note                  String?
+  status                BanquetPlateRequestStatus @default(REQUESTED)
+  requested_by_user_id  String                    @db.Uuid
+  decided_by_user_id    String?                   @db.Uuid
+  decided_at            DateTime?                 @db.Timestamptz(3)
+  rejection_reason      String?
+  dispatched_by_user_id String?                   @db.Uuid
+  dispatched_at         DateTime?                 @db.Timestamptz(3)
+  created_at            DateTime                  @default(now()) @db.Timestamptz(3)
+  updated_at            DateTime                  @updatedAt @db.Timestamptz(3)
+
+  company       Company            @relation(fields: [company_id], references: [id], onDelete: Restrict)
+  branch        Branch             @relation(fields: [branch_id], references: [id], onDelete: Restrict)
+  booking       BanquetBooking     @relation(fields: [booking_id], references: [id], onDelete: Restrict)
+  item          BanquetBookingItem @relation(fields: [item_id], references: [id], onDelete: Restrict)
+  requested_by  User               @relation("PlateRequestedBy", fields: [requested_by_user_id], references: [id], onDelete: Restrict)
+  decided_by    User?              @relation("PlateDecidedBy", fields: [decided_by_user_id], references: [id], onDelete: Restrict)
+  dispatched_by User?              @relation("PlateDispatchedBy", fields: [dispatched_by_user_id], references: [id], onDelete: Restrict)
+
+  @@index([booking_id])
+  @@index([item_id])
+  @@index([branch_id, status])
+  @@map("banquet_plate_requests")
 }
 
 // The operational plan for one booking: when food is served, how the room is

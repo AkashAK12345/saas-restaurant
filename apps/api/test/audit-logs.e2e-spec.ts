@@ -68,21 +68,37 @@ describe('AuditLogsModule (e2e)', () => {
       return res.body.accessToken;
     };
 
+    // Company creation is a platform operation, so a platform administrator
+    // creates both companies; the ordinary users are then made members.
+    const platformUser = await prisma.user.create({
+      data: { email: 'auditplatform@samco.com', password_hash: pwdHash, is_superadmin: true },
+    });
+
     adminToken = await loginAndGetToken(adminUser.email);
     normalToken = await loginAndGetToken(normalUser.email);
+    const platformToken = await loginAndGetToken(platformUser.email);
 
     // Create companies via the API so real audit records are produced.
     const resA = await request(app.getHttpServer())
       .post('/api/v1/companies')
-      .set('Authorization', `Bearer ${adminToken}`)
+      .set('Authorization', `Bearer ${platformToken}`)
       .send({ name: 'Alpha Audit Corp' });
+    expect(resA.status).toBe(201);
     companyA = resA.body;
 
     const resB = await request(app.getHttpServer())
       .post('/api/v1/companies')
-      .set('Authorization', `Bearer ${normalToken}`)
+      .set('Authorization', `Bearer ${platformToken}`)
       .send({ name: 'Beta Audit Corp' });
+    expect(resB.status).toBe(201);
     companyB = resB.body;
+
+    await prisma.companyMembership.createMany({
+      data: [
+        { user_id: adminUser.id, company_id: companyA.id, status: 'ACTIVE' },
+        { user_id: normalUser.id, company_id: companyB.id, status: 'ACTIVE' },
+      ],
+    });
 
     // Permissions come from the seeded system catalogue — this spec no longer
     // invents Permission rows, which previously leaked test-only records

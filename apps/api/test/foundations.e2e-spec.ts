@@ -304,6 +304,32 @@ describe('T0-A Foundations (e2e)', () => {
       // ...but view-only CAN read.
       expect((await asA(request(http).get(`/api/v1/customers/${created.body.id}`), restrictedTokenA)).status).toBe(200);
     });
+
+    it('CU-12. search by name or phone digits and filter by status, never beyond the company', async () => {
+      const hit = await asA(request(http).post('/api/v1/customers')).send({ name: 'Searchable Sunita', phone: '+91 98111 22333' });
+      const inactive = await asA(request(http).post('/api/v1/customers')).send({ name: 'Searchable Inactive' });
+      await asA(request(http).patch(`/api/v1/customers/${inactive.body.id}`)).send({ status: 'INACTIVE' });
+      await asB(request(http).post('/api/v1/customers')).send({ name: 'Searchable Beta', phone: '9811122333' });
+
+      const byName = await asA(request(http).get('/api/v1/customers').query({ q: 'searchable s' }));
+      expect(byName.status).toBe(200);
+      expect(byName.body.data.map((c: any) => c.id)).toEqual([hit.body.id]);
+      expect(byName.body.meta.total).toBe(1);
+
+      const byPhone = await asA(request(http).get('/api/v1/customers').query({ q: '11122' }));
+      expect(byPhone.body.data.map((c: any) => c.id)).toEqual([hit.body.id]);
+
+      const onlyInactive = await asA(request(http).get('/api/v1/customers').query({ q: 'Searchable', status: 'INACTIVE' }));
+      expect(onlyInactive.body.data.map((c: any) => c.id)).toEqual([inactive.body.id]);
+
+      // A LIKE wildcard is data, not a pattern that widens the match.
+      const wildcard = await asA(request(http).get('/api/v1/customers').query({ q: '%' }));
+      expect(wildcard.status).toBe(200);
+      expect(wildcard.body.data.every((c: any) => c.name.includes('%'))).toBe(true);
+
+      expect((await asA(request(http).get('/api/v1/customers').query({ q: 'x'.repeat(101) }))).status).toBe(400);
+      expect((await asA(request(http).get('/api/v1/customers').query({ status: 'BANNED' }))).status).toBe(400);
+    });
   });
 
   // ═══════════════════════════════════════════════════════════════════════════

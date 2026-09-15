@@ -115,6 +115,11 @@ export const PERMISSION_KEYS = {
    * (is_superadmin bypasses nothing — see PermissionGuard).
    */
   BANQUET_BOOKING_EDIT_PAST: 'banquet.booking.edit_past',
+  /**
+   * Ask the kitchen for plates of a dish (plate approval). Deciding and
+   * dispatching are kitchen work and use BANQUET_KDS_MANAGE.
+   */
+  BANQUET_PLATE_REQUEST: 'banquet.plate.request',
 
   // ── Tasks & Routines (Phase 9) ───────────────────────────────────────────
   // TASKS_VIEW (above, from T0-B) still gates every task read and the `tasks`
@@ -473,6 +478,13 @@ export const SYSTEM_PERMISSIONS: Array<{
     description:
       'Edit or re-price a banquet booking whose event has already started (a ' +
       'revenue-integrity control)',
+  },
+  {
+    name: PERMISSION_KEYS.BANQUET_PLATE_REQUEST,
+    module: 'banquet',
+    description:
+      'Ask the kitchen for plates of a dish for a confirmed event. Someone else in the ' +
+      'kitchen (banquet.kds.manage) approves, rejects and dispatches.',
   },
   {
     name: PERMISSION_KEYS.TASKS_VIEW_OWN,

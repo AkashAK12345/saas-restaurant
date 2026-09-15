@@ -14,6 +14,8 @@ import type { Paginated } from '../../common/pagination.dto.js';
 import type { TaskActorContext } from './tasks-context.js';
 import type { RoutineLogView, RoutineView } from './tasks-views.js';
 import type { CreateRoutineDto, RoutineLogQueryDto, UpdateRoutineDto } from './tasks.dto.js';
+import type { ReportResponse } from '../reports/report-contract.js';
+import { routineLogReport } from './routine-log-export.js';
 
 /** Longest window the transposed log answers at once (two months of columns). */
 export const ROUTINE_LOG_MAX_DAYS = 62;
@@ -162,6 +164,16 @@ export class RoutinesService {
       occurrences,
       rows: [...rows.values()],
     };
+  }
+
+  /** The same log in the shared report shape, for the Excel/PDF exporter. */
+  async logReport(branchId: string, routineId: string, query: RoutineLogQueryDto): Promise<ReportResponse> {
+    const [log, branch] = await Promise.all([
+      this.log(branchId, routineId, query),
+      this.prisma.branch.findUnique({ where: { id: branchId }, select: { id: true, name: true, timezone: true } }),
+    ]);
+    if (!branch) throw new NotFoundException();
+    return routineLogReport(log, branch, new Date());
   }
 
   async get(routineId: string, branchId: string): Promise<RoutineView> {

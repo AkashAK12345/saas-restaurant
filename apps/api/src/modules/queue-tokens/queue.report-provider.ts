@@ -9,6 +9,7 @@ import {
   toLocalDateString,
   toReportNumber,
 } from '../reports/report-values.js';
+import { eachLocalDate } from '../reports/report-range.js';
 import type {
   ReportDefinition,
   ReportProvider,
@@ -273,15 +274,21 @@ export class QueueTodayWidget implements DashboardWidgetProvider {
   async run({ ctx }: WidgetQuery): Promise<WidgetResult> {
     const [row] = await this.prisma.$queryRaw<
       Array<{
+        total: bigint;
         waiting: bigint;
         called: bigint;
         seated: bigint;
+        no_show: bigint;
         adults: bigint;
         kids: bigint;
         longest_wait: number | null;
       }>
     >(Prisma.sql`
       SELECT
+        -- Every party that walked in today. A SCHEDULED token has not arrived
+        -- yet, so it is not a customer of the day until it checks in.
+        COUNT(*) FILTER (WHERE "status" <> 'SCHEDULED') AS "total",
+        COUNT(*) FILTER (WHERE "status" = 'NO_SHOW') AS "no_show",
         COUNT(*) FILTER (WHERE "status" = 'WAITING') AS "waiting",
         COUNT(*) FILTER (WHERE "status" = 'CALLED')  AS "called",
         COUNT(*) FILTER (WHERE "status" = 'SEATED')  AS "seated",
@@ -298,6 +305,7 @@ export class QueueTodayWidget implements DashboardWidgetProvider {
     const waiting = toReportNumber(row?.waiting);
     return {
       metrics: [
+        { key: 'total', label: 'Customers today', value: toReportNumber(row?.total), type: 'number' },
         {
           key: 'waiting',
           label: 'Waiting',
@@ -311,6 +319,7 @@ export class QueueTodayWidget implements DashboardWidgetProvider {
         { key: 'adults', label: 'Adults waiting', value: toReportNumber(row?.adults), type: 'number' },
         { key: 'kids', label: 'Kids waiting', value: toReportNumber(row?.kids), type: 'number' },
         { key: 'seated', label: 'Seated today', value: toReportNumber(row?.seated), type: 'number' },
+        { key: 'no_show', label: 'No-shows today', value: toReportNumber(row?.no_show), type: 'number' },
         {
           key: 'longest_wait',
           label: 'Longest wait',
@@ -322,7 +331,113 @@ export class QueueTodayWidget implements DashboardWidgetProvider {
   }
 }
 
-/** Registers the queue's reports and tile at startup. */
+interface DailyRow {
+  service_date: Date;
+  registered: bigint;
+  seated: bigint;
+  no_show: bigint;
+  cancelled: bigint;
+}
+
+/** One aggregate over the window, per service date; shared by both period tiles. */
+function dailyCounts(prisma: PrismaService, ctx: WidgetQuery['ctx'], range: WidgetQuery['range']) {
+  return prisma.$queryRaw<DailyRow[]>(Prisma.sql`
+    SELECT
+      "service_date",
+      COUNT(*) FILTER (WHERE "status" <> 'SCHEDULED') AS "registered",
+      COUNT(*) FILTER (WHERE "status" = 'SEATED')     AS "seated",
+      COUNT(*) FILTER (WHERE "status" = 'NO_SHOW')    AS "no_show",
+      COUNT(*) FILTER (WHERE "status" = 'CANCELLED')  AS "cancelled"
+    FROM "queue_tokens"
+    WHERE "branch_id" = ${ctx.branchId}::uuid
+      AND "company_id" = ${ctx.companyId}::uuid
+      AND "service_date" >= ${range.fromLocal}::date
+      AND "service_date" <= ${range.toLocal}::date
+    GROUP BY "service_date"
+  `);
+}
+
+/**
+ * The queue over the selected period — the rows of the SRS "Queue Overview"
+ * matrix. With All branches the per-branch breakdown supplies the columns.
+ */
+@Injectable()
+export class QueueOverviewWidget implements DashboardWidgetProvider {
+  readonly definition: DashboardWidgetDefinition = {
+    key: 'queue.overview',
+    title: 'Queue overview',
+    domain: 'queue',
+    display: 'metrics',
+    permission: PERMISSION_KEYS.QUEUE_VIEW,
+    live: false,
+  };
+
+  constructor(private readonly prisma: PrismaService) {}
+
+  async run({ ctx, range }: WidgetQuery): Promise<WidgetResult> {
+    const rows = await dailyCounts(this.prisma, ctx, range);
+    const sum = (k: keyof Omit<DailyRow, 'service_date'>) => rows.reduce((n, r) => n + toReportNumber(r[k]), 0);
+    return {
+      metrics: [
+        { key: 'registered', label: 'Total walked in', value: sum('registered'), type: 'number' },
+        { key: 'seated', label: 'Seated', value: sum('seated'), type: 'number' },
+        { key: 'cancelled', label: 'Cancelled', value: sum('cancelled'), type: 'number' },
+        { key: 'no_show', label: 'No-shows', value: sum('no_show'), type: 'number' },
+      ],
+    };
+  }
+}
+
+/**
+ * Daily queue — one point per branch-local date in the window, zeroes
+ * included, for the dashboard's bar chart. Counts only; no customer data.
+ */
+@Injectable()
+export class QueueDailyWidget implements DashboardWidgetProvider {
+  readonly definition: DashboardWidgetDefinition = {
+    key: 'queue.daily',
+    title: 'Daily queue',
+    domain: 'queue',
+    display: 'series',
+    permission: PERMISSION_KEYS.QUEUE_VIEW,
+    live: false,
+  };
+
+  constructor(private readonly prisma: PrismaService) {}
+
+  async run({ ctx, range }: WidgetQuery): Promise<WidgetResult> {
+    const rows = await dailyCounts(this.prisma, ctx, range);
+    const byDate = new Map(rows.map((r) => [toLocalDateString(r.service_date), r]));
+    const points = eachLocalDate(range).map((date) => {
+      const r = byDate.get(date);
+      return {
+        date,
+        values: {
+          registered: toReportNumber(r?.registered),
+          seated: toReportNumber(r?.seated),
+          no_show: toReportNumber(r?.no_show),
+          cancelled: toReportNumber(r?.cancelled),
+        },
+      };
+    });
+    // No headline figure: a "busiest day" would be summed across branches on
+    // the All branches view, and a sum of maxima is not a number that exists.
+    return {
+      metrics: [],
+      series: {
+        keys: [
+          { key: 'registered', label: 'Walked in' },
+          { key: 'seated', label: 'Seated' },
+          { key: 'no_show', label: 'No-shows' },
+          { key: 'cancelled', label: 'Cancelled' },
+        ],
+        points,
+      },
+    };
+  }
+}
+
+/** Registers the queue's reports and tiles at startup. */
 @Injectable()
 export class QueueReportRegistrar implements OnModuleInit {
   constructor(
@@ -331,11 +446,15 @@ export class QueueReportRegistrar implements OnModuleInit {
     private readonly summary: QueueSummaryReport,
     private readonly tokens: QueueTokensReport,
     private readonly today: QueueTodayWidget,
+    private readonly overview: QueueOverviewWidget,
+    private readonly daily: QueueDailyWidget,
   ) {}
 
   onModuleInit(): void {
     this.registry.register(this.summary);
     this.registry.register(this.tokens);
     this.dashboard.register(this.today);
+    this.dashboard.register(this.overview);
+    this.dashboard.register(this.daily);
   }
 }

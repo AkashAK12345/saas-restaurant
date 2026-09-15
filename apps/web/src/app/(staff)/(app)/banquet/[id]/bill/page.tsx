@@ -204,6 +204,15 @@ export default function BanquetBillPage() {
           {inv.gst_rate_bps > 0 ? 'GST shown as CGST and SGST.' : 'No GST charged on this booking.'} Amounts in{' '}
           {b.currency}.
         </p>
+
+        {branch.banquet_terms ? (
+          <section aria-label="Terms and conditions">
+            <h2 className={print.muted}>Terms and conditions</h2>
+            <p className={print.muted} style={{ whiteSpace: 'pre-wrap' }}>
+              {branch.banquet_terms}
+            </p>
+          </section>
+        ) : null}
       </article>
     </>
   );

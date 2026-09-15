@@ -11,7 +11,9 @@
  *   DEVICE      DisplayDeviceGuard (a paired screen's own credential)
  *   SELF        JwtAuthGuard only, acting on the caller's own identity — and
  *               explicitly listed below with the reason
- *   TICKET      StreamTicketGuard (single-use ticket minted behind a permission)
+ *   PLATFORM    JwtAuthGuard + PlatformAdminGuard (ACTIVE platform administrator),
+ *               explicitly listed below with the reason
+ *   TICKET     StreamTicketGuard (single-use ticket minted behind a permission)
  *   PUBLIC      no guard at all — explicitly listed below with the reason
  *
  * A new route that fits none of these fails this test until someone decides,
@@ -42,7 +44,14 @@ const SELF_ROUTES: Record<string, string> = {
   'GET /dashboard/all-branches': 'every branch proved individually through AuthorizationService',
   'GET /companies': 'only companies the caller holds an ACTIVE membership in (service-scoped)',
   'GET /companies/:id': 'service verifies the caller’s ACTIVE membership; otherwise refused',
-  'POST /companies': 'self-service: creates a NEW company owned by the caller; grants nothing in any existing one',
+};
+
+/**
+ * Platform operations: no company exists to scope a permission against, so an
+ * ACTIVE platform administrator (checked fresh in the database) is required.
+ */
+const PLATFORM_ROUTES: Record<string, string> = {
+  'POST /companies': 'creates a new tenant; ordinary signed-in users and company admins are refused',
 };
 
 /** Routes authenticated by a single-use, short-lived stream ticket instead of a JWT. */
@@ -50,7 +59,7 @@ const TICKET_ROUTES: Record<string, string> = {
   'GET /realtime/stream': 'EventSource cannot send headers; the ticket was minted behind a permission check',
 };
 
-type RouteClass = 'PERMISSION' | 'DEVICE' | 'SELF' | 'PUBLIC' | 'TICKET' | 'UNCLASSIFIED';
+type RouteClass = 'PERMISSION' | 'DEVICE' | 'SELF' | 'PLATFORM' | 'PUBLIC' | 'TICKET' | 'UNCLASSIFIED';
 
 interface Route {
   id: string;
@@ -96,6 +105,14 @@ function classify(route: Route): RouteClass {
   if (guards.includes('PermissionGuard') && hasPermissionMeta && guards.includes('JwtAuthGuard')) return 'PERMISSION';
   if (guards.includes('DisplayDeviceGuard') && !hasPermissionMeta) return 'DEVICE';
   if (guards.length === 1 && guards[0] === 'JwtAuthGuard' && !hasPermissionMeta && id in SELF_ROUTES) return 'SELF';
+  if (
+    guards.length === 2 &&
+    guards[0] === 'JwtAuthGuard' &&
+    guards[1] === 'PlatformAdminGuard' &&
+    !hasPermissionMeta &&
+    id in PLATFORM_ROUTES
+  )
+    return 'PLATFORM';
   if (guards.length === 0 && !hasPermissionMeta && id in PUBLIC_ROUTES) return 'PUBLIC';
   if (guards.length === 1 && guards[0] === 'StreamTicketGuard' && id in TICKET_ROUTES) return 'TICKET';
   return 'UNCLASSIFIED';
@@ -142,5 +159,11 @@ describe('Route inventory — default deny (e2e)', () => {
     expect(Object.keys(PUBLIC_ROUTES).filter((id) => !ids.has(id))).toEqual([]);
     expect(Object.keys(SELF_ROUTES).filter((id) => !ids.has(id))).toEqual([]);
     expect(Object.keys(TICKET_ROUTES).filter((id) => !ids.has(id))).toEqual([]);
+    expect(Object.keys(PLATFORM_ROUTES).filter((id) => !ids.has(id))).toEqual([]);
+  });
+
+  it('RI-6. PlatformAdminGuard protects only the listed platform routes', () => {
+    const platform = routes.filter((r) => r.guards.includes('PlatformAdminGuard')).map((r) => r.id);
+    expect(platform.sort()).toEqual(Object.keys(PLATFORM_ROUTES).sort());
   });
 });

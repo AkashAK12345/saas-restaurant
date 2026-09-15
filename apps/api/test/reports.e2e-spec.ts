@@ -891,6 +891,8 @@ describe('Phase 10 Reports & Dashboard (e2e)', () => {
 
       expect(res.body.widgets.map((w: any) => w.key)).toEqual([
         'banquet.overview',
+        'queue.daily',
+        'queue.overview',
         'queue.today',
         'tasks.open',
       ]);
@@ -910,7 +912,7 @@ describe('Phase 10 Reports & Dashboard (e2e)', () => {
         branchA.id,
       );
       expect(res.status).toBe(200);
-      expect(res.body.widgets.map((w: any) => w.key)).toEqual(['queue.today']);
+      expect(res.body.widgets.map((w: any) => w.key)).toEqual(['queue.daily', 'queue.overview', 'queue.today']);
     });
 
     it('RP-46. widget figures are branch-scoped', async () => {
@@ -934,6 +936,48 @@ describe('Phase 10 Reports & Dashboard (e2e)', () => {
       expect(body).not.toContain('Priya');
       expect(body).not.toContain('+919000000001');
       expect(body).not.toMatch(/password|secret/i);
+    });
+
+    const window = { from: '2026-03-09', to: '2026-03-10' };
+    const widget = (body: any, key: string) => body.widgets.find((w: any) => w.key === key);
+    const values = (w: any) => Object.fromEntries(w.metrics.map((m: any) => [m.key, m.value]));
+
+    it('RP-62. queue.today carries the SRS KPI row: customers, waiting, seated and no-shows today', async () => {
+      const res = await asAnalyst(request(http).get('/api/v1/dashboard'));
+      const today = widget(res.body, 'queue.today');
+      expect(today.live).toBe(true);
+      expect(today.metrics.map((m: any) => m.key)).toEqual([
+        'total', 'waiting', 'called', 'adults', 'kids', 'seated', 'no_show', 'longest_wait',
+      ]);
+      // The fixture's tokens are on March dates, so nothing is "today".
+      expect(values(today)).toMatchObject({ total: 0, no_show: 0, seated: 0 });
+    });
+
+    it('RP-63. queue.overview counts the selected window at this branch only', async () => {
+      const res = await asAnalyst(request(http).get('/api/v1/dashboard').query(window));
+      expect(res.status).toBe(200);
+      const overview = widget(res.body, 'queue.overview');
+      expect(overview.live).toBe(false);
+      // branchA: SEATED + NO_SHOW on 10 March, CANCELLED on 9 March. branchA2
+      // and companyB hold look-alike tokens that must not be counted.
+      expect(values(overview)).toEqual({ registered: 3, seated: 1, cancelled: 1, no_show: 1 });
+
+      const tenth = await asAnalyst(request(http).get('/api/v1/dashboard').query({ from: KOLKATA_DAY, to: KOLKATA_DAY }));
+      expect(values(widget(tenth.body, 'queue.overview'))).toEqual({ registered: 2, seated: 1, cancelled: 0, no_show: 1 });
+    });
+
+    it('RP-64. queue.daily returns every date in the window, zeroes included, and no customer data', async () => {
+      const res = await asAnalyst(request(http).get('/api/v1/dashboard').query({ from: '2026-03-08', to: '2026-03-10' }));
+      const daily = widget(res.body, 'queue.daily');
+      expect(daily.display).toBe('series');
+      expect(daily.metrics).toEqual([]);
+      expect(daily.series.keys.map((k: any) => k.key)).toEqual(['registered', 'seated', 'no_show', 'cancelled']);
+      expect(daily.series.points).toEqual([
+        { date: '2026-03-08', values: { registered: 0, seated: 0, no_show: 0, cancelled: 0 } },
+        { date: '2026-03-09', values: { registered: 1, seated: 0, no_show: 0, cancelled: 1 } },
+        { date: '2026-03-10', values: { registered: 2, seated: 1, no_show: 1, cancelled: 0 } },
+      ]);
+      expect(JSON.stringify(daily)).not.toMatch(/Priya|\+91|customer/i);
     });
   });
 
@@ -986,7 +1030,7 @@ describe('Phase 10 Reports & Dashboard (e2e)', () => {
       const res = await all(tokenQueueOnlyA, companyA.id);
       expect(res.status).toBe(200);
       expect(res.body.branches.map((b: any) => b.id)).toEqual([branchA.id]);
-      expect(res.body.widgets.map((w: any) => w.key)).toEqual(['queue.today']);
+      expect(res.body.widgets.map((w: any) => w.key)).toEqual(['queue.daily', 'queue.overview', 'queue.today']);
     });
 
     it('RP-57. refuses without dashboard access anywhere, for a foreign company, and without a company', async () => {
@@ -994,6 +1038,33 @@ describe('Phase 10 Reports & Dashboard (e2e)', () => {
       expect((await all(tokenAnalystB, companyA.id)).status).toBe(403);
       expect((await all(tokenAnalystA)).status).toBe(400);
       expect((await request(http).get('/api/v1/dashboard/all-branches').set('X-Company-ID', companyA.id)).status).toBe(401);
+    });
+
+    it('RP-65. the queue overview matrix and daily chart add up branch by branch, never across companies', async () => {
+      const res = await all(tokenAnalystA, companyA.id).query({ from: '2026-03-09', to: '2026-03-10' });
+      expect(res.status).toBe(200);
+
+      const overview = res.body.widgets.find((w: any) => w.key === 'queue.overview');
+      const byBranch = Object.fromEntries(
+        overview.branches.map((b: any) => [b.branch_name, Object.fromEntries(b.metrics.map((m: any) => [m.key, m.value]))]),
+      );
+      expect(byBranch['Alpha Main']).toEqual({ registered: 3, seated: 1, cancelled: 1, no_show: 1 });
+      expect(byBranch['Alpha Second']).toEqual({ registered: 1, seated: 1, cancelled: 0, no_show: 0 });
+      expect(Object.fromEntries(overview.metrics.map((m: any) => [m.key, m.value]))).toEqual({
+        registered: 4,
+        seated: 2,
+        cancelled: 1,
+        no_show: 1,
+      });
+
+      const daily = res.body.widgets.find((w: any) => w.key === 'queue.daily');
+      expect(daily.series.points).toEqual([
+        { date: '2026-03-09', values: { registered: 1, seated: 0, no_show: 0, cancelled: 1 } },
+        { date: '2026-03-10', values: { registered: 3, seated: 2, no_show: 1, cancelled: 0 } },
+      ]);
+      expect(daily.branches.every((b: any) => Array.isArray(b.series.points))).toBe(true);
+      // companyB's look-alike seated token on 10 March is not in any figure.
+      expect(JSON.stringify(res.body)).not.toContain(companyB.id);
     });
   });
 
@@ -1120,6 +1191,8 @@ describe('Phase 10 Reports & Dashboard (e2e)', () => {
     it('RP-52. the dashboard holds exactly the widgets the domains registered', () => {
       expect(app.get(DashboardService).keys()).toEqual([
         'banquet.overview',
+        'queue.daily',
+        'queue.overview',
         'queue.today',
         'tasks.open',
       ]);

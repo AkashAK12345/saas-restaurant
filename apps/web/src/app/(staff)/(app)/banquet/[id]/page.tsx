@@ -18,6 +18,8 @@ import {
   KDS_STATUS_LABEL,
   PAYMENT_KIND_LABEL,
   PAYMENT_STATUS_LABEL,
+  PLATE_STATUS_LABEL,
+  type PlateRequest,
   type BanquetAdjustmentKind,
   type BanquetBookingDetail,
   type BanquetBookingStatus,
@@ -25,6 +27,7 @@ import {
   type BanquetPaymentStatus,
 } from '@/lib/banquet/types';
 import styles from '@/components/banquet/banquet.module.css';
+import { RecordHistory } from '@/components/audit/record-history';
 
 const BADGE: Record<BanquetBookingStatus, string> = {
   DRAFT: styles.badgeDraft,
@@ -88,6 +91,7 @@ export default function BanquetBookingDetailPage() {
     pay: can('banquet.payment.create'),
     verify: can('banquet.payment.verify'),
     plan: can('banquet.event_plan.manage'),
+    requestPlates: can('banquet.plate.request'),
   };
   const permittedKinds = KINDS.filter((k) => can(ADJUSTMENT_PERMISSION[k]));
 
@@ -141,6 +145,31 @@ export default function BanquetBookingDetailPage() {
     })();
   }, [refresh]);
 
+  // Plate requests: re-read when the booking reloads or a request is sent.
+  const [plateRequests, setPlateRequests] = useState<PlateRequest[] | null>(null);
+  const [platesError, setPlatesError] = useState<string | null>(null);
+  const [plateForm, setPlateForm] = useState({ item_id: '', plates: '', note: '' });
+  const [platesNonce, setPlatesNonce] = useState(0);
+  const bookingUpdatedAt = booking?.updated_at;
+  useEffect(() => {
+    if (!ctx) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const rows = await banquetApi.bookingPlateRequests(ctx, bookingId);
+        if (!cancelled) {
+          setPlateRequests(rows ?? []);
+          setPlatesError(null);
+        }
+      } catch (e) {
+        if (!cancelled) setPlatesError(e instanceof Error ? e.message : 'Could not load plate requests');
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [ctx, bookingId, bookingUpdatedAt, platesNonce]);
+
   /** Run an action, then always reconcile with the server. */
   const run = async (fn: () => Promise<unknown>, success: string) => {
     setBusy(true);
@@ -188,6 +217,10 @@ export default function BanquetBookingDetailPage() {
   const lineMinor = line.kind ? toMinor(line.amount, b.currency) : null;
   const lineValid = line.kind !== '' && line.description.trim() !== '' && lineMinor !== null && lineMinor > 0;
   const inv = b.invoice;
+  // Whole plates, 1–10,000: the API's rule, checked here only to explain it.
+  const platesCount = Number(plateForm.plates);
+  const plateValid =
+    plateForm.item_id !== '' && /^\d+$/.test(plateForm.plates) && platesCount >= 1 && platesCount <= 10_000;
 
   const openEditor = async () => {
     setEdit({
@@ -548,6 +581,106 @@ export default function BanquetBookingDetailPage() {
             )}
           </section>
 
+          {b.status === 'CONFIRMED' || b.status === 'COMPLETED' || (plateRequests?.length ?? 0) > 0 ? (
+            <section className={styles.panel}>
+              <h2 className={styles.panelTitle}>Plates</h2>
+              {platesError ? (
+                <p role="alert" className={styles.error}>
+                  {platesError}
+                </p>
+              ) : null}
+              {plateRequests && plateRequests.length > 0 ? (
+                <ul className={styles.items} aria-label="Plate requests for this booking">
+                  {plateRequests.map((p) => (
+                    <li key={p.id} className={styles.item}>
+                      <span className={styles.itemName}>
+                        {p.plates} × {p.item.name}
+                        <span className={styles.meta}>
+                          {' '}
+                          · {formatDateTime(p.requested_at, tz)} · {p.requested_by.name}
+                          {p.note ? ` · “${p.note}”` : ''}
+                          {p.rejection_reason ? ` · ${p.rejection_reason}` : ''}
+                        </span>
+                      </span>
+                      <span className={styles.badge}>{PLATE_STATUS_LABEL[p.status]}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : plateRequests ? (
+                <p className={styles.empty}>No plates requested yet.</p>
+              ) : null}
+              {may.requestPlates && b.status === 'CONFIRMED' && b.items.length > 0 ? (
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    if (!plateValid) return;
+                    const note = plateForm.note.trim();
+                    void run(async () => {
+                      await banquetApi.requestPlates(ctx!, b.id, {
+                        item_id: plateForm.item_id,
+                        plates: platesCount,
+                        ...(note ? { note } : {}),
+                      });
+                      setPlateForm({ item_id: '', plates: '', note: '' });
+                      setPlatesNonce((n) => n + 1);
+                    }, 'Plate request sent to the kitchen.');
+                  }}
+                >
+                  <div className={`${styles.grid} ${styles.grid3}`}>
+                    <div>
+                      <label className={styles.label} htmlFor="plate-item">
+                        Dish
+                      </label>
+                      <select
+                        id="plate-item"
+                        className={styles.select}
+                        value={plateForm.item_id}
+                        onChange={(e) => setPlateForm({ ...plateForm, item_id: e.target.value })}
+                      >
+                        <option value="">Choose a dish</option>
+                        {b.items.map((i) => (
+                          <option key={i.id} value={i.id}>
+                            {i.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className={styles.label} htmlFor="plate-count">
+                        Plates
+                      </label>
+                      <input
+                        id="plate-count"
+                        className={styles.input}
+                        inputMode="numeric"
+                        value={plateForm.plates}
+                        onChange={(e) => setPlateForm({ ...plateForm, plates: e.target.value })}
+                      />
+                    </div>
+                    <div>
+                      <label className={styles.label} htmlFor="plate-note">
+                        Note for the kitchen (optional)
+                      </label>
+                      <input
+                        id="plate-note"
+                        className={styles.input}
+                        maxLength={200}
+                        value={plateForm.note}
+                        onChange={(e) => setPlateForm({ ...plateForm, note: e.target.value })}
+                      />
+                    </div>
+                  </div>
+                  <div className={styles.actions} style={{ marginTop: 'var(--gap)' }}>
+                    <button type="submit" className={`${styles.action} ${styles.primary}`} disabled={busy || !plateValid}>
+                      Request plates
+                    </button>
+                  </div>
+                  <p className={styles.hint}>Someone in the kitchen other than you approves or rejects the request.</p>
+                </form>
+              ) : null}
+            </section>
+          ) : null}
+
           <section className={styles.panel}>
             <h2 className={styles.panelTitle}>Event plan</h2>
             {may.plan && b.status !== 'CANCELLED' ? (
@@ -906,6 +1039,8 @@ export default function BanquetBookingDetailPage() {
               the person who recorded it.
             </p>
           </section>
+
+          <RecordHistory entityType="BANQUET_BOOKING" entityId={b.id} />
         </div>
       </div>
     </>

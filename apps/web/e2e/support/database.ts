@@ -111,6 +111,8 @@ export async function resetBrowserDatabase(prisma: PrismaClient, url: string): P
     'TRUNCATE TABLE "banquet_payment_verifications", "banquet_payments", "banquet_booking_adjustments"',
   );
   await prisma.banquetEventPlan.deleteMany();
+  // Plate requests reference booking items and users; they go before both.
+  await prisma.banquetPlateRequest.deleteMany();
   await prisma.banquetBookingItem.deleteMany();
   await prisma.banquetBooking.deleteMany();
   await prisma.banquetHallSlot.deleteMany();

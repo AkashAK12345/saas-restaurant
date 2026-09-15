@@ -40,6 +40,7 @@ export const PERMISSION_KEYS = {
   BANQUET_PAYMENT_CREATE: 'banquet.payment.create',
   BANQUET_EVENT_PLAN_MANAGE: 'banquet.event_plan.manage',
   BANQUET_KDS_MANAGE: 'banquet.kds.manage',
+  BANQUET_PLATE_REQUEST: 'banquet.plate.request',
   // Tasks & Routines (Phase 9)
   TASKS_CREATE: 'tasks.create',
   TASKS_UPDATE: 'tasks.update',

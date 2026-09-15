@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ReportRegistry } from './report-registry.service.js';
 import { DashboardService } from './dashboard.service.js';
+import { ReportExportService } from './report-export.service.js';
 import { AuthorizationModule } from '../../common/authorization/authorization.module.js';
 
 /**
@@ -13,10 +14,12 @@ import { AuthorizationModule } from '../../common/authorization/authorization.mo
  * touching the engine.
  *
  * Mirrors RealtimeCoreModule: primitives here, transport in the feature module.
+ * The Excel/PDF renderer lives here too, so a domain export (the routine
+ * compliance log) renders exactly like a report export instead of copying it.
  */
 @Module({
   imports: [AuthorizationModule],
-  providers: [ReportRegistry, DashboardService],
-  exports: [ReportRegistry, DashboardService],
+  providers: [ReportRegistry, DashboardService, ReportExportService],
+  exports: [ReportRegistry, DashboardService, ReportExportService],
 })
 export class ReportingCoreModule {}

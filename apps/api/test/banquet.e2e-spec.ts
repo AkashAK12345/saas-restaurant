@@ -1933,6 +1933,7 @@ describe('Phase 8 Banquet Management (e2e)', () => {
         timezone: 'Asia/Kolkata',
         gstin: '27AAPFU0939F1ZV',
         fssai_license: '11521999000123',
+        banquet_terms: null,
       });
       expect(bill.body.booking.invoice.cgst_minor).toBe(250_000);
 

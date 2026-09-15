@@ -4,10 +4,13 @@ import { render, screen, fireEvent, waitFor, within } from '@testing-library/rea
 const apiMock = vi.hoisted(() => ({
   auditLogs: vi.fn(),
   branches: vi.fn(),
+  createBranch: vi.fn(),
   updateBranch: vi.fn(),
+  updateCompany: vi.fn(),
   sessions: vi.fn(),
   revokeSession: vi.fn(),
 }));
+const reloadMock = vi.hoisted(() => vi.fn(async () => {}));
 
 vi.mock('@/lib/settings/api', async () => {
   const actual = await vi.importActual<typeof import('@/lib/settings/api')>('@/lib/settings/api');
@@ -27,6 +30,8 @@ vi.mock('@/lib/context/app-context-provider', () => ({
     selectedBranch: { id: 'br-1', name: 'Alpha Main', timezone: 'Asia/Kolkata', status: 'ACTIVE', has_roles: true },
     companyPermissions,
     branchPermissions: [],
+    companies: [{ id: 'co-1', name: 'Alpha Corp', status: 'ACTIVE' }],
+    reload: reloadMock,
     loading: false,
   }),
 }));
@@ -95,6 +100,7 @@ describe('Branch tax settings', () => {
     gstin: null,
     fssai_license: null,
     banquet_gst_rate_bps: 0,
+    banquet_terms: null,
   };
 
   beforeEach(() => {
@@ -119,7 +125,26 @@ describe('Branch tax settings', () => {
         gstin: '27AAPFU0939F1ZV',
         fssai_license: '11521999000123',
         banquet_gst_rate_bps: 500,
+        banquet_terms: null,
       }),
+    );
+  });
+
+  it('saves the bill terms trimmed, and counts them against the limit', async () => {
+    render(<BranchesPage />);
+    expect(await screen.findByText(/Bill terms: Not set/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Edit tax details for Alpha Main' }));
+    const terms = screen.getByLabelText('Terms and conditions on banquet bills') as HTMLTextAreaElement;
+    expect(terms.maxLength).toBe(4000);
+    fireEvent.change(terms, { target: { value: '  Advance is non-refundable.\nMusic stops at 23:00.  ' } });
+    expect(screen.getByText(/52 of 4000 characters/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() =>
+      expect(apiMock.updateBranch).toHaveBeenCalledWith(
+        'co-1',
+        'br-1',
+        expect.objectContaining({ banquet_terms: 'Advance is non-refundable.\nMusic stops at 23:00.' }),
+      ),
     );
   });
 
@@ -142,6 +167,94 @@ describe('Branch tax settings', () => {
     render(<BranchesPage />);
     expect(screen.getByText(/do not have access/)).toBeTruthy();
     expect(apiMock.branches).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('Company and branch management', () => {
+  const branch = {
+    id: 'br-1',
+    company_id: 'co-1',
+    name: 'Alpha Main',
+    timezone: 'Asia/Kolkata',
+    status: 'ACTIVE' as const,
+    gstin: null,
+    fssai_license: null,
+    banquet_gst_rate_bps: 0,
+    banquet_terms: null,
+  };
+
+  beforeEach(() => {
+    for (const fn of Object.values(apiMock)) fn.mockReset();
+    reloadMock.mockClear();
+    companyPermissions = ['branches.view', 'branches.create', 'branches.update', 'companies.update'];
+    apiMock.branches.mockResolvedValue([branch]);
+    apiMock.updateBranch.mockResolvedValue({ ...branch });
+    apiMock.createBranch.mockResolvedValue({ ...branch, id: 'br-2', name: 'Alpha Two' });
+    apiMock.updateCompany.mockResolvedValue({ id: 'co-1', name: 'Alpha Foods', status: 'ACTIVE' });
+  });
+
+  it('adds a branch with a name and a real time zone, then refreshes the shell', async () => {
+    render(<BranchesPage />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Add branch' }));
+    const form = screen.getByRole('form', { name: 'New branch' });
+    fireEvent.change(within(form).getByLabelText('New branch name'), { target: { value: '  Alpha Two ' } });
+    const zone = within(form).getByLabelText('Time zone') as HTMLSelectElement;
+    expect(zone.value).toBe('Asia/Kolkata');
+    expect([...zone.options].some((o) => o.value === 'Europe/London')).toBe(true);
+    fireEvent.change(zone, { target: { value: 'Europe/London' } });
+    fireEvent.click(within(form).getByRole('button', { name: 'Add' }));
+    await waitFor(() => expect(apiMock.createBranch).toHaveBeenCalledWith('co-1', { name: 'Alpha Two', timezone: 'Europe/London' }));
+    expect(await screen.findByText('Added branch Alpha Two.')).toBeTruthy();
+    expect(reloadMock).toHaveBeenCalled();
+  });
+
+  it('renames a branch, sending the name only because it changed', async () => {
+    render(<BranchesPage />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit tax details for Alpha Main' }));
+    fireEvent.change(screen.getByLabelText('Branch name'), { target: { value: 'Alpha Central' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() =>
+      expect(apiMock.updateBranch).toHaveBeenCalledWith('co-1', 'br-1', expect.objectContaining({ name: 'Alpha Central' })),
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit tax details for Alpha Main' }));
+    fireEvent.change(screen.getByLabelText('Branch name'), { target: { value: '   ' } });
+    expect((screen.getByRole('button', { name: 'Save' }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('deactivates a branch only after a confirmation', async () => {
+    render(<BranchesPage />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Deactivate Alpha Main' }));
+    expect(apiMock.updateBranch).not.toHaveBeenCalled();
+    const confirm = screen.getByRole('group', { name: 'Confirm status change for Alpha Main' });
+    fireEvent.click(within(confirm).getByRole('button', { name: 'Yes, deactivate' }));
+    await waitFor(() => expect(apiMock.updateBranch).toHaveBeenCalledWith('co-1', 'br-1', { status: 'INACTIVE' }));
+    expect(await screen.findByText('Alpha Main is now inactive.')).toBeTruthy();
+  });
+
+  it('renames the company, and shows a refusal from the server', async () => {
+    apiMock.updateCompany.mockRejectedValueOnce(new Error('Forbidden'));
+    render(<BranchesPage />);
+    const company = await screen.findByRole('region', { name: 'Company' });
+    expect(company.textContent).toMatch('Alpha Corp');
+    fireEvent.click(within(company).getByRole('button', { name: 'Rename company' }));
+    fireEvent.change(within(company).getByLabelText('Company name'), { target: { value: 'Alpha Foods' } });
+    fireEvent.click(within(company).getByRole('button', { name: 'Save name' }));
+    expect((await screen.findByRole('alert')).textContent).toMatch('Forbidden');
+
+    fireEvent.click(within(company).getByRole('button', { name: 'Save name' }));
+    await waitFor(() => expect(apiMock.updateCompany).toHaveBeenLastCalledWith('co-1', { name: 'Alpha Foods' }));
+    expect(await screen.findByText('Company renamed to Alpha Foods.')).toBeTruthy();
+  });
+
+  it('offers no add, rename or status control without the matching permission', async () => {
+    companyPermissions = ['branches.view'];
+    render(<BranchesPage />);
+    await screen.findByText('Alpha Main');
+    expect(screen.queryByRole('button', { name: 'Add branch' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Rename company' })).toBeNull();
+    expect(screen.queryByRole('button', { name: /^Deactivate/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /^Edit tax details/ })).toBeNull();
   });
 });
 

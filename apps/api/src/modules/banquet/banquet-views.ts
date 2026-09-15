@@ -179,6 +179,8 @@ export interface BanquetBillView {
     timezone: string;
     gstin: string | null;
     fssai_license: string | null;
+    /** The branch's terms and conditions, printed at the foot of the bill. */
+    banquet_terms: string | null;
   };
 }
 

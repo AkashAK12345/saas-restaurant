@@ -43,6 +43,19 @@ export class RolesController {
     return this.rolesService.listRoles(companyId);
   }
 
+  /**
+   * GET /roles/permissions — the system permission catalogue (name, module,
+   * description), so a role editor can offer real keys instead of free text.
+   * Read-only; the catalogue is seeded and cannot be changed through the API.
+   * Declared before `:id` so the literal segment is matched first.
+   */
+  @Get('permissions')
+  @UseGuards(PermissionGuard)
+  @RequireCompanyPermission(PERMISSION_KEYS.ROLES_VIEW)
+  async listPermissionCatalogue() {
+    return this.rolesService.listPermissionCatalogue();
+  }
+
   @Get(':id')
   @UseGuards(PermissionGuard)
   @RequireCompanyPermission(PERMISSION_KEYS.ROLES_VIEW)

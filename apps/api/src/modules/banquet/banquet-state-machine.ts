@@ -137,3 +137,43 @@ export function assertBookingTransition(
 export function assertKdsTransition(from: BanquetKdsStatus, to: BanquetKdsStatus): void {
   if (!canTransitionKds(from, to)) throw new InvalidKdsTransitionError(from, to);
 }
+
+/**
+ * PLATE REQUEST (SRS §5.3.5 plate approval — portion control for service)
+ *
+ *   REQUESTED ─▶ APPROVED ─▶ DISPATCHED
+ *       └──────▶ REJECTED
+ *
+ * Service staff ask for N plates of a dish; someone in the kitchen other than
+ * the person who asked approves or rejects; approved plates are dispatched.
+ * Nothing moves backwards and REJECTED / DISPATCHED are terminal, so a decision
+ * on a shared kitchen screen cannot be quietly undone — a new request is the
+ * honest way to ask again.
+ */
+export const PLATE_REQUEST_STATUSES = ['REQUESTED', 'APPROVED', 'REJECTED', 'DISPATCHED'] as const;
+export type PlateRequestStatus = (typeof PLATE_REQUEST_STATUSES)[number];
+
+export const PLATE_TRANSITIONS: Readonly<Record<PlateRequestStatus, readonly PlateRequestStatus[]>> = {
+  REQUESTED: ['APPROVED', 'REJECTED'],
+  APPROVED: ['DISPATCHED'],
+  REJECTED: [],
+  DISPATCHED: [],
+};
+
+export function canTransitionPlate(from: PlateRequestStatus, to: PlateRequestStatus): boolean {
+  return PLATE_TRANSITIONS[from]?.includes(to) ?? false;
+}
+
+export class InvalidPlateTransitionError extends Error {
+  constructor(
+    readonly from: PlateRequestStatus,
+    readonly to: PlateRequestStatus,
+  ) {
+    super(`Cannot move a plate request from ${from} to ${to}`);
+    this.name = 'InvalidPlateTransitionError';
+  }
+}
+
+export function assertPlateTransition(from: PlateRequestStatus, to: PlateRequestStatus): void {
+  if (!canTransitionPlate(from, to)) throw new InvalidPlateTransitionError(from, to);
+}

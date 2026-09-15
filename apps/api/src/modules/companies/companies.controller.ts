@@ -21,6 +21,7 @@ import {
 } from './companies.dto.js';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import { PermissionGuard } from '../../common/authorization/permission.guard.js';
+import { PlatformAdminGuard } from '../../common/authorization/platform-admin.guard.js';
 import {
   RequireCompanyPermission,
   RequireCompanyStatusPermission,
@@ -68,11 +69,14 @@ export class CompaniesController {
 
   /**
    * POST /companies
-   * Creates a new company.
-   * Auth-only — no company context yet (platform architecture gap, documented in service).
+   * Creates a new company. A platform operation: there is no company yet to
+   * scope a permission against, so being signed in is NOT enough — only an
+   * ACTIVE platform administrator passes PlatformAdminGuard. Company roles held
+   * elsewhere and X-Company-ID are irrelevant to this decision.
    * The creator becomes the first ACTIVE member atomically.
    */
   @Post()
+  @UseGuards(PlatformAdminGuard)
   @HttpCode(HttpStatus.CREATED)
   async createCompany(
     @Body() dto: CreateCompanyDto,

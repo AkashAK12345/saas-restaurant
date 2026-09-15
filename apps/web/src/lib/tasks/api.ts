@@ -1,4 +1,4 @@
-import { api } from '@/lib/api/client';
+import { api, apiDownload } from '@/lib/api/client';
 import type { StreamTicketResponse } from '@/lib/api/types';
 import type { Paginated } from '@/lib/queue/types';
 import type {
@@ -98,6 +98,10 @@ export const tasksApi = {
   /** Transposed compliance log for a routine over branch-local dates. */
   routineLog: (ctx: TaskContext, routineId: string, from: string, to: string) =>
     api.get<RoutineLog>(`/routines/${routineId}/log${qs({ from, to })}`, branch(ctx)),
+
+  /** The same window as a file; needs reports.export on top of tasks.reports.view. */
+  exportRoutineLog: (ctx: TaskContext, routineId: string, from: string, to: string, format: 'xlsx' | 'pdf') =>
+    apiDownload(`/routines/${routineId}/log/export${qs({ from, to, format })}`, `routine-log.${format}`, branch(ctx)),
 
   /** Who a task at this branch may be handed to — the same set the API accepts. */
   assignableStaff: (ctx: TaskContext) => api.get<StaffRef[]>('/tasks/assignable-staff', branch(ctx)),

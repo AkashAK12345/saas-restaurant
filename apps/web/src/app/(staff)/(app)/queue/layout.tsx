@@ -18,6 +18,7 @@ const TABS = [
   { href: '/queue', label: 'Queue', permission: 'queue.view' },
   { href: '/queue/register', label: 'Register', permission: 'queue.register' },
   { href: '/queue/podium', label: 'Podium', permission: 'queue.call' },
+  { href: '/queue/tables', label: 'Tables', permission: 'queue.seat' },
 ] as const;
 
 export default function QueueLayout({ children }: { children: ReactNode }) {

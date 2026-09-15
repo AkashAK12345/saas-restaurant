@@ -1,6 +1,8 @@
 import {
+  BadRequestException,
   Body,
   Controller,
+  ForbiddenException,
   Get,
   Headers,
   HttpCode,
@@ -12,9 +14,15 @@ import {
   Post,
   Query,
   Req,
+  Res,
   UseGuards,
 } from '@nestjs/common';
-import { RoutineStatus } from '@samco/database';
+import type { Response } from 'express';
+import { AuditEventType, RoutineStatus } from '@samco/database';
+import { AuthorizationService } from '../../common/authorization/authorization.service.js';
+import { AuditLogService } from '../audit-logs/audit-logs.service.js';
+import { ReportExportService } from '../reports/report-export.service.js';
+import { ROUTINE_LOG_PDF_MAX_DAYS } from './routine-log-export.js';
 import { TasksService } from './tasks.service.js';
 import { RoutinesService } from './routines.service.js';
 import { ChecklistTemplatesService } from './checklist-templates.service.js';
@@ -25,6 +33,7 @@ import {
   CreateRoutineDto,
   CreateTaskDto,
   ListTasksQueryDto,
+  RoutineLogExportQueryDto,
   RoutineLogQueryDto,
   TaskSummaryQueryDto,
   ToggleChecklistItemDto,
@@ -72,6 +81,9 @@ export class TasksController {
     private readonly tasks: TasksService,
     private readonly routines: RoutinesService,
     private readonly checklists: ChecklistTemplatesService,
+    private readonly authorization: AuthorizationService,
+    private readonly exporter: ReportExportService,
+    private readonly auditLogService: AuditLogService,
   ) {}
 
   private branchCtx(
@@ -173,6 +185,69 @@ export class TasksController {
     @Query() query: RoutineLogQueryDto,
   ) {
     return this.routines.log(branchId, id, query);
+  }
+
+  /**
+   * The compliance log as Excel or PDF.
+   *
+   * Two keys, exactly like a report export: tasks.reports.view on the route
+   * proves the caller may read this log, and reports.export — checked here
+   * through the same AuthorizationService the guard uses — proves they may take
+   * data away. The file holds what the screen shows, nothing more, and the
+   * export is audited (what and by whom, never the contents). PDF is refused
+   * beyond ROUTINE_LOG_PDF_MAX_DAYS columns, where it stops being readable.
+   */
+  @Get('routines/:id/log/export')
+  @UseGuards(PermissionGuard)
+  @RequireBranchPermission(PERMISSION_KEYS.TASKS_REPORTS_VIEW)
+  async routineLogExport(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Headers('x-company-id') companyId: string,
+    @Headers('x-branch-id') branchId: string,
+    @Query() query: RoutineLogExportQueryDto,
+    @Req() req: AuthenticatedRequest,
+    @Res() res: Response,
+  ): Promise<void> {
+    const mayExport = await this.authorization.hasBranchPermission(
+      req.user.id,
+      companyId,
+      branchId,
+      PERMISSION_KEYS.REPORTS_EXPORT,
+    );
+    if (!mayExport) throw new ForbiddenException();
+
+    const days = Math.round((Date.parse(query.to) - Date.parse(query.from)) / 86_400_000) + 1;
+    if (query.format === 'pdf' && days > ROUTINE_LOG_PDF_MAX_DAYS) {
+      throw new BadRequestException(
+        `A PDF log may cover at most ${ROUTINE_LOG_PDF_MAX_DAYS} days; use Excel for longer periods`,
+      );
+    }
+
+    const report = await this.routines.logReport(branchId, id, query);
+    const rendered = await this.exporter.render(report, query.format);
+
+    await this.auditLogService.create({
+      actorUserId: req.user.id,
+      companyId,
+      branchId,
+      eventType: AuditEventType.CREATE,
+      entityType: 'REPORT_EXPORT',
+      entityId: report.key,
+      payload: {
+        action: 'export_routine_log',
+        routine_id: id,
+        format: query.format,
+        from: report.filters.from,
+        to: report.filters.to,
+        row_count: report.rows.length,
+        branch_name: report.branch_name,
+      },
+    });
+
+    res.setHeader('Content-Type', rendered.contentType);
+    res.setHeader('Content-Disposition', `attachment; filename="${rendered.filename}"`);
+    res.setHeader('Content-Length', String(rendered.body.length));
+    res.end(rendered.body);
   }
 
   @Post('routines')

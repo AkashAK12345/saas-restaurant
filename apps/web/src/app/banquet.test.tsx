@@ -30,6 +30,12 @@ const apiMock = vi.hoisted(() => ({
   listHalls: vi.fn(),
   listPackages: vi.fn(),
   customers: vi.fn(),
+  bookingPlateRequests: vi.fn(),
+  requestPlates: vi.fn(),
+  kitchenPlateRequests: vi.fn(),
+  approvePlates: vi.fn(),
+  rejectPlates: vi.fn(),
+  dispatchPlates: vi.fn(),
 }));
 
 vi.mock('@/lib/auth/auth-provider', () => ({
@@ -509,15 +515,112 @@ describe('Banquet booking detail', () => {
 
 // ── printable documents ──────────────────────────────────────────────────────
 
+describe('Plate requests on a booking', () => {
+  const request = (over: Record<string, unknown> = {}) => ({
+    id: 'pr-1',
+    booking_id: 'bk-1',
+    hall_name: 'Crystal',
+    event_starts_at: '2037-11-20T12:00:00.000Z',
+    item: { id: 'i-1', name: 'Paneer Tikka' },
+    plates: 30,
+    note: null,
+    status: 'REJECTED',
+    requested_at: '2037-11-20T13:00:00.000Z',
+    requested_by: { id: 'u-me', name: 'Me' },
+    decided_at: '2037-11-20T13:05:00.000Z',
+    decided_by: { id: 'u-chef', name: 'Kabir' },
+    rejection_reason: 'Out of paneer',
+    dispatched_at: null,
+    dispatched_by: null,
+    ...over,
+  });
+
+  beforeEach(() => {
+    for (const fn of Object.values(apiMock)) fn.mockReset();
+    branchPermissions = [...ALL_PERMS, 'banquet.plate.request'];
+    apiMock.getBooking.mockResolvedValue(booking({ status: 'CONFIRMED' }));
+    apiMock.bookingPlateRequests.mockResolvedValue([request()]);
+    apiMock.requestPlates.mockResolvedValue(request({ id: 'pr-2', status: 'REQUESTED', decided_by: null, rejection_reason: null }));
+  });
+
+  it('lists the kitchen’s answers, and requests plates of a dish on this booking', async () => {
+    render(<BookingDetailPage />);
+    const list = await screen.findByRole('list', { name: 'Plate requests for this booking' });
+    expect(list.textContent).toMatch('30 × Paneer Tikka');
+    expect(list.textContent).toMatch('Rejected');
+    expect(list.textContent).toMatch('Out of paneer');
+
+    fireEvent.change(screen.getByLabelText('Dish'), { target: { value: 'i-1' } });
+    fireEvent.change(screen.getByLabelText('Plates'), { target: { value: '12' } });
+    fireEvent.change(screen.getByLabelText('Note for the kitchen (optional)'), { target: { value: 'Head table' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Request plates' }));
+    await waitFor(() =>
+      expect(apiMock.requestPlates).toHaveBeenCalledWith({ companyId: 'co-1', branchId: 'br-1' }, 'bk-1', {
+        item_id: 'i-1',
+        plates: 12,
+        note: 'Head table',
+      }),
+    );
+    expect(await screen.findByText('Plate request sent to the kitchen.')).toBeTruthy();
+  });
+
+  it('refuses a plate count the API would refuse, before sending it', async () => {
+    render(<BookingDetailPage />);
+    await screen.findByRole('list', { name: 'Plate requests for this booking' });
+    fireEvent.change(screen.getByLabelText('Dish'), { target: { value: 'i-1' } });
+    for (const bad of ['0', '10001', '2.5', '']) {
+      fireEvent.change(screen.getByLabelText('Plates'), { target: { value: bad } });
+      expect((screen.getByRole('button', { name: 'Request plates' }) as HTMLButtonElement).disabled).toBe(true);
+    }
+    expect(apiMock.requestPlates).not.toHaveBeenCalled();
+  });
+
+  it('offers no request form without banquet.plate.request, or for an event that is not confirmed', async () => {
+    branchPermissions = [...ALL_PERMS];
+    const { unmount } = render(<BookingDetailPage />);
+    await screen.findByRole('list', { name: 'Plate requests for this booking' });
+    expect(screen.queryByRole('button', { name: 'Request plates' })).toBeNull();
+    unmount();
+
+    branchPermissions = [...ALL_PERMS, 'banquet.plate.request'];
+    apiMock.getBooking.mockResolvedValue(booking({ status: 'DRAFT' }));
+    apiMock.bookingPlateRequests.mockResolvedValue([]);
+    render(<BookingDetailPage />);
+    await screen.findByRole('heading', { name: 'Meera Iyer' });
+    expect(screen.queryByRole('button', { name: 'Request plates' })).toBeNull();
+  });
+});
+
 describe('Banquet bill and KOT', () => {
   beforeEach(() => {
     for (const fn of Object.values(apiMock)) fn.mockReset();
     branchPermissions = [...ALL_PERMS];
   });
 
-  const bill = (over: Partial<BanquetBookingDetail> = {}) => ({
+  const bill = (over: Partial<BanquetBookingDetail> = {}, terms: string | null = null) => ({
     booking: booking(over),
-    branch: { id: 'br-1', name: 'Alpha Main', timezone: 'Asia/Kolkata', gstin: '27AAPFU0939F1ZV', fssai_license: '11521999000123' },
+    branch: {
+      id: 'br-1',
+      name: 'Alpha Main',
+      timezone: 'Asia/Kolkata',
+      gstin: '27AAPFU0939F1ZV',
+      fssai_license: '11521999000123',
+      banquet_terms: terms,
+    },
+  });
+
+  it('prints the branch terms and conditions at the foot of the bill, and nothing when there are none', async () => {
+    apiMock.getBill.mockResolvedValue(bill({ status: 'CONFIRMED' }, 'Advance is non-refundable.\nMusic stops at 23:00.'));
+    const { unmount } = render(<BillPage />);
+    const terms = await screen.findByRole('region', { name: 'Terms and conditions' });
+    expect(terms.textContent).toMatch('Advance is non-refundable.');
+    expect(terms.textContent).toMatch('Music stops at 23:00.');
+    unmount();
+
+    apiMock.getBill.mockResolvedValue(bill({ status: 'CONFIRMED' }));
+    render(<BillPage />);
+    await screen.findByRole('article', { name: 'Bill' });
+    expect(screen.queryByRole('region', { name: 'Terms and conditions' })).toBeNull();
   });
 
   it('prints a confirmed bill with the branch GSTIN and FSSAI licence', async () => {
@@ -738,9 +841,90 @@ describe('Staff kitchen board', () => {
     apiMock.startItem.mockResolvedValue({});
     apiMock.readyItem.mockResolvedValue({});
     apiMock.streamTicket.mockResolvedValue({ ticket: 'a'.repeat(64) });
+    apiMock.kitchenPlateRequests.mockResolvedValue({ service_date: '2027-11-20', requests: [] });
     branchPermissions = [...ALL_PERMS];
   });
   afterEach(() => vi.unstubAllGlobals());
+
+  const plate = (over: Record<string, unknown> = {}) => ({
+    id: 'pr-1',
+    booking_id: 'bk-1',
+    hall_name: 'Crystal',
+    event_starts_at: '2027-11-20T12:00:00.000Z',
+    item: { id: 'i-1', name: 'Paneer Tikka' },
+    plates: 20,
+    note: 'Table 4',
+    status: 'REQUESTED',
+    requested_at: '2027-11-20T13:10:00.000Z',
+    requested_by: { id: 'u-server', name: 'Sam' },
+    decided_at: null,
+    decided_by: null,
+    rejection_reason: null,
+    dispatched_at: null,
+    dispatched_by: null,
+    ...over,
+  });
+
+  it('lists plate requests for the board’s day and approves one someone else asked for', async () => {
+    apiMock.kitchenPlateRequests.mockResolvedValue({ service_date: '2027-11-20', requests: [plate()] });
+    apiMock.approvePlates.mockResolvedValue(plate({ status: 'APPROVED' }));
+    render(<KitchenPage />);
+    const open = await screen.findByRole('list', { name: 'Open plate requests' });
+    expect(open.textContent).toMatch('20 × Paneer Tikka');
+    expect(open.textContent).toMatch('asked by Sam');
+    expect(apiMock.kitchenPlateRequests).toHaveBeenCalledWith({ companyId: 'co-1', branchId: 'br-1' }, '2027-11-20');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Approve 20 plates of Paneer Tikka' }));
+    await waitFor(() => expect(apiMock.approvePlates).toHaveBeenCalledWith({ companyId: 'co-1', branchId: 'br-1' }, 'pr-1'));
+    await waitFor(() => expect(apiMock.kdsBoard).toHaveBeenCalledTimes(2));
+  });
+
+  it('never offers a decision on your own request', async () => {
+    apiMock.kitchenPlateRequests.mockResolvedValue({
+      service_date: '2027-11-20',
+      requests: [plate({ requested_by: { id: 'u-me', name: 'Me' } })],
+    });
+    render(<KitchenPage />);
+    await screen.findByRole('list', { name: 'Open plate requests' });
+    expect(screen.queryByRole('button', { name: /^Approve/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /^Reject/ })).toBeNull();
+    expect(screen.getByText(/another cook decides/)).toBeTruthy();
+  });
+
+  it('rejects only with a reason, and dispatches approved plates', async () => {
+    apiMock.kitchenPlateRequests.mockResolvedValue({
+      service_date: '2027-11-20',
+      requests: [plate(), plate({ id: 'pr-2', status: 'APPROVED', item: { id: 'i-2', name: 'Dal' }, plates: 5 })],
+    });
+    apiMock.rejectPlates.mockResolvedValue(plate({ status: 'REJECTED' }));
+    apiMock.dispatchPlates.mockResolvedValue(plate({ id: 'pr-2', status: 'DISPATCHED' }));
+    render(<KitchenPage />);
+    await screen.findByRole('list', { name: 'Open plate requests' });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Reject 20 plates of Paneer Tikka' }));
+    const confirm = screen.getByRole('button', { name: 'Confirm rejection' }) as HTMLButtonElement;
+    expect(confirm.disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText('Reason for rejecting'), { target: { value: ' Out of paneer ' } });
+    fireEvent.click(confirm);
+    await waitFor(() => expect(apiMock.rejectPlates).toHaveBeenCalledWith({ companyId: 'co-1', branchId: 'br-1' }, 'pr-1', 'Out of paneer'));
+
+    fireEvent.click(screen.getByRole('button', { name: 'Dispatch 5 plates of Dal' }));
+    await waitFor(() => expect(apiMock.dispatchPlates).toHaveBeenCalledWith({ companyId: 'co-1', branchId: 'br-1' }, 'pr-2'));
+  });
+
+  it('shows plate requests read-only without banquet.kds.manage, and says why a list failed', async () => {
+    branchPermissions = ['banquet.kds.view'];
+    apiMock.kitchenPlateRequests.mockResolvedValue({ service_date: '2027-11-20', requests: [plate({ status: 'APPROVED' })] });
+    const { unmount } = render(<KitchenPage />);
+    await screen.findByRole('list', { name: 'Open plate requests' });
+    expect(screen.queryByRole('button', { name: /^Dispatch/ })).toBeNull();
+    unmount();
+
+    apiMock.kitchenPlateRequests.mockRejectedValue(new Error('Forbidden'));
+    render(<KitchenPage />);
+    expect((await screen.findAllByRole('alert')).some((a) => /Forbidden/.test(a.textContent ?? ''))).toBe(true);
+    expect(screen.queryByText('No plate requests for this day.')).toBeNull();
+  });
 
   it('shows the events, the kitchen notes and the customer', async () => {
     render(<KitchenPage />);

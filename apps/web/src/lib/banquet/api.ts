@@ -14,6 +14,7 @@ import type {
   BanquetHallSlot,
   BanquetPackage,
   BanquetPayment,
+  PlateRequest,
   StaffKdsBoard,
 } from './types';
 
@@ -203,6 +204,23 @@ export const banquetApi = {
     api.post<BanquetBookingItem>(`/banquet/kds/items/${itemId}/start`, undefined, branch(ctx)),
   readyItem: (ctx: BanquetContext, itemId: string) =>
     api.post<BanquetBookingItem>(`/banquet/kds/items/${itemId}/ready`, undefined, branch(ctx)),
+
+  // Plate approval
+  bookingPlateRequests: (ctx: BanquetContext, bookingId: string) =>
+    api.get<PlateRequest[]>(`/banquet/bookings/${bookingId}/plate-requests`, branch(ctx)),
+  requestPlates: (ctx: BanquetContext, bookingId: string, body: { item_id: string; plates: number; note?: string }) =>
+    api.post<PlateRequest>(`/banquet/bookings/${bookingId}/plate-requests`, body, branch(ctx)),
+  kitchenPlateRequests: (ctx: BanquetContext, serviceDate?: string) =>
+    api.get<{ service_date: string; requests: PlateRequest[] }>(
+      `/banquet/kds/plate-requests${qs({ service_date: serviceDate })}`,
+      branch(ctx),
+    ),
+  approvePlates: (ctx: BanquetContext, id: string) =>
+    api.post<PlateRequest>(`/banquet/kds/plate-requests/${id}/approve`, undefined, branch(ctx)),
+  rejectPlates: (ctx: BanquetContext, id: string, reason: string) =>
+    api.post<PlateRequest>(`/banquet/kds/plate-requests/${id}/reject`, { reason }, branch(ctx)),
+  dispatchPlates: (ctx: BanquetContext, id: string) =>
+    api.post<PlateRequest>(`/banquet/kds/plate-requests/${id}/dispatch`, undefined, branch(ctx)),
 
   /** Single-use, 60-second ticket for the banquet-kds stream. */
   streamTicket: (ctx: BanquetContext) =>

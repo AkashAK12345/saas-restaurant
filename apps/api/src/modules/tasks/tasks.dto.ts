@@ -5,6 +5,7 @@ import {
   IsArray,
   IsBoolean,
   IsEnum,
+  IsIn,
   IsISO8601,
   IsInt,
   IsNotEmpty,
@@ -195,6 +196,12 @@ export class RoutineLogQueryDto {
 
   @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'to must be YYYY-MM-DD' })
   to!: string;
+}
+
+/** The same window, rendered as a file. */
+export class RoutineLogExportQueryDto extends RoutineLogQueryDto {
+  @IsIn(['xlsx', 'pdf'], { message: 'format must be xlsx or pdf' })
+  format!: 'xlsx' | 'pdf';
 }
 
 export class ListTasksQueryDto extends PaginationQueryDto {

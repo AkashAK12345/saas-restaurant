@@ -117,6 +117,7 @@ export class BranchesService {
           gstin: dto.gstin,
           fssai_license: dto.fssai_license,
           banquet_gst_rate_bps: dto.banquet_gst_rate_bps,
+          banquet_terms: dto.banquet_terms,
         },
       });
 
@@ -137,7 +138,15 @@ export class BranchesService {
           eventType: AuditEventType.UPDATE,
           entityType: 'BRANCH',
           entityId: branch.id,
-          payload: { changed_fields: Object.keys(dto), changes },
+          payload: {
+            changed_fields: Object.keys(dto),
+            changes,
+            // The terms are long free text: the audit records THAT they changed
+            // and how long they now are, not a second copy of the wording.
+            ...(dto.banquet_terms !== undefined && dto.banquet_terms !== branch.banquet_terms
+              ? { banquet_terms_changed: true, banquet_terms_length: dto.banquet_terms?.length ?? 0 }
+              : {}),
+          },
         },
         tx,
       );

@@ -97,14 +97,21 @@ export interface WidgetMetric extends ReportMetric {
   emphasis?: 'neutral' | 'positive' | 'warning' | 'danger';
 }
 
+/** Per-day counts for a chart tile: every date in the window, zeroes included. */
+export interface WidgetSeries {
+  keys: Array<{ key: string; label: string }>;
+  points: Array<{ date: string; values: Record<string, number> }>;
+}
+
 export interface DashboardWidget {
   key: string;
   title: string;
   domain: string;
-  display: 'metrics' | 'breakdown';
+  display: 'metrics' | 'breakdown' | 'series';
   /** True when the widget describes now, not the selected window. */
   live: boolean;
   metrics: WidgetMetric[];
+  series?: WidgetSeries;
   /** Present when this one widget failed; the rest of the page still renders. */
   error?: string;
 }
@@ -124,7 +131,13 @@ export interface DashboardResponse {
  */
 export interface AllBranchesWidget extends DashboardWidget {
   not_summed: string[];
-  branches: Array<{ branch_id: string; branch_name: string; metrics: WidgetMetric[]; error?: string }>;
+  branches: Array<{
+    branch_id: string;
+    branch_name: string;
+    metrics: WidgetMetric[];
+    series?: WidgetSeries;
+    error?: string;
+  }>;
 }
 
 export interface AllBranchesDashboardResponse {

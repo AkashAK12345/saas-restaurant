@@ -14,8 +14,7 @@ import {
   Req,
 } from '@nestjs/common';
 import { CustomersService } from './customers.service.js';
-import { CreateCustomerDto, UpdateCustomerDto } from './customers.dto.js';
-import { PaginationQueryDto } from '../../common/pagination.dto.js';
+import { CreateCustomerDto, ListCustomersQueryDto, UpdateCustomerDto } from './customers.dto.js';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import { PermissionGuard } from '../../common/authorization/permission.guard.js';
 import { RequireCompanyPermission } from '../../common/authorization/require-permission.decorator.js';
@@ -40,9 +39,13 @@ export class CustomersController {
   @RequireCompanyPermission(PERMISSION_KEYS.CUSTOMERS_VIEW)
   async list(
     @Headers('x-company-id') companyId: string,
-    @Query() page: PaginationQueryDto,
+    @Query() query: ListCustomersQueryDto,
   ) {
-    return this.customersService.listCustomers(companyId, page);
+    return this.customersService.listCustomers(
+      companyId,
+      { limit: query.limit, offset: query.offset },
+      { q: query.q, status: query.status },
+    );
   }
 
   @Get(':id')

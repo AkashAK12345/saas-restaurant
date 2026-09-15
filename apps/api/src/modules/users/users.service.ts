@@ -355,6 +355,24 @@ export class UsersService {
   // ── Branch-Role Assignment ─────────────────────────────────────────────────
 
   /**
+   * A member's role assignments, limited to branches of the requested company.
+   * The membership check runs first so a user outside the company is a 404,
+   * never an empty list that would confirm the account exists.
+   */
+  async listBranchRoles(userId: string, companyId: string) {
+    await this.getUser(userId, companyId);
+    return this.prisma.userBranchRole.findMany({
+      where: { user_id: userId, branch: { company_id: companyId } },
+      select: {
+        id: true,
+        branch: { select: { id: true, name: true } },
+        role: { select: { id: true, name: true } },
+      },
+      orderBy: [{ branch: { name: 'asc' } }, { role: { name: 'asc' } }],
+    });
+  }
+
+  /**
    * Assign a role to a user at a branch.
    *
    * `branchContextId` is the guard-verified X-Branch-ID the PermissionGuard

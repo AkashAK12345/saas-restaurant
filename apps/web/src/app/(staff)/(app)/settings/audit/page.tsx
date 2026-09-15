@@ -4,39 +4,13 @@ import { useEffect, useMemo, useState } from 'react';
 import { useAppContext } from '@/lib/context/app-context-provider';
 import { hasPermission } from '@/lib/auth/permissions';
 import { settingsApi, type AuditEntry, type AuditEventType } from '@/lib/settings/api';
+import { actorName, summarise } from '@/lib/settings/audit-format';
 import { branchLocalToInstant } from '@/lib/queue/branch-time';
 import { deviceTimeZone, formatDateTime } from '@/lib/format/datetime';
 import styles from '@/components/settings/settings.module.css';
 
 const PAGE_SIZE = 50;
 const EVENT_TYPES: AuditEventType[] = ['CREATE', 'UPDATE', 'DELETE', 'SECURITY'];
-
-function actorName(entry: AuditEntry): string {
-  if (!entry.user) return 'System';
-  const name = [entry.user.first_name, entry.user.last_name].filter(Boolean).join(' ');
-  return name || entry.user.email;
-}
-
-/**
- * The one line an operator reads: what happened. Built from the payload's own
- * `action` and, for money and settings, the old → new values the services
- * record. Payloads are already minimised server-side (no PII, no secrets).
- */
-function summarise(entry: AuditEntry): string {
-  const payload = entry.payload ?? {};
-  const action = typeof payload.action === 'string' ? payload.action.replace(/_/g, ' ') : '';
-  const changes = payload.changes && typeof payload.changes === 'object' ? (payload.changes as Record<string, unknown>) : null;
-  const parts: string[] = [];
-  if (changes) {
-    for (const [field, change] of Object.entries(changes)) {
-      if (change && typeof change === 'object' && 'from' in change && 'to' in change) {
-        const c = change as { from: unknown; to: unknown };
-        parts.push(`${field.replace(/_/g, ' ')}: ${String(c.from)} → ${String(c.to)}`);
-      }
-    }
-  }
-  return [action, parts.join('; ')].filter(Boolean).join(' — ') || '—';
-}
 
 /**
  * The company's audit trail (SRS §4.4 activity log): who did what, where and

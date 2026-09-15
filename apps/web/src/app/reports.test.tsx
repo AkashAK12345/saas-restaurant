@@ -597,7 +597,71 @@ describe('dashboard', () => {
     expect(await screen.findByText(/Totals across 2 branches: Alpha Main, Alpha Second/)).toBeTruthy();
     expect(screen.getByText('7')).toBeTruthy();
     expect(screen.getByText(/Not added across branches: Longest wait/)).toBeTruthy();
-    expect(screen.getByText('Alpha Second')).toBeTruthy();
+    // The comparison matrix: All branches, then one column per branch.
+    const matrix = screen.getByRole('table', { name: 'Queue today by branch' });
+    const headers = within(matrix).getAllByRole('columnheader').map((h) => h.textContent);
+    expect(headers).toEqual(['Figure', 'All branches', 'Alpha Main', 'Alpha Second']);
+    const waitingRow = within(matrix).getByRole('row', { name: /Waiting/ });
+    expect(within(waitingRow).getAllByRole('cell').map((c) => c.textContent)).toEqual(['7', '3', '4']);
+  });
+
+  it('RF-30d. a custom period is sent exactly as chosen, and an impossible one is not sent', async () => {
+    render(<HomePage />);
+    await screen.findByRole('heading', { name: 'Queue today' });
+    fireEvent.click(screen.getByRole('button', { name: 'Custom' }));
+
+    const form = screen.getByRole('form', { name: 'Custom period' });
+    fireEvent.change(within(form).getByLabelText('From'), { target: { value: '2026-03-10' } });
+    fireEvent.change(within(form).getByLabelText('To'), { target: { value: '2026-03-01' } });
+    expect(within(form).getByText('The start date must not be after the end date.')).toBeTruthy();
+    expect((within(form).getByRole('button', { name: 'Apply' }) as HTMLButtonElement).disabled).toBe(true);
+
+    fireEvent.change(within(form).getByLabelText('To'), { target: { value: '2027-06-01' } });
+    expect(within(form).getByText('A period may cover at most 366 days.')).toBeTruthy();
+
+    const calls = apiMock.dashboard.mock.calls.length;
+    fireEvent.change(within(form).getByLabelText('To'), { target: { value: '2026-03-20' } });
+    fireEvent.click(within(form).getByRole('button', { name: 'Apply' }));
+    await waitFor(() => expect(apiMock.dashboard.mock.calls.length).toBeGreaterThan(calls));
+    expect(apiMock.dashboard.mock.calls.at(-1)!.slice(1)).toEqual(['2026-03-10', '2026-03-20']);
+  });
+
+  it('RF-30e. a daily series draws one bar per day, switches figure, and offers the numbers as a table', async () => {
+    apiMock.dashboard.mockResolvedValue(
+      dashboardResponse({
+        widgets: [
+          {
+            key: 'queue.daily',
+            title: 'Daily queue',
+            domain: 'queue',
+            display: 'series',
+            live: false,
+            metrics: [],
+            series: {
+              keys: [
+                { key: 'registered', label: 'Walked in' },
+                { key: 'no_show', label: 'No-shows' },
+              ],
+              points: [
+                { date: '2026-03-09', values: { registered: 4, no_show: 0 } },
+                { date: '2026-03-10', values: { registered: 9, no_show: 2 } },
+                { date: '2026-03-11', values: { registered: 0, no_show: 0 } },
+              ],
+            },
+          },
+        ],
+      }),
+    );
+    render(<HomePage />);
+    const chart = await screen.findByRole('img', { name: /Daily queue: Walked in per day/ });
+    expect(chart.getAttribute('aria-label')).toMatch(/highest 9 on/);
+    expect(chart.children).toHaveLength(3);
+
+    fireEvent.change(screen.getByLabelText('Figure'), { target: { value: 'no_show' } });
+    expect(screen.getByRole('img', { name: /No-shows per day/ }).getAttribute('aria-label')).toMatch(/highest 2 on/);
+
+    const table = screen.getByRole('table', { name: 'Daily queue by day' });
+    expect(within(table).getAllByRole('row')).toHaveLength(4);
   });
 });
 

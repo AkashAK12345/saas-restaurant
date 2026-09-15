@@ -41,6 +41,14 @@ export class RolesService {
     });
   }
 
+  /** The seeded, system-defined permission catalogue. Not tenant data. */
+  async listPermissionCatalogue() {
+    return this.prisma.permission.findMany({
+      select: { name: true, module: true, description: true },
+      orderBy: [{ module: 'asc' }, { name: 'asc' }],
+    });
+  }
+
   /**
    * Get a single role — only if it belongs to the requested company.
    * Returns 404 if not in scope (prevents cross-company role enumeration).

@@ -3,6 +3,7 @@ import { BanquetController } from './banquet.controller.js';
 import { BanquetCatalogService } from './banquet-catalog.service.js';
 import { BanquetBookingsService } from './banquet-bookings.service.js';
 import { BanquetKdsService } from './banquet-kds.service.js';
+import { BanquetPlatesService } from './banquet-plates.service.js';
 import { AuthModule } from '../auth/auth.module.js';
 import { AuthorizationModule } from '../../common/authorization/authorization.module.js';
 import { RealtimeCoreModule } from '../../common/realtime/realtime-core.module.js';
@@ -30,6 +31,7 @@ import {
     BanquetCatalogService,
     BanquetBookingsService,
     BanquetKdsService,
+    BanquetPlatesService,
     BanquetBookingsReport,
     BanquetPaymentsReport,
     BanquetOutstandingReport,

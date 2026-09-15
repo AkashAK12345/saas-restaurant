@@ -61,11 +61,10 @@ export class CompaniesService {
    * PLATFORM ARCHITECTURE NOTE:
    * Company creation is a platform-level operation. The existing RBAC is company-scoped,
    * so there is no company yet to scope a "companies.create" permission against.
-   * For Phase 1, any authenticated user may create a company (self-service SaaS model).
-   * The creator becomes the first ACTIVE member in the same transaction.
-   *
-   * Future restriction (e.g. invite-only, billing gate, is_superadmin guard) must be
-   * implemented when platform-level permission infrastructure is designed.
+   * The caller has already been proven an ACTIVE platform administrator by
+   * PlatformAdminGuard; an ordinary signed-in user never reaches this method.
+   * The creator becomes the first ACTIVE member in the same transaction (a
+   * membership alone grants no permissions — roles do).
    */
   async createCompany(dto: CreateCompanyDto, creatorUserId: string) {
     return this.prisma.$transaction(async (tx) => {

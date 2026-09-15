@@ -1,0 +1,51 @@
+/* Administration screens. Builds on settings.module.css; every control ≥ --tap-min. */
+
+.split { display: grid; gap: var(--gap-lg); grid-template-columns: minmax(0, 1fr); }
+@media (min-width: 1100px) {
+  .split { grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); align-items: start; }
+}
+
+.details { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 6px var(--gap); margin: 0; }
+.details dt { font-weight: 600; }
+.details dd { margin: 0; overflow-wrap: anywhere; }
+
+.secret {
+  display: block;
+  padding: var(--gap);
+  border: 2px dashed var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+
+.permissionGroup { border: 1px solid var(--color-border); border-radius: var(--radius-sm); padding: var(--gap); margin: 0; }
+.permissionGroup legend { font-weight: 600; padding: 0 6px; text-transform: capitalize; }
+.permissionGrid { display: grid; gap: 6px; grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr)); }
+.check { display: flex; gap: 8px; align-items: center; min-height: var(--tap-min); overflow-wrap: anywhere; }
+.check input { width: 20px; height: 20px; flex: none; }
+
+.chips { display: flex; flex-wrap: wrap; gap: 8px; list-style: none; margin: 0; padding: 0; }
+.chip {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  padding: 4px 4px 4px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--color-surface-muted);
+}
+
+.rowButton {
+  background: none;
+  border: 0;
+  padding: 0;
+  min-height: var(--tap-min);
+  color: var(--color-primary);
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  text-decoration: underline;
+}

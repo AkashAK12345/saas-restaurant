@@ -15,6 +15,9 @@ import { BranchStatus } from '@samco/database';
 import { IsIanaTimezone } from '../../common/validators/is-iana-timezone.validator.js';
 import { MAX_GST_RATE_BPS } from '../banquet/banquet-money.js';
 
+/** Matches the branches_banquet_terms_length CHECK in the database. */
+export const BANQUET_TERMS_MAX_LENGTH = 4000;
+
 /** Statutory ids are upper-case by definition; '' means "clear it". */
 const upperTrimmed = ({ value }: { value: unknown }) => {
   if (typeof value !== 'string') return value;
@@ -78,6 +81,22 @@ export class UpdateBranchDto {
   @Min(0)
   @Max(MAX_GST_RATE_BPS)
   banquet_gst_rate_bps?: number;
+
+  /**
+   * Terms and conditions printed on this branch's banquet bills and
+   * quotations. Trimmed; '' or null clears them. The database enforces the
+   * same 4000-character ceiling.
+   */
+  @IsOptional()
+  @Transform(({ value }: { value: unknown }) => {
+    if (typeof value !== 'string') return value;
+    const v = value.trim();
+    return v === '' ? null : v;
+  })
+  @ValidateIf((_o, v) => v !== null)
+  @IsString()
+  @MaxLength(BANQUET_TERMS_MAX_LENGTH)
+  banquet_terms?: string | null;
 
   // company_id is intentionally excluded.
   // Branch company ownership is immutable through normal update APIs.

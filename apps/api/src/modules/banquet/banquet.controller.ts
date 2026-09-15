@@ -20,6 +20,7 @@ import {
   BanquetBookingsService,
 } from './banquet-bookings.service.js';
 import { BanquetKdsService } from './banquet-kds.service.js';
+import { BanquetPlatesService } from './banquet-plates.service.js';
 import {
   AvailabilityQueryDto,
   CancelBookingDto,
@@ -29,8 +30,10 @@ import {
   CreateHallSlotDto,
   CreatePackageDto,
   CreatePaymentDto,
+  CreatePlateRequestDto,
   KdsBoardQueryDto,
   ListBookingsQueryDto,
+  RejectPlateRequestDto,
   UpdateBookingDto,
   UpdateHallDto,
   UpdateHallSlotDto,
@@ -74,6 +77,7 @@ export class BanquetController {
     private readonly catalog: BanquetCatalogService,
     private readonly bookings: BanquetBookingsService,
     private readonly kds: BanquetKdsService,
+    private readonly plates: BanquetPlatesService,
     private readonly authorization: AuthorizationService,
   ) {}
 
@@ -419,6 +423,77 @@ export class BanquetController {
   }
 
   // ── Event plan ────────────────────────────────────────────────────────────
+
+  // ── Plate approval (branch-scoped) ─────────────────────────────────────────
+
+  @Get('bookings/:id/plate-requests')
+  @UseGuards(PermissionGuard)
+  @RequireBranchPermission(PERMISSION_KEYS.BANQUET_VIEW)
+  listPlateRequests(@Param('id', ParseUUIDPipe) id: string, @Headers('x-branch-id') branchId: string) {
+    return this.plates.listForBooking(branchId, id);
+  }
+
+  @Post('bookings/:id/plate-requests')
+  @HttpCode(HttpStatus.CREATED)
+  @UseGuards(PermissionGuard)
+  @RequireBranchPermission(PERMISSION_KEYS.BANQUET_PLATE_REQUEST)
+  requestPlates(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Headers('x-company-id') companyId: string,
+    @Headers('x-branch-id') branchId: string,
+    @Body() dto: CreatePlateRequestDto,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.plates.request(this.branchCtx(companyId, branchId, req), id, dto);
+  }
+
+  /** The kitchen's list for one branch-local day. No customer, no money. */
+  @Get('kds/plate-requests')
+  @UseGuards(PermissionGuard)
+  @RequireBranchPermission(PERMISSION_KEYS.BANQUET_KDS_VIEW)
+  kitchenPlateRequests(@Headers('x-branch-id') branchId: string, @Query() query: KdsBoardQueryDto) {
+    return this.plates.listForDay(branchId, query.service_date);
+  }
+
+  @Post('kds/plate-requests/:id/approve')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(PermissionGuard)
+  @RequireBranchPermission(PERMISSION_KEYS.BANQUET_KDS_MANAGE)
+  approvePlates(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Headers('x-company-id') companyId: string,
+    @Headers('x-branch-id') branchId: string,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.plates.approve(this.branchCtx(companyId, branchId, req), id);
+  }
+
+  @Post('kds/plate-requests/:id/reject')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(PermissionGuard)
+  @RequireBranchPermission(PERMISSION_KEYS.BANQUET_KDS_MANAGE)
+  rejectPlates(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Headers('x-company-id') companyId: string,
+    @Headers('x-branch-id') branchId: string,
+    @Body() dto: RejectPlateRequestDto,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.plates.reject(this.branchCtx(companyId, branchId, req), id, dto.reason);
+  }
+
+  @Post('kds/plate-requests/:id/dispatch')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(PermissionGuard)
+  @RequireBranchPermission(PERMISSION_KEYS.BANQUET_KDS_MANAGE)
+  dispatchPlates(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Headers('x-company-id') companyId: string,
+    @Headers('x-branch-id') branchId: string,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.plates.dispatch(this.branchCtx(companyId, branchId, req), id);
+  }
 
   @Get('bookings/:id/event-plan')
   @UseGuards(PermissionGuard)

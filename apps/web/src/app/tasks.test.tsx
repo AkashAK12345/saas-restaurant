@@ -28,7 +28,14 @@ const apiMock = vi.hoisted(() => ({
   referenceLibrary: vi.fn(),
   installReference: vi.fn(),
   routineLog: vi.fn(),
+  exportRoutineLog: vi.fn(),
   streamTicket: vi.fn(),
+}));
+
+const saveFileMock = vi.hoisted(() => vi.fn());
+vi.mock('@/lib/reports/api', async () => ({
+  ...(await vi.importActual<typeof import('@/lib/reports/api')>('@/lib/reports/api')),
+  saveFile: saveFileMock,
 }));
 
 const lazyProxy = vi.hoisted(
@@ -915,6 +922,42 @@ describe('Routine compliance log', () => {
     render(<RoutineLogPage />);
     expect(screen.getByText(/do not have access/)).toBeTruthy();
     expect(apiMock.routineLog).not.toHaveBeenCalled();
+  });
+
+  it('exports the shown window and saves the file; PDF is offered only up to 14 days', async () => {
+    branchPermissions = ['tasks.view', 'tasks.reports.view', 'reports.export'];
+    const file = { blob: new Blob(['x']), filename: 'tasks.routine_log_2027-01-01_2027-01-07.xlsx' };
+    apiMock.exportRoutineLog.mockResolvedValue(file);
+    saveFileMock.mockReset();
+    render(<RoutineLogPage />);
+    await screen.findByRole('heading', { name: 'Opening checks' });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Export Excel' }));
+    await waitFor(() => expect(saveFileMock).toHaveBeenCalledWith(file));
+    const [, id, from, to, format] = apiMock.exportRoutineLog.mock.calls[0] as [unknown, string, string, string, string];
+    expect([id, format]).toEqual(['tk-1', 'xlsx']);
+    const [, , logFrom, logTo] = apiMock.routineLog.mock.calls.at(-1) as [unknown, string, string, string];
+    expect([from, to]).toEqual([logFrom, logTo]);
+
+    expect((screen.getByRole('button', { name: 'Export PDF' }) as HTMLButtonElement).disabled).toBe(false);
+    fireEvent.click(screen.getByRole('button', { name: '31 days' }));
+    await waitFor(() => expect((screen.getByRole('button', { name: 'Export PDF' }) as HTMLButtonElement).disabled).toBe(true));
+    expect(screen.getByText(/A PDF covers up to 14 days/)).toBeTruthy();
+  });
+
+  it('shows a refused export plainly, and offers no export without reports.export', async () => {
+    branchPermissions = ['tasks.view', 'tasks.reports.view', 'reports.export'];
+    apiMock.exportRoutineLog.mockRejectedValue(new Error('Forbidden'));
+    const { unmount } = render(<RoutineLogPage />);
+    await screen.findByRole('heading', { name: 'Opening checks' });
+    fireEvent.click(screen.getByRole('button', { name: 'Export Excel' }));
+    expect((await screen.findByRole('alert')).textContent).toMatch('Forbidden');
+    unmount();
+
+    branchPermissions = ['tasks.view', 'tasks.reports.view'];
+    render(<RoutineLogPage />);
+    await screen.findByRole('heading', { name: 'Opening checks' });
+    expect(screen.queryByRole('button', { name: /^Export/ })).toBeNull();
   });
 });
 

@@ -8,34 +8,46 @@ import { hasPermission } from '@/lib/auth/permissions';
 import { reportsApi } from '@/lib/reports/api';
 import { branchToday, formatDateLabel, shiftDate } from '@/lib/reports/format';
 import { deviceTimeZone } from '@/lib/format/datetime';
-import { MetricGrid } from '@/components/reports/metric-grid';
+import { SeriesChart } from '@/components/reports/series-chart';
 import { WidgetCard } from '@/components/reports/widget-card';
+import { formatValue } from '@/lib/reports/format';
 import { WorkspaceGrid } from '@/components/shell/workspace-grid';
 import { branchDateLabel, greetingFor } from '@/components/shell/greeting';
-import type { AllBranchesDashboardResponse, DashboardResponse } from '@/lib/reports/types';
+import type { AllBranchesDashboardResponse, AllBranchesWidget, DashboardResponse } from '@/lib/reports/types';
 import styles from '@/components/reports/reports.module.css';
 
-type Preset = 'today' | '7d' | '30d' | 'month';
+type Preset = 'today' | '7d' | '30d' | 'month' | 'custom';
 type Scope = 'branch' | 'all';
 
-const PRESETS: Array<{ key: Preset; label: string }> = [
+const PRESETS: Array<{ key: Exclude<Preset, 'custom'>; label: string }> = [
   { key: 'today', label: 'Today' },
   { key: '7d', label: 'Last 7 days' },
   { key: '30d', label: 'Last 30 days' },
   { key: 'month', label: 'This month' },
 ];
 
+/** The server's own limit; checked here only to explain it before a round trip. */
+const MAX_RANGE_DAYS = 366;
+
 /**
  * Branch-local window for a preset. "Last 30 days" sends no dates at all: it
- * is the server's own default, resolved in each branch's timezone.
+ * is the server's own default, resolved in each branch's timezone. A custom
+ * window is sent exactly as chosen.
  */
-function windowFor(preset: Preset, timezone: string): { from?: string; to?: string } {
+function windowFor(
+  preset: Preset,
+  timezone: string,
+  custom: { from: string; to: string } | null,
+): { from?: string; to?: string } {
+  if (preset === 'custom') return custom ?? {};
   if (preset === '30d') return {};
   const today = branchToday(timezone);
   if (preset === 'today') return { from: today, to: today };
   if (preset === '7d') return { from: shiftDate(today, -6), to: today };
   return { from: `${today.slice(0, 8)}01`, to: today };
 }
+
+const rangeDays = (from: string, to: string) => Math.round((Date.parse(to) - Date.parse(from)) / 86_400_000) + 1;
 
 /**
  * The dashboard — the home screen for an authenticated operator.
@@ -67,6 +79,8 @@ export default function HomePage() {
   const zone = selectedBranch?.timezone ?? deviceTimeZone();
 
   const [preset, setPreset] = useState<Preset>('30d');
+  const [custom, setCustom] = useState<{ from: string; to: string } | null>(null);
+  const [draft, setDraft] = useState<{ from: string; to: string }>({ from: '', to: '' });
   const [scope, setScope] = useState<Scope>('branch');
   const [dashboard, setDashboard] = useState<DashboardResponse | null>(null);
   const [allBranches, setAllBranches] = useState<AllBranchesDashboardResponse | null>(null);
@@ -77,7 +91,11 @@ export default function HomePage() {
     if (!ctx) return;
     setLoading(true);
     setError(null);
-    const { from, to } = windowFor(preset, zone);
+    if (preset === 'custom' && !custom) {
+      setLoading(false);
+      return;
+    }
+    const { from, to } = windowFor(preset, zone, custom);
     try {
       if (scope === 'all') {
         setAllBranches(await reportsApi.dashboardAllBranches(ctx, from, to));
@@ -91,7 +109,7 @@ export default function HomePage() {
     } finally {
       setLoading(false);
     }
-  }, [ctx, preset, scope, zone]);
+  }, [ctx, preset, scope, zone, custom]);
 
   useEffect(() => {
     if (!ctx || !mayViewDashboard) return;
@@ -139,6 +157,14 @@ export default function HomePage() {
     );
   }
 
+  const customProblem = !draft.from || !draft.to
+    ? 'Choose both dates.'
+    : draft.from > draft.to
+      ? 'The start date must not be after the end date.'
+      : rangeDays(draft.from, draft.to) > MAX_RANGE_DAYS
+        ? `A period may cover at most ${MAX_RANGE_DAYS} days.`
+        : null;
+
   const shown = scope === 'all' ? allBranches : dashboard;
   const windowLabel = dashboard && scope === 'branch'
     ? `${formatDateLabel(dashboard.filters.from)} to ${formatDateLabel(dashboard.filters.to)}`
@@ -184,6 +210,21 @@ export default function HomePage() {
             {p.label}
           </button>
         ))}
+        <button
+          type="button"
+          className={`${styles.button} ${preset === 'custom' ? styles.primary : ''}`}
+          aria-pressed={preset === 'custom'}
+          onClick={() => {
+            if (!draft.from) {
+              const today = branchToday(zone);
+              setDraft({ from: `${today.slice(0, 8)}01`, to: today });
+            }
+            setPreset('custom');
+          }}
+          disabled={loading}
+        >
+          Custom
+        </button>
         {offerAllBranches ? (
           <button
             type="button"
@@ -196,6 +237,47 @@ export default function HomePage() {
           </button>
         ) : null}
       </div>
+      {preset === 'custom' ? (
+        <form
+          className={styles.filters}
+          aria-label="Custom period"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (customProblem === null) setCustom({ ...draft });
+          }}
+        >
+          <div className={styles.field}>
+            <label className={styles.label} htmlFor="dashboard-from">
+              From
+            </label>
+            <input
+              id="dashboard-from"
+              className={styles.input}
+              type="date"
+              required
+              value={draft.from}
+              onChange={(e) => setDraft({ ...draft, from: e.target.value })}
+            />
+          </div>
+          <div className={styles.field}>
+            <label className={styles.label} htmlFor="dashboard-to">
+              To
+            </label>
+            <input
+              id="dashboard-to"
+              className={styles.input}
+              type="date"
+              required
+              value={draft.to}
+              onChange={(e) => setDraft({ ...draft, to: e.target.value })}
+            />
+          </div>
+          <button type="submit" className={`${styles.button} ${styles.primary}`} disabled={loading || customProblem !== null}>
+            Apply
+          </button>
+          {customProblem ? <p className={styles.subtitle}>{customProblem}</p> : null}
+        </form>
+      ) : null}
       <p className={styles.subtitle}>
         Tiles marked &ldquo;Right now&rdquo; always show the present; the period applies to the others.
       </p>
@@ -232,27 +314,31 @@ export default function HomePage() {
           </p>
           <div className={styles.cards}>
             {allBranches.widgets.map((widget) => (
-              <div key={widget.key}>
-                <WidgetCard widget={widget} timezone={zone} />
+              <section
+                key={widget.key}
+                className={`${styles.widget} ${styles.wide}`}
+                aria-labelledby={`all-${widget.key}`}
+              >
+                <div className={styles.widgetHead}>
+                  <h3 className={styles.widgetTitle} id={`all-${widget.key}`}>
+                    {widget.title}
+                  </h3>
+                  {widget.live ? <span className={styles.live}>Right now</span> : null}
+                </div>
+                <BranchMatrix widget={widget} timezone={zone} />
                 {widget.not_summed.length > 0 ? (
                   <p className={styles.subtitle}>
                     Not added across branches: {widget.not_summed.join(', ')}
                   </p>
                 ) : null}
-                <details>
-                  <summary>By branch</summary>
-                  {widget.branches.map((b) => (
-                    <div key={b.branch_id}>
-                      <h4 className={styles.subtitle}>{b.branch_name}</h4>
-                      {b.error ? (
-                        <p className={styles.error}>{b.error}</p>
-                      ) : (
-                        <MetricGrid metrics={b.metrics} timezone={zone} />
-                      )}
-                    </div>
-                  ))}
-                </details>
-              </div>
+                {widget.series ? (
+                  <SeriesChart
+                    series={widget.series}
+                    title={widget.title}
+                    branches={widget.branches.map((b) => ({ id: b.branch_id, name: b.branch_name, series: b.series }))}
+                  />
+                ) : null}
+              </section>
             ))}
           </div>
         </>
@@ -260,5 +346,58 @@ export default function HomePage() {
 
       <WorkspaceGrid permissions={permissions} hasBranch={!!selectedBranchId} />
     </section>
+  );
+}
+
+/**
+ * One widget as a branch comparison: a row per figure, an "All branches"
+ * column holding the honest sum, then one column per branch. A figure that
+ * cannot be added across branches says so in the All column instead of
+ * showing a number that would mislead.
+ */
+function BranchMatrix({ widget, timezone }: { widget: AllBranchesWidget; timezone: string }) {
+  const rows = new Map<string, { label: string; type: AllBranchesWidget['metrics'][number]['type'] }>();
+  for (const b of widget.branches) for (const m of b.metrics) if (!rows.has(m.key)) rows.set(m.key, { label: m.label, type: m.type });
+  for (const m of widget.metrics) if (!rows.has(m.key)) rows.set(m.key, { label: m.label, type: m.type });
+  if (rows.size === 0) return null;
+
+  const cell = (metrics: AllBranchesWidget['metrics'], key: string) => {
+    const m = metrics.find((x) => x.key === key);
+    return m ? formatValue(m.value, m.type, { timezone, currency: m.currency }) : '—';
+  };
+
+  return (
+    <div className={styles.tableWrap}>
+      <table className={styles.table} aria-label={`${widget.title} by branch`}>
+        <thead>
+          <tr>
+            <th scope="col">Figure</th>
+            <th scope="col" className={styles.numeric}>
+              All branches
+            </th>
+            {widget.branches.map((b) => (
+              <th key={b.branch_id} scope="col" className={styles.numeric}>
+                {b.branch_name}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {[...rows.entries()].map(([key, row]) => (
+            <tr key={key}>
+              <th scope="row">{row.label}</th>
+              <td className={styles.numeric}>
+                {widget.metrics.some((m) => m.key === key) ? cell(widget.metrics, key) : 'Not added'}
+              </td>
+              {widget.branches.map((b) => (
+                <td key={b.branch_id} className={styles.numeric}>
+                  {b.error ? 'Unavailable' : cell(b.metrics, key)}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }

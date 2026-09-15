@@ -22,6 +22,7 @@ export interface AuditEntry {
 export interface AuditQuery {
   event_type?: AuditEventType;
   entity_type?: string;
+  entity_id?: string;
   branch_id?: string;
   from?: string;
   to?: string;
@@ -38,6 +39,7 @@ export interface BranchRecord {
   gstin: string | null;
   fssai_license: string | null;
   banquet_gst_rate_bps: number;
+  banquet_terms: string | null;
 }
 
 export interface SessionEntry {
@@ -66,11 +68,25 @@ export const settingsApi = {
 
   branches: (companyId: string) => api.get<BranchRecord[]>('/branches', { companyId }),
 
+  createBranch: (companyId: string, body: { name: string; timezone: string }) =>
+    api.post<BranchRecord>('/branches', body, { companyId }),
+
   updateBranch: (
     companyId: string,
     branchId: string,
-    body: Partial<{ gstin: string | null; fssai_license: string | null; banquet_gst_rate_bps: number }>,
+    body: Partial<{
+      name: string;
+      status: 'ACTIVE' | 'INACTIVE';
+      gstin: string | null;
+      fssai_license: string | null;
+      banquet_gst_rate_bps: number;
+      banquet_terms: string | null;
+    }>,
   ) => api.patch<BranchRecord>(`/branches/${branchId}`, body, { companyId }),
+
+  /** Renames the company in context; the API requires companies.update there. */
+  updateCompany: (companyId: string, body: { name: string }) =>
+    api.patch<{ id: string; name: string; status: string }>(`/companies/${companyId}`, body, { companyId }),
 
   sessions: () => api.get<{ data: SessionEntry[] }>('/auth/sessions'),
 

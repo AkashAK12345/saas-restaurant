@@ -8,6 +8,7 @@ import { hasPermission } from '@/lib/auth/permissions';
 import { tasksApi } from '@/lib/tasks/api';
 import { when } from '@/components/tasks/task-card';
 import { ChecklistAnswer } from '@/components/tasks/checklist-answer';
+import { RecordHistory } from '@/components/audit/record-history';
 import {
   PRIORITY_LABEL,
   TASK_STATUS_LABEL,
@@ -545,6 +546,8 @@ export default function TaskDetailPage() {
           </form>
         ) : null}
       </section>
+
+      <RecordHistory entityType="TASK" entityId={t.id} />
     </>
   );
 }

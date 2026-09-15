@@ -8,7 +8,11 @@ import { hasPermission } from '@/lib/auth/permissions';
 import { tasksApi } from '@/lib/tasks/api';
 import { addCalendarDays, branchToday, deviceTimeZone, formatCalendarDate } from '@/lib/format/datetime';
 import type { RoutineLog } from '@/lib/tasks/types';
+import { saveFile } from '@/lib/reports/api';
 import styles from '@/components/tasks/tasks.module.css';
+
+/** The API refuses a longer PDF; beyond this many columns it is unreadable. */
+const PDF_MAX_DAYS = 14;
 
 const WINDOWS = [
   { days: 7, label: '7 days' },
@@ -37,7 +41,10 @@ export default function RoutineLogPage() {
     [selectedCompanyId, selectedBranchId],
   );
   const mayView = hasPermission(branchPermissions, 'tasks.reports.view');
+  const mayExport = hasPermission(branchPermissions, 'reports.export');
 
+  const [exporting, setExporting] = useState<'xlsx' | 'pdf' | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
   const [days, setDays] = useState<number>(7);
   const [end, setEnd] = useState(() => branchToday(tz));
   const [log, setLog] = useState<RoutineLog | null>(null);
@@ -73,6 +80,20 @@ export default function RoutineLogPage() {
   }
 
   const byDate = new Map((log?.occurrences ?? []).map((o) => [o.date, o]));
+  const pdfTooLong = days > PDF_MAX_DAYS;
+
+  const download = async (format: 'xlsx' | 'pdf') => {
+    if (!ctx) return;
+    setExporting(format);
+    setExportError(null);
+    try {
+      saveFile(await tasksApi.exportRoutineLog(ctx, params.id, from, end, format));
+    } catch (e) {
+      setExportError(e instanceof Error ? e.message : 'The export failed');
+    } finally {
+      setExporting(null);
+    }
+  };
 
   return (
     <section>
@@ -108,7 +129,35 @@ export default function RoutineLogPage() {
             {w.label}
           </button>
         ))}
+        {mayExport ? (
+          <>
+            <button
+              type="button"
+              className={styles.action}
+              disabled={exporting !== null || !log || log.dates.length === 0}
+              onClick={() => void download('xlsx')}
+            >
+              {exporting === 'xlsx' ? 'Exporting…' : 'Export Excel'}
+            </button>
+            <button
+              type="button"
+              className={styles.action}
+              disabled={exporting !== null || !log || log.dates.length === 0 || pdfTooLong}
+              onClick={() => void download('pdf')}
+            >
+              {exporting === 'pdf' ? 'Exporting…' : 'Export PDF'}
+            </button>
+          </>
+        ) : null}
       </div>
+      {mayExport && pdfTooLong ? (
+        <p className={styles.hint}>A PDF covers up to {PDF_MAX_DAYS} days; use Excel for {days} days.</p>
+      ) : null}
+      {exportError ? (
+        <div role="alert" className={styles.error}>
+          {exportError}
+        </div>
+      ) : null}
 
       {error ? (
         <div role="alert" className={styles.error}>

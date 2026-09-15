@@ -1703,6 +1703,80 @@ describe('Phase 9 Tasks & Routines (e2e)', () => {
         (await asManager(request(http).get(`/api/v1/routines/${routine.id}/log`)).query({ from: '2026-09-01', to: '2026-12-31' })).status,
       ).toBe(400);
     });
+
+    it('TY-7. the log exports as Excel or PDF only with reports.export as well, and the export is audited', async () => {
+      const routine = await prisma.taskRoutine.create({
+        data: {
+          company_id: companyA.id,
+          branch_id: branchA.id,
+          name: `Export routine ${Math.random().toString(36).slice(2, 7)}`,
+          frequency: 'DAILY',
+          time_of_day: '09:00',
+        },
+      });
+      await prisma.task.create({
+        data: {
+          company_id: companyA.id,
+          branch_id: branchA.id,
+          title: routine.name,
+          source: 'ROUTINE',
+          routine_id: routine.id,
+          routine_occurrence_date: new Date('2026-09-01T00:00:00.000Z'),
+          checklist: { create: [{ label: 'Meter reading', kind: 'NUMBER', position: 0, is_done: true, value: '100' }] },
+        },
+      });
+      const exportLog = (query: Record<string, string>, token = tokenManagerA, branchId = branchA.id) =>
+        as(request(http).get(`/api/v1/routines/${routine.id}/log/export`), token, companyA.id, branchId)
+          .query(query)
+          .responseType('blob');
+      const week = { from: '2026-09-01', to: '2026-09-07' };
+
+      // Reading the log is not permission to take it away.
+      expect((await exportLog({ ...week, format: 'xlsx' })).status).toBe(403);
+
+      const assignment = await prisma.userBranchRole.findFirstOrThrow({ where: { user_id: managerA.id, branch_id: branchA.id } });
+      const exportPermission = await prisma.permission.findUniqueOrThrow({ where: { name: 'reports.export' } });
+      await prisma.rolePermission.create({ data: { role_id: assignment.role_id, permission_id: exportPermission.id } });
+      try {
+        const startedAt = new Date();
+        const xlsx = await exportLog({ ...week, format: 'xlsx' });
+        expect(xlsx.status).toBe(200);
+        expect(xlsx.headers['content-type']).toContain('spreadsheetml');
+        expect(xlsx.headers['content-disposition']).toBe('attachment; filename="tasks.routine_log_2026-09-01_2026-09-07.xlsx"');
+        expect(xlsx.body.subarray(0, 2).toString('latin1')).toBe('PK');
+
+        const pdf = await exportLog({ ...week, format: 'pdf' });
+        expect(pdf.status).toBe(200);
+        expect(pdf.headers['content-type']).toContain('application/pdf');
+        expect(pdf.body.subarray(0, 5).toString('latin1')).toBe('%PDF-');
+
+        // Twenty date columns are unreadable on a PDF page, not in a sheet.
+        const long = { from: '2026-09-01', to: '2026-09-20' };
+        expect((await exportLog({ ...long, format: 'pdf' })).status).toBe(400);
+        expect((await exportLog({ ...long, format: 'xlsx' })).status).toBe(200);
+        expect((await exportLog({ ...week, format: 'csv' })).status).toBe(400);
+
+        const audit = await prisma.auditLog.findFirst({
+          where: { entity_type: 'REPORT_EXPORT', company_id: companyA.id, created_at: { gte: startedAt } },
+          orderBy: { created_at: 'asc' },
+        });
+        expect(audit!.payload).toMatchObject({
+          action: 'export_routine_log',
+          routine_id: routine.id,
+          format: 'xlsx',
+          from: '2026-09-01',
+          to: '2026-09-07',
+          row_count: 2,
+        });
+        expect(JSON.stringify(audit!.payload)).not.toContain('Meter reading');
+
+        // A worker cannot; the manager's inactive branch proves nothing.
+        expect((await exportLog({ ...week, format: 'xlsx' }, tokenWorkerA)).status).toBe(403);
+        expect((await exportLog({ ...week, format: 'xlsx' }, tokenManagerA, branchOff.id)).status).toBe(403);
+      } finally {
+        await prisma.rolePermission.deleteMany({ where: { role_id: assignment.role_id, permission_id: exportPermission.id } });
+      }
+    });
   });
 
   describe('Audit', () => {

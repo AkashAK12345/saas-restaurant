@@ -175,7 +175,14 @@ export interface BanquetBookingDetail extends BanquetBooking {
 
 export interface BanquetBill {
   booking: BanquetBookingDetail;
-  branch: { id: string; name: string; timezone: string; gstin: string | null; fssai_license: string | null };
+  branch: {
+    id: string;
+    name: string;
+    timezone: string;
+    gstin: string | null;
+    fssai_license: string | null;
+    banquet_terms: string | null;
+  };
 }
 
 /** The kitchen projection: no customer, no money. */
@@ -258,7 +265,38 @@ export const BANQUET_EVENTS = [
   'banquet.booking.completed',
   'banquet.event_plan.updated',
   'banquet.item.updated',
+  'banquet.plate_request.updated',
 ] as const;
+
+// ── Plate approval ────────────────────────────────────────────────────────────
+
+export type PlateRequestStatus = 'REQUESTED' | 'APPROVED' | 'REJECTED' | 'DISPATCHED';
+
+export const PLATE_STATUS_LABEL: Record<PlateRequestStatus, string> = {
+  REQUESTED: 'Waiting for the kitchen',
+  APPROVED: 'Approved',
+  REJECTED: 'Rejected',
+  DISPATCHED: 'Dispatched',
+};
+
+/** A request for plates of one dish. Kitchen-safe: no customer, no money. */
+export interface PlateRequest {
+  id: string;
+  booking_id: string;
+  hall_name: string | null;
+  event_starts_at: string;
+  item: { id: string; name: string };
+  plates: number;
+  note: string | null;
+  status: PlateRequestStatus;
+  requested_at: string;
+  requested_by: { id: string; name: string };
+  decided_at: string | null;
+  decided_by: { id: string; name: string } | null;
+  rejection_reason: string | null;
+  dispatched_at: string | null;
+  dispatched_by: { id: string; name: string } | null;
+}
 
 export const BOOKING_STATUS_LABEL: Record<BanquetBookingStatus, string> = {
   DRAFT: 'Draft',

@@ -438,6 +438,36 @@ export class UpsertEventPlanDto {
 
 // ── KDS ─────────────────────────────────────────────────────────────────────
 
+// ── Plate approval ──────────────────────────────────────────────────────────
+
+/** Matches the banquet_plate_requests_plates_range CHECK. */
+export const MAX_PLATES = 10_000;
+
+export class CreatePlateRequestDto {
+  /** A dish of THIS booking; checked against the booking in the service. */
+  @IsUUID()
+  item_id!: string;
+
+  @IsInt()
+  @Min(1)
+  @Max(MAX_PLATES)
+  plates!: number;
+
+  @Transform(trimmed)
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  note?: string;
+}
+
+export class RejectPlateRequestDto {
+  @Transform(trimmed)
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(200)
+  reason!: string;
+}
+
 export class KdsBoardQueryDto {
   /** Branch-local calendar date; defaults to today at the branch. */
   @IsOptional()

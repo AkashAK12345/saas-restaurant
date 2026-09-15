@@ -471,32 +471,138 @@ describe('Company & Branch (e2e)', () => {
       expect([404, 405]).toContain(res.status);
     });
 
-    it('POST /companies creates a company and adds creator as ACTIVE member', async () => {
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // COMPANY CREATION — a platform operation (CC-1..9)
+  //
+  // Being signed in is not authorization. Only an ACTIVE platform administrator
+  // may create a company; company roles held anywhere, and X-Company-ID, are
+  // irrelevant. A refused attempt must leave no company behind.
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  describe('Company creation authorization', () => {
+    const create = (token: string, name: string, companyHeader?: string) => {
+      const req = request(app.getHttpServer())
+        .post('/api/v1/companies')
+        .set('Authorization', `Bearer ${token}`);
+      if (companyHeader) req.set('X-Company-ID', companyHeader);
+      return req.send({ name });
+    };
+
+    const expectNoCompanyNamed = async (name: string) => {
+      expect(await prisma.company.count({ where: { name } })).toBe(0);
+    };
+
+    it('CC-1. unauthenticated creation is refused with 401', async () => {
+      const res = await request(app.getHttpServer()).post('/api/v1/companies').send({ name: 'CC Anonymous' });
+      expect(res.status).toBe(401);
+      await expectNoCompanyNamed('CC Anonymous');
+    });
+
+    it('CC-2. an ordinary signed-in user with no membership is refused with 403', async () => {
+      const res = await create(noMemberToken, 'CC No Member');
+      expect(res.status).toBe(403);
+      await expectNoCompanyNamed('CC No Member');
+    });
+
+    it('CC-3. a member with an unrelated role is refused', async () => {
+      const res = await create(restrictedToken, 'CC Restricted');
+      expect(res.status).toBe(403);
+      await expectNoCompanyNamed('CC Restricted');
+    });
+
+    it('CC-4. a company administrator holding every company permission is still refused', async () => {
+      const res = await create(adminTokenA, 'CC Company Admin', companyA.id);
+      expect(res.status).toBe(403);
+      await expectNoCompanyNamed('CC Company Admin');
+    });
+
+    it('CC-5. naming another company in X-Company-ID does not help a cross-company admin', async () => {
+      const res = await create(adminTokenB, 'CC Cross Company', companyA.id);
+      expect(res.status).toBe(403);
+      await expectNoCompanyNamed('CC Cross Company');
+    });
+
+    it('CC-6. is_superadmin cannot be smuggled in the request body', async () => {
       const res = await request(app.getHttpServer())
         .post('/api/v1/companies')
         .set('Authorization', `Bearer ${noMemberToken}`)
-        .send({ name: 'New SaaS Company' });
+        .send({ name: 'CC Smuggled', is_superadmin: true });
+      expect([400, 403]).toContain(res.status);
+      await expectNoCompanyNamed('CC Smuggled');
+      const user = await prisma.user.findUnique({ where: { email: 'nomember@test.com' } });
+      expect(user!.is_superadmin).toBe(false);
+    });
+
+    it('CC-7. an ACTIVE platform administrator creates a company, becomes its first member, and it is audited', async () => {
+      const res = await create(superadminToken, 'New SaaS Company');
 
       expect(res.status).toBe(201);
       expect(res.body.name).toBe('New SaaS Company');
-      expect(res.body.id).toBeDefined();
+      expect(res.body.status).toBe(CompanyStatus.ACTIVE);
 
-      // Creator should have ACTIVE membership
+      const superadmin = await prisma.user.findUnique({ where: { email: 'superadmin@samco.com' } });
       const membership = await prisma.companyMembership.findUnique({
-        where: {
-          user_id_company_id: {
-            user_id: noMemberUser.id,
-            company_id: res.body.id,
-          },
-        },
+        where: { user_id_company_id: { user_id: superadmin!.id, company_id: res.body.id } },
       });
-      expect(membership).not.toBeNull();
       expect(membership!.status).toBe(MembershipStatus.ACTIVE);
+
+      const audit = await prisma.auditLog.findFirst({
+        where: { company_id: res.body.id, entity_type: 'COMPANY', event_type: 'CREATE' },
+      });
+      expect(audit!.user_id).toBe(superadmin!.id);
+
+      // Membership without roles grants nothing inside the new company either.
+      const update = await request(app.getHttpServer())
+        .patch(`/api/v1/companies/${res.body.id}`)
+        .set('Authorization', `Bearer ${superadminToken}`)
+        .set('X-Company-ID', res.body.id)
+        .send({ name: 'Renamed' });
+      expect(update.status).toBe(403);
 
       // Cleanup
       await purgeAuditLogs(prisma);
       await prisma.companyMembership.delete({ where: { id: membership!.id } });
       await prisma.company.delete({ where: { id: res.body.id } });
+    });
+
+    it('CC-8. a platform administrator whose account is disabled cannot create a company', async () => {
+      const disabled = await prisma.user.create({
+        data: {
+          email: 'cc-disabled-platform@samco.com',
+          password_hash: await bcrypt.hash(PASSWORD, SALT),
+          is_superadmin: true,
+        },
+      });
+      const token = await request(app.getHttpServer())
+        .post('/api/v1/auth/login')
+        .send({ email: disabled.email, password: PASSWORD })
+        .then((r) => r.body.accessToken as string);
+      await prisma.user.update({ where: { id: disabled.id }, data: { status: 'INACTIVE' } });
+
+      const res = await create(token, 'CC Disabled Platform');
+      expect([401, 403]).toContain(res.status);
+      await expectNoCompanyNamed('CC Disabled Platform');
+
+      await purgeAuditLogs(prisma);
+      await prisma.userSession.deleteMany({ where: { user_id: disabled.id } });
+      await prisma.user.delete({ where: { id: disabled.id } });
+    });
+
+    it('CC-9. existing company authorization is unchanged: the admin still updates their own company', async () => {
+      const res = await request(app.getHttpServer())
+        .patch(`/api/v1/companies/${companyA.id}`)
+        .set('Authorization', `Bearer ${adminTokenA}`)
+        .set('X-Company-ID', companyA.id)
+        .send({ name: 'Alpha Corp' });
+      expect(res.status).toBe(200);
+
+      // …and the platform flag still opens no existing company.
+      const peek = await request(app.getHttpServer())
+        .get(`/api/v1/companies/${companyA.id}`)
+        .set('Authorization', `Bearer ${superadminToken}`);
+      expect(peek.status).toBe(404);
     });
   });
 
@@ -675,6 +781,46 @@ describe('Company & Branch (e2e)', () => {
 
       // Restore
       await prisma.branch.update({ where: { id: branchA.id }, data: { status: BranchStatus.ACTIVE } });
+    });
+
+    it('19b. banquet bill terms are saved trimmed, cleared by an empty value, capped, and audited without the text', async () => {
+      const patch = (body: Record<string, unknown>, token = adminTokenA) =>
+        request(app.getHttpServer())
+          .patch(`/api/v1/branches/${branchA.id}`)
+          .set('Authorization', `Bearer ${token}`)
+          .set('X-Company-ID', companyA.id)
+          .send(body);
+      const startedAt = new Date();
+
+      const saved = await patch({ banquet_terms: '  Advance is non-refundable.  ' });
+      expect(saved.status).toBe(200);
+      expect(saved.body.banquet_terms).toBe('Advance is non-refundable.');
+
+      const audit = await prisma.auditLog.findFirst({
+        where: { entity_type: 'BRANCH', entity_id: branchA.id, created_at: { gte: startedAt } },
+        orderBy: { created_at: 'desc' },
+      });
+      expect(audit!.payload).toMatchObject({ banquet_terms_changed: true, banquet_terms_length: 26 });
+      expect(JSON.stringify(audit!.payload)).not.toContain('non-refundable');
+
+      expect((await patch({ banquet_terms: 'x'.repeat(4001) })).status).toBe(400);
+      expect((await patch({ banquet_terms: 42 })).status).toBe(400);
+      await expect(
+        prisma.branch.update({ where: { id: branchA.id }, data: { banquet_terms: 'y'.repeat(4001) } }),
+      ).rejects.toThrow(/branches_banquet_terms_length/);
+
+      // Without branches.update, and from another company, nothing changes.
+      expect((await patch({ banquet_terms: 'Hijacked' }, restrictedToken)).status).toBe(403);
+      const cross = await request(app.getHttpServer())
+        .patch(`/api/v1/branches/${branchA.id}`)
+        .set('Authorization', `Bearer ${adminTokenB}`)
+        .set('X-Company-ID', companyB.id)
+        .send({ banquet_terms: 'Hijacked' });
+      expect(cross.status).toBe(404);
+
+      const cleared = await patch({ banquet_terms: '   ' });
+      expect(cleared.status).toBe(200);
+      expect(cleared.body.banquet_terms).toBeNull();
     });
 
     it('20. branch cannot be physically deleted through normal API (no DELETE endpoint)', async () => {
