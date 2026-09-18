@@ -215,6 +215,27 @@ export interface ChefBooking {
   items: BanquetBookingItem[];
 }
 
+/** One event on the chef calendar. Never carries money. */
+export interface ChefCalendarBooking extends ChefBooking {
+  /** The branch-local day the event starts on (YYYY-MM-DD). */
+  date: string;
+  /** Null unless the viewer may see banquet bookings. */
+  customer_name: string | null;
+  /** Lunch, Dinner… when the event lines up with a hall slot. */
+  slot_name: string | null;
+  /** Empty when no menu was chosen. */
+  package_name: string;
+  setup_notes: string | null;
+}
+
+export interface ChefCalendar {
+  branch_id: string;
+  from: string;
+  to: string;
+  timezone: string;
+  bookings: ChefCalendarBooking[];
+}
+
 export interface KdsCounts {
   events: number;
   pending: number;

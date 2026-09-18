@@ -1,0 +1,403 @@
+/* Banquet chef display — a week or month of events, after the reference design. */
+
+/* ── Range band ─────────────────────────────────────────────────────────── */
+
+.band {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
+  background: #fbe9e5;
+  color: #c4573a;
+}
+
+.bandRange {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.bandCount {
+  flex: none;
+  font-size: 0.9rem;
+  letter-spacing: 0.02em;
+}
+
+/* ── View switch and navigation ─────────────────────────────────────────── */
+
+.controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 16px;
+  border-bottom: 1px solid #ebe5da;
+}
+
+.segmented {
+  display: inline-flex;
+  padding: 3px;
+  border-radius: 12px;
+  background: #efece6;
+}
+
+.segment {
+  padding: 6px 14px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: #6b6b6b;
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.segment[aria-pressed='true'] {
+  background: #fff;
+  color: #c4573a;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
+.nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.navButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 32px;
+  height: 32px;
+  padding: 0 8px;
+  border: 1px solid #e3ddd1;
+  border-radius: 10px;
+  background: #fff;
+  color: #444;
+  font: inherit;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+.navPrev svg {
+  transform: rotate(180deg);
+}
+
+/* ── Week: one column per day, scrolling sideways ───────────────────────── */
+
+.week {
+  display: flex;
+  overflow-x: auto;
+  scroll-snap-type: x proximity;
+  min-height: calc(100vh - 290px);
+}
+
+.day {
+  flex: none;
+  width: 138px;
+  display: flex;
+  flex-direction: column;
+  padding: 0 8px 16px;
+  border-left: 1px solid #e7e1d6;
+  scroll-snap-align: start;
+}
+
+.dayHead {
+  align-self: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  width: 58px;
+  padding: 14px 0 16px;
+  margin-bottom: 8px;
+  background: #efece6;
+  color: #3a3a3a;
+}
+
+.dayName {
+  font-size: 0.8rem;
+  letter-spacing: 0.04em;
+}
+
+.dayNum {
+  font-size: 1rem;
+  font-weight: 500;
+}
+
+.dayHead[data-today='true'] .dayNum {
+  color: #c4573a;
+  font-weight: 700;
+}
+
+.dayEmpty {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  color: #9a9a9a;
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+/* ── Event card ─────────────────────────────────────────────────────────── */
+
+.card {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-top: 8px;
+  padding: 10px 10px 8px 12px;
+  border: 1px solid #ece6dc;
+  border-left: 4px solid #c4573a;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.cardName {
+  margin: 0 0 2px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #1f1f1f;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cardLine {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0;
+  font-size: 0.8rem;
+  color: #666;
+  min-width: 0;
+}
+
+.cardLine svg {
+  flex: none;
+  color: #555;
+}
+
+.cardLine span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.details {
+  align-self: flex-end;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-top: 0;
+  padding: 0;
+  line-height: 1.3;
+  border: 0;
+  background: transparent;
+  color: #c4573a;
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+/* ── Month grid ─────────────────────────────────────────────────────────── */
+
+.month {
+  padding: 8px 16px 16px;
+}
+
+.weekdays,
+.grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  text-align: center;
+}
+
+.weekdays {
+  padding: 6px 0 8px;
+  font-size: 0.78rem;
+  color: #8a8a8a;
+}
+
+.grid {
+  row-gap: 6px;
+}
+
+.cell {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 4px 0;
+  border: 0;
+  border-radius: 12px;
+  background: transparent;
+  color: #1f1f1f;
+  font: inherit;
+  cursor: pointer;
+}
+
+.cellNum {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  font-size: 0.9rem;
+}
+
+.cell[data-today='true'] .cellNum {
+  box-shadow: inset 0 0 0 1px #c4573a;
+  color: #c4573a;
+}
+
+.cell[aria-pressed='true'] .cellNum {
+  background: #c4573a;
+  color: #fff;
+  box-shadow: none;
+}
+
+.cellCount {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: #fbe9e5;
+  color: #c4573a;
+  font-size: 0.7rem;
+  font-weight: 600;
+  line-height: 18px;
+}
+
+.cellCountEmpty {
+  height: 18px;
+}
+
+.dayTitle {
+  margin: 18px 0 4px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #3a3a3a;
+}
+
+.dayList .card {
+  margin-top: 10px;
+}
+
+.monthEmpty {
+  margin: 14px 0 0;
+  color: #9a9a9a;
+  font-size: 0.88rem;
+}
+
+/* ── Event details (full screen) ───────────────────────────────────────── */
+
+.detail {
+  padding: 16px 16px 24px;
+}
+
+.detailCard {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid #ece6dc;
+  border-left: 4px solid #c4573a;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.detailCard .cardLine {
+  font-size: 0.92rem;
+  color: #3a3a3a;
+}
+
+.detailName {
+  margin: 0 0 2px;
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #1f1f1f;
+}
+
+.detailSection {
+  margin-top: 16px;
+  padding: 14px 16px;
+  border: 1px solid #ece6dc;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.detailSectionTitle {
+  margin: 0 0 10px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: #c4573a;
+}
+
+.note {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #fdf8f6;
+  font-size: 0.88rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
+.menu {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.menuItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid #ece6dc;
+  border-radius: 10px;
+  font-size: 0.9rem;
+}
+
+.status {
+  flex: none;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.status[data-status='PENDING'] { background: #f1efe9; color: #6b6b6b; }
+.status[data-status='IN_PROGRESS'] { background: #fdf3dc; color: #a37a0c; }
+.status[data-status='READY'] { background: #e3f3e6; color: #1b7a3a; }
+
+.error {
+  margin: 12px 16px 0;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: #fde8e3;
+  color: #b3261e;
+  font-size: 0.88rem;
+}
+
+.loading {
+  padding: 24px 16px;
+  text-align: center;
+  color: #8a8a8a;
+}

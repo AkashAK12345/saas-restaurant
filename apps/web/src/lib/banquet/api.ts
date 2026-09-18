@@ -16,6 +16,8 @@ import type {
   BanquetHallSlot,
   BanquetPackage,
   BanquetPayment,
+  ChefCalendar,
+  ChefCalendarBooking,
   PlateRequest,
   StaffKdsBoard,
 } from './types';
@@ -220,6 +222,10 @@ export const banquetApi = {
   // Kitchen
   kdsBoard: (ctx: BanquetContext, serviceDate?: string) =>
     api.get<StaffKdsBoard>(`/banquet/kds/board${qs({ service_date: serviceDate })}`, branch(ctx)),
+  chefCalendar: (ctx: BanquetContext, params: { from: string; to: string }) =>
+    api.get<ChefCalendar>(`/banquet/kds/calendar${qs(params)}`, branch(ctx)),
+  chefEvent: (ctx: BanquetContext, id: string) =>
+    api.get<ChefCalendarBooking>(`/banquet/kds/events/${id}`, branch(ctx)),
   startItem: (ctx: BanquetContext, itemId: string) =>
     api.post<BanquetBookingItem>(`/banquet/kds/items/${itemId}/start`, undefined, branch(ctx)),
   readyItem: (ctx: BanquetContext, itemId: string) =>

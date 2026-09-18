@@ -235,6 +235,7 @@ test.describe('No-permission user', () => {
       '/queue/podium',
       '/banquet',
       '/banquet/kitchen',
+      '/banquet/kds',
       '/tasks',
       '/reports',
       '/reports/queue.tokens',

@@ -29,6 +29,13 @@ export interface TabItem {
  */
 export function ScreenTabBar({ items, label }: { items: readonly TabItem[]; label: string }) {
   const pathname = usePathname() ?? '';
+  // An exact match wins; otherwise a screen nested under a tab (an event's
+  // details under Chef) marks the deepest tab it sits beneath.
+  const activeHref =
+    items.find((item) => item.href === pathname)?.href ??
+    items
+      .filter((item) => pathname.startsWith(`${item.href}/`))
+      .sort((a, b) => b.href.length - a.href.length)[0]?.href;
 
   return (
     <nav className={styles.tabbar} aria-label={label}>
@@ -42,7 +49,7 @@ export function ScreenTabBar({ items, label }: { items: readonly TabItem[]; labe
           </Link>
         </li>
         {items.map((item) => {
-          const active = pathname === item.href;
+          const active = item.href === activeHref;
           return (
             <li key={item.key}>
               <Link

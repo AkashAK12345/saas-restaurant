@@ -4,7 +4,16 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useAppContext } from '@/lib/context/app-context-provider';
 import { banquetApi } from '@/lib/banquet/api';
-import { branchToday, deviceTimeZone } from '@/lib/format/datetime';
+import {
+  MONTH_LONG,
+  MONTH_SHORT,
+  addCalendarMonths,
+  branchToday,
+  daysInMonth,
+  deviceTimeZone,
+  monthEnd,
+  monthStart,
+} from '@/lib/format/datetime';
 import { ScreenHeader } from '@/components/app/screen-header';
 import { AppIcon } from '@/components/app/icons';
 import type { BanquetFinance } from '@/lib/banquet/types';
@@ -14,11 +23,6 @@ import styles from '@/components/banquet/finance.module.css';
 /** Longest range the API answers in one request. */
 const MAX_RANGE_DAYS = 366;
 
-const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-const MONTHS_LONG = [
-  'January', 'February', 'March', 'April', 'May', 'June',
-  'July', 'August', 'September', 'October', 'November', 'December',
-];
 const WEEKDAYS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 
 const parts = (date: string) => ({
@@ -28,24 +32,13 @@ const parts = (date: string) => ({
 });
 const iso = (y: number, m: number, d: number) =>
   `${y}-${String(m + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-const daysInMonth = (y: number, m: number) => new Date(Date.UTC(y, m + 1, 0)).getUTCDate();
-const monthStart = (date: string) => `${date.slice(0, 7)}-01`;
-const monthEnd = (date: string) => {
-  const { y, m } = parts(date);
-  return iso(y, m, daysInMonth(y, m));
-};
-const shiftMonth = (date: string, n: number) => {
-  const { y, m } = parts(date);
-  const d = new Date(Date.UTC(y, m + n, 1));
-  return iso(d.getUTCFullYear(), d.getUTCMonth(), 1);
-};
 const spanDays = (from: string, to: string) =>
   Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000) + 1;
 
 /** "01 Sep 2026" */
 const longLabel = (date: string) => {
   const { y, m, d } = parts(date);
-  return `${String(d).padStart(2, '0')} ${MONTHS_SHORT[m]} ${y}`;
+  return `${String(d).padStart(2, '0')} ${MONTH_SHORT[m]} ${y}`;
 };
 
 /** Whole rupees, the way the overview reads them: ₹1493090, ₹-85500. */
@@ -101,7 +94,7 @@ export default function BanquetFinancePage() {
     const fmt = new Intl.DateTimeFormat('en-GB', { day: '2-digit', month: 'numeric', year: 'numeric', timeZone: tz });
     return (instant: string) => {
       const p = Object.fromEntries(fmt.formatToParts(new Date(instant)).map((x) => [x.type, x.value]));
-      return `${p.day} ${MONTHS_SHORT[Number(p.month) - 1]}, ${p.year}`;
+      return `${p.day} ${MONTH_SHORT[Number(p.month) - 1]}, ${p.year}`;
     };
   }, [tz]);
 
@@ -251,7 +244,7 @@ function RangePicker({
   // reaches any other date.
   const months = useMemo(() => {
     const out: string[] = [];
-    for (let i = -6; i <= 12; i++) out.push(shiftMonth(from, i));
+    for (let i = -6; i <= 12; i++) out.push(addCalendarMonths(from, i));
     return out;
   }, [from]);
 
@@ -278,7 +271,7 @@ function RangePicker({
     if (!start) return 'Start date – End date';
     const s = parts(start);
     const label = (p: { y: number; m: number; d: number }, withYear: boolean) =>
-      `${MONTHS_SHORT[p.m]} ${p.d}${withYear ? `, ${p.y}` : ''}`;
+      `${MONTH_SHORT[p.m]} ${p.d}${withYear ? `, ${p.y}` : ''}`;
     if (!end) return `${label(s, false)} – End date`;
     const e = parts(end);
     const crossYear = s.y !== e.y;
@@ -337,10 +330,10 @@ function RangePicker({
             {months.map((first) => {
               const { y, m } = parts(first);
               const lead = new Date(Date.UTC(y, m, 1)).getUTCDay();
-              const count = daysInMonth(y, m);
+              const count = daysInMonth(first);
               return (
-                <section key={first} ref={first === monthStart(from) ? firstMonthRef : undefined} aria-label={`${MONTHS_LONG[m]} ${y}`}>
-                  <h3 className={styles.monthTitle}>{MONTHS_LONG[m]} {y}</h3>
+                <section key={first} ref={first === monthStart(from) ? firstMonthRef : undefined} aria-label={`${MONTH_LONG[m]} ${y}`}>
+                  <h3 className={styles.monthTitle}>{MONTH_LONG[m]} {y}</h3>
                   <div className={styles.days}>
                     {Array.from({ length: lead }, (_, i) => <span key={`lead-${i}`} className={styles.day} />)}
                     {Array.from({ length: count }, (_, i) => {
@@ -358,7 +351,7 @@ function RangePicker({
                             type="button"
                             className={styles.dayButton}
                             aria-pressed={isStart || isEnd}
-                            aria-label={`${i + 1} ${MONTHS_LONG[m]} ${y}`}
+                            aria-label={`${i + 1} ${MONTH_LONG[m]} ${y}`}
                             data-today={date === today}
                             onClick={() => pick(date)}
                           >

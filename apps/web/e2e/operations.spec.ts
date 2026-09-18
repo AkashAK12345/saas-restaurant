@@ -66,14 +66,14 @@ test.describe('Banquet — plate approval', () => {
     await expect(mine).toContainText('Waiting for the kitchen');
 
     // The manager holds kitchen rights too, but may not decide their own request.
-    main = await gotoMain(managerPage, '/banquet/kitchen');
+    main = await gotoMain(managerPage, '/banquet/kds');
     const ownList = main.getByRole('list', { name: 'Open plate requests' });
     await expect(ownList).toContainText(`20 × ${dish}`);
     await expect(ownList.getByRole('button', { name: /^Approve/ })).toHaveCount(0);
     await expect(ownList).toContainText('another cook decides');
 
     const chefPage = await staff('chef');
-    const kitchen = await gotoMain(chefPage, '/banquet/kitchen');
+    const kitchen = await gotoMain(chefPage, '/banquet/kds');
     const open = kitchen.getByRole('list', { name: 'Open plate requests' });
     await open.getByRole('button', { name: `Approve 20 plates of ${dish}` }).click();
     await expect(open).toContainText('Approved');

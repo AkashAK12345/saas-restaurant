@@ -532,6 +532,15 @@ export class KdsBoardQueryDto {
   service_date?: string;
 }
 
+/** A branch-local date range for the chef calendar (a week or a month view). */
+export class ChefCalendarQueryDto {
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'from must be YYYY-MM-DD' })
+  from!: string;
+
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'to must be YYYY-MM-DD' })
+  to!: string;
+}
+
 export class FinanceQueryDto {
   @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'from must be YYYY-MM-DD' })
   from!: string;

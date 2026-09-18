@@ -205,7 +205,7 @@ test.describe('Banquet kitchen display (BANQUET_CHEF)', () => {
     const before = kitchenCounts(await board.locator('footer').innerText());
 
     const kitchen = await staff('chef');
-    await kitchen.goto('/banquet/kitchen');
+    await kitchen.goto('/banquet/kds');
     const dish = PACKAGE.dishes[0];
     const staffRow = kitchen.getByRole('listitem').filter({ hasText: dish });
     const boardRow = board.getByRole('listitem').filter({ hasText: dish });

@@ -218,6 +218,27 @@ export interface ChefBookingView {
   items: BanquetBookingItemView[];
 }
 
+/** One event on the chef calendar: what, where, when, for how many — never money. */
+export interface ChefCalendarBookingView extends ChefBookingView {
+  /** The branch-local day the event starts on. */
+  date: string;
+  /** Filled only for callers who also hold banquet.view. */
+  customer_name: string | null;
+  /** The hall slot the event occupies (Lunch, Dinner…), when it lines up with one. */
+  slot_name: string | null;
+  /** The menu's name; empty when no menu was chosen. */
+  package_name: string;
+  setup_notes: string | null;
+}
+
+export interface ChefCalendarView {
+  branch_id: string;
+  from: string;
+  to: string;
+  timezone: string;
+  bookings: ChefCalendarBookingView[];
+}
+
 export interface ChefBoardView {
   branch_id: string;
   /** Branch-local calendar date the board covers, e.g. "2026-09-07". */

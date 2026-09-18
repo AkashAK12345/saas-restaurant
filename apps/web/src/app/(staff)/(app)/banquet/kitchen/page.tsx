@@ -1,54 +1,38 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useAppContext } from '@/lib/context/app-context-provider';
-import { useAuth } from '@/lib/auth/auth-provider';
-import { hasPermission } from '@/lib/auth/permissions';
 import { banquetApi } from '@/lib/banquet/api';
-import { useKdsBoard } from '@/lib/banquet/use-kds-board';
 import {
-  KDS_STATUS_LABEL,
-  PLATE_STATUS_LABEL,
-  type BanquetKdsStatus,
-  type PlateRequest,
-} from '@/lib/banquet/types';
-import type { StreamStatus } from '@/lib/realtime/sse-client';
-import styles from '@/components/banquet/banquet.module.css';
+  MONTH_LONG,
+  MONTH_SHORT,
+  addCalendarDays,
+  addCalendarMonths,
+  branchToday,
+  daysInMonth,
+  deviceTimeZone,
+  formatTime,
+  monthEnd,
+  monthStart,
+} from '@/lib/format/datetime';
+import type { ChefCalendarBooking } from '@/lib/banquet/types';
+import { WEEKDAY_LONG, WEEKDAY_SHORT, dayNum, shortLabel, weekday } from '@/lib/banquet/chef-dates';
+import { ScreenHeader } from '@/components/app/screen-header';
+import { AppIcon } from '@/components/app/icons';
+import styles from '@/components/banquet/chef.module.css';
 
-const ITEM_CLASS: Record<BanquetKdsStatus, string> = {
-  PENDING: styles.itemPending,
-  IN_PROGRESS: styles.itemCooking,
-  READY: styles.itemReady,
-};
-
-const DOT: Record<StreamStatus, string> = {
-  idle: styles.dotWaiting,
-  connecting: styles.dotWaiting,
-  open: styles.dotOpen,
-  reconnecting: styles.dotWaiting,
-  closed: styles.dotClosed,
-};
-
-const clock = (iso: string | null) => {
-  if (!iso) return null;
-  const d = new Date(iso);
-  return Number.isNaN(d.getTime()) ? null : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-};
+type View = 'week' | 'month';
 
 /**
- * The staff kitchen board.
- *
- * Live over SSE and reconciled over REST. Advancing an item is a staff
- * operation (banquet.kds.manage) — the chef display device can only watch.
- *
- * Plate requests from the floor appear here too. Someone other than the person
- * who asked approves or rejects (the API and the database refuse a self-
- * decision); approved plates are then marked dispatched. Every request event
- * arrives on the same kitchen stream, so the list stays live.
+ * The chef display: every confirmed event for a week (a column per day,
+ * starting today) or a month, with what the kitchen needs — plates, hall,
+ * slot — and the menu behind "View details". No money is ever shown here.
  */
-export default function BanquetKitchenPage() {
-  const { selectedCompanyId, selectedBranchId, branchPermissions } = useAppContext();
-  const { user } = useAuth();
+export default function BanquetChefPage() {
+  const { selectedCompanyId, selectedBranchId, selectedBranch } = useAppContext();
+  const tz = selectedBranch?.timezone ?? deviceTimeZone();
   const ctx = useMemo(
     () =>
       selectedCompanyId && selectedBranchId
@@ -57,280 +41,212 @@ export default function BanquetKitchenPage() {
     [selectedCompanyId, selectedBranchId],
   );
 
-  const { board, loading, error, stream, updatedAt, refresh } = useKdsBoard(ctx);
-  const mayManage = hasPermission(branchPermissions, 'banquet.kds.manage');
-  const [busy, setBusy] = useState(false);
-  const [actionError, setActionError] = useState<string | null>(null);
-  const [plates, setPlates] = useState<PlateRequest[] | null>(null);
-  const [platesError, setPlatesError] = useState<string | null>(null);
-  const [rejecting, setRejecting] = useState<string | null>(null);
-  const [reason, setReason] = useState('');
+  const today = branchToday(tz);
+  // View and day live in the address, so returning from an event's details
+  // lands on the same week or month.
+  const router = useRouter();
+  const search = useSearchParams();
+  const initialView: View = search.get('view') === 'month' ? 'month' : 'week';
+  const initialDate = /^\d{4}-\d{2}-\d{2}$/.test(search.get('date') ?? '') ? search.get('date')! : today;
+  const [view, setView] = useState<View>(initialView);
+  // The week's first day, or any day in the month shown.
+  const [anchor, setAnchor] = useState(initialDate);
+  const [selectedDay, setSelectedDay] = useState(initialDate);
+  const [bookings, setBookings] = useState<ChefCalendarBooking[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  const serviceDate = board?.service_date;
-  // Every board refresh (an action here, or any kitchen event on the stream)
-  // re-reads the plate requests for the same day.
+  const here = `/banquet/kitchen?view=${view}&date=${view === 'week' ? anchor : selectedDay}`;
   useEffect(() => {
-    if (!ctx || !serviceDate) return;
-    let cancelled = false;
-    void (async () => {
-      try {
-        const res = await banquetApi.kitchenPlateRequests(ctx, serviceDate);
-        if (!cancelled) {
-          setPlates(res?.requests ?? []);
-          setPlatesError(null);
-        }
-      } catch (e) {
-        if (!cancelled) setPlatesError(e instanceof Error ? e.message : 'Could not load plate requests');
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [ctx, serviceDate, updatedAt]);
+    router.replace(here, { scroll: false });
+  }, [router, here]);
 
-  const advance = async (fn: () => Promise<unknown>) => {
-    setBusy(true);
-    setActionError(null);
+  const range = useMemo(
+    () =>
+      view === 'week'
+        ? { from: anchor, to: addCalendarDays(anchor, 6) }
+        : { from: monthStart(anchor), to: monthEnd(anchor) },
+    [view, anchor],
+  );
+
+  const load = useCallback(async () => {
+    if (!ctx) return;
     try {
-      await fn();
+      const res = await banquetApi.chefCalendar(ctx, range);
+      setBookings(res.bookings);
+      setError(null);
     } catch (e) {
-      setActionError(e instanceof Error ? e.message : 'The action failed');
-    } finally {
-      await refresh();
-      setBusy(false);
+      setError(e instanceof Error ? e.message : 'Failed to load the events');
+    }
+  }, [ctx, range]);
+
+  useEffect(() => {
+    // Wrapped so no state update happens synchronously inside the effect.
+    void (async () => {
+      await load();
+    })();
+  }, [load]);
+
+  const byDay = useMemo(() => {
+    const map = new Map<string, ChefCalendarBooking[]>();
+    for (const b of bookings ?? []) map.set(b.date, [...(map.get(b.date) ?? []), b]);
+    return map;
+  }, [bookings]);
+
+  const switchView = (next: View) => {
+    setView(next);
+    setAnchor(today);
+    setSelectedDay(today);
+  };
+  const step = (direction: -1 | 1) => {
+    if (view === 'week') {
+      setAnchor((a) => addCalendarDays(a, direction * 7));
+    } else {
+      const next = addCalendarMonths(anchor, direction);
+      setAnchor(next);
+      setSelectedDay(next.slice(0, 7) === today.slice(0, 7) ? today : next);
     }
   };
+  const goToday = () => {
+    setAnchor(today);
+    setSelectedDay(today);
+  };
 
-  if (loading) {
-    return (
-      <p role="status" aria-live="polite">
-        Loading the kitchen board…
+  const bandLabel =
+    view === 'week'
+      ? `${shortLabel(range.from)} - ${shortLabel(range.to)}`
+      : `${MONTH_LONG[Number(anchor.slice(5, 7)) - 1]} ${anchor.slice(0, 4)}`;
+  const count = bookings?.length ?? 0;
+
+  const card = (b: ChefCalendarBooking) => (
+    <article key={b.id} className={styles.card}>
+      <h3 className={styles.cardName}>{b.customer_name ?? 'Event'}</h3>
+      <p className={styles.cardLine}>
+        <AppIcon name="people" size={15} />
+        <span>{b.guest_count} pax</span>
       </p>
-    );
-  }
+      <p className={styles.cardLine}>
+        <AppIcon name="pin" size={15} />
+        <span>{b.hall_name}</span>
+      </p>
+      <p className={styles.cardLine}>
+        <AppIcon name="clock" size={15} />
+        <span>{b.slot_name ?? `${formatTime(b.starts_at, tz)} – ${formatTime(b.ends_at, tz)}`}</span>
+      </p>
+      <Link
+        href={`/banquet/kitchen/${b.id}?back=${encodeURIComponent(here)}`}
+        className={styles.details}
+        aria-label={`View details for ${b.customer_name ?? 'event'} on ${shortLabel(b.date)}`}
+      >
+        View details <AppIcon name="chevronRight" size={15} />
+      </Link>
+    </article>
+  );
 
-  if (error && !board) {
-    return (
-      <div role="alert" className={styles.error}>
-        <p>{error}</p>
-        <button type="button" className={styles.action} onClick={() => void refresh()}>
-          Try again
-        </button>
-      </div>
-    );
-  }
-
-  if (!board) return null;
-
-  const open = (plates ?? []).filter((p) => p.status === 'REQUESTED' || p.status === 'APPROVED');
-  const closed = (plates ?? []).filter((p) => p.status === 'REJECTED' || p.status === 'DISPATCHED');
+  const header = <ScreenHeader crumb="Banquet" title="Chef Display" plain />;
+  if (!ctx) return header;
 
   return (
     <>
-      <h1>Kitchen</h1>
+      {header}
 
-      <div className={styles.bar}>
-        <span className={styles.meta}>
-          {board.service_date} · {board.counts.events} events · {board.counts.pending} pending ·{' '}
-          {board.counts.in_progress} cooking · {board.counts.ready} ready
+      <div className={styles.band}>
+        <AppIcon name="calendar" size={24} />
+        <h2 className={styles.bandRange}>{bandLabel}</h2>
+        <span className={styles.bandCount}>
+          {bookings ? `${count} ${count === 1 ? 'booking' : 'bookings'}` : ''}
         </span>
-        <span className={styles.spacer} />
-        <span className={styles.stream} role="status" aria-live="polite">
-          <span className={`${styles.dot} ${DOT[stream]}`} aria-hidden="true" />
-          {stream === 'open' ? 'Live' : 'Reconnecting…'}
-        </span>
-        <button type="button" className={styles.action} onClick={() => void refresh()} disabled={busy}>
-          Refresh
-        </button>
       </div>
 
-      {actionError ? (
-        <div role="alert" className={styles.error}>
-          {actionError}
+      <div className={styles.controls}>
+        <div className={styles.segmented} role="group" aria-label="Calendar view">
+          <button type="button" className={styles.segment} aria-pressed={view === 'week'} onClick={() => switchView('week')}>
+            Weekly
+          </button>
+          <button type="button" className={styles.segment} aria-pressed={view === 'month'} onClick={() => switchView('month')}>
+            Monthly
+          </button>
         </div>
-      ) : null}
-      {error ? (
-        <div role="alert" className={styles.error}>
-          {error}
+        <div className={styles.nav}>
+          <button
+            type="button"
+            className={`${styles.navButton} ${styles.navPrev}`}
+            aria-label={view === 'week' ? 'Previous week' : 'Previous month'}
+            onClick={() => step(-1)}
+          >
+            <AppIcon name="chevronRight" size={16} />
+          </button>
+          <button type="button" className={styles.navButton} onClick={goToday}>Today</button>
+          <button
+            type="button"
+            className={styles.navButton}
+            aria-label={view === 'week' ? 'Next week' : 'Next month'}
+            onClick={() => step(1)}
+          >
+            <AppIcon name="chevronRight" size={16} />
+          </button>
         </div>
-      ) : null}
+      </div>
 
-      <section className={styles.panel} aria-labelledby="plates-title">
-        <h2 className={styles.panelTitle} id="plates-title">
-          Plate requests
-        </h2>
-        {platesError ? (
-          <p role="alert" className={styles.error}>
-            {platesError}
-          </p>
-        ) : plates === null ? (
-          <p role="status" aria-live="polite">
-            Loading plate requests…
-          </p>
-        ) : plates.length === 0 ? (
-          <p className={styles.empty}>No plate requests for this day.</p>
-        ) : (
-          <>
-            {open.length === 0 ? <p className={styles.empty}>Nothing waiting on the kitchen.</p> : null}
-            <ul className={styles.items} aria-label="Open plate requests">
-              {open.map((p) => {
-                const own = p.requested_by.id === user?.id;
-                return (
-                  <li key={p.id} className={styles.item}>
-                    <span className={styles.itemName}>
-                      {p.plates} × {p.item.name}
-                      <span className={styles.meta}>
-                        {' '}
-                        · {p.hall_name ?? 'Hall'} · asked by {p.requested_by.name} at {clock(p.requested_at)}
-                        {p.note ? ` · “${p.note}”` : ''}
-                      </span>
-                    </span>
-                    <span className={styles.badge}>{PLATE_STATUS_LABEL[p.status]}</span>
-                    {mayManage && p.status === 'REQUESTED' && !own && rejecting !== p.id ? (
-                      <>
-                        <button
-                          type="button"
-                          className={`${styles.action} ${styles.primary}`}
-                          disabled={busy}
-                          aria-label={`Approve ${p.plates} plates of ${p.item.name}`}
-                          onClick={() => void advance(() => banquetApi.approvePlates(ctx!, p.id))}
-                        >
-                          Approve
-                        </button>
-                        <button
-                          type="button"
-                          className={styles.action}
-                          disabled={busy}
-                          aria-label={`Reject ${p.plates} plates of ${p.item.name}`}
-                          onClick={() => {
-                            setRejecting(p.id);
-                            setReason('');
-                          }}
-                        >
-                          Reject
-                        </button>
-                      </>
-                    ) : null}
-                    {mayManage && p.status === 'REQUESTED' && own ? (
-                      <span className={styles.meta}>Your request — another cook decides</span>
-                    ) : null}
-                    {mayManage && p.status === 'APPROVED' ? (
-                      <button
-                        type="button"
-                        className={`${styles.action} ${styles.primary}`}
-                        disabled={busy}
-                        aria-label={`Dispatch ${p.plates} plates of ${p.item.name}`}
-                        onClick={() => void advance(() => banquetApi.dispatchPlates(ctx!, p.id))}
-                      >
-                        Dispatched
-                      </button>
-                    ) : null}
-                    {rejecting === p.id ? (
-                      <form
-                        className={styles.bar}
-                        onSubmit={(e) => {
-                          e.preventDefault();
-                          if (!reason.trim()) return;
-                          void advance(async () => {
-                            await banquetApi.rejectPlates(ctx!, p.id, reason.trim());
-                            setRejecting(null);
-                          });
-                        }}
-                      >
-                        <label className={styles.label} htmlFor={`reject-${p.id}`}>
-                          Reason for rejecting
-                        </label>
-                        <input
-                          id={`reject-${p.id}`}
-                          className={styles.input}
-                          maxLength={200}
-                          value={reason}
-                          onChange={(e) => setReason(e.target.value)}
-                        />
-                        <button type="submit" className={styles.action} disabled={busy || !reason.trim()}>
-                          Confirm rejection
-                        </button>
-                        <button type="button" className={styles.action} onClick={() => setRejecting(null)}>
-                          Keep it
-                        </button>
-                      </form>
-                    ) : null}
-                  </li>
-                );
-              })}
-            </ul>
-            {closed.length > 0 ? (
-              <details>
-                <summary>Done today ({closed.length})</summary>
-                <ul className={styles.items} aria-label="Finished plate requests">
-                  {closed.map((p) => (
-                    <li key={p.id} className={styles.item}>
-                      <span className={styles.itemName}>
-                        {p.plates} × {p.item.name}
-                        <span className={styles.meta}>
-                          {' '}
-                          · {p.status === 'REJECTED' ? `rejected by ${p.decided_by?.name ?? '—'}: ${p.rejection_reason}` : `dispatched by ${p.dispatched_by?.name ?? '—'}`}
-                        </span>
-                      </span>
-                      <span className={styles.badge}>{PLATE_STATUS_LABEL[p.status]}</span>
-                    </li>
-                  ))}
-                </ul>
-              </details>
-            ) : null}
-          </>
-        )}
-      </section>
+      {error ? <p role="alert" className={styles.error}>{error}</p> : null}
 
-      {board.bookings.length === 0 ? (
-        <p className={styles.empty}>No confirmed events for this day.</p>
+      {!bookings && !error ? (
+        <p className={styles.loading}>Loading…</p>
+      ) : view === 'week' ? (
+        <div className={styles.week}>
+          {Array.from({ length: 7 }, (_, i) => {
+            const date = addCalendarDays(range.from, i);
+            const events = byDay.get(date) ?? [];
+            return (
+              <section key={date} className={styles.day} aria-label={`${WEEKDAY_LONG[weekday(date)]} ${shortLabel(date)}`}>
+                <div className={styles.dayHead} data-today={date === today}>
+                  <span className={styles.dayName}>{WEEKDAY_SHORT[weekday(date)]}</span>
+                  <span className={styles.dayNum}>{dayNum(date)}</span>
+                </div>
+                {events.length > 0 ? events.map(card) : <p className={styles.dayEmpty}>No bookings</p>}
+              </section>
+            );
+          })}
+        </div>
       ) : (
-        <div className={styles.kdsGrid}>
-          {board.bookings.map((b) => (
-            <section key={b.id} className={styles.panel}>
-              <div className={styles.cardTop}>
-                <span className={styles.title}>{b.hall_name}</span>
-                <span className={styles.spacer} />
-                <span className={styles.meta}>{b.guest_count} guests</span>
-              </div>
-              <div className={styles.meta}>
-                {b.customer_name ? `${b.customer_name} · ` : ''}
-                {clock(b.service_at) ? `service ${clock(b.service_at)}` : `starts ${clock(b.starts_at)}`}
-              </div>
-              {b.kitchen_notes ? <p className={styles.notice}>{b.kitchen_notes}</p> : null}
-
-              <ul className={styles.items}>
-                {b.items.map((i) => (
-                  <li key={i.id} className={`${styles.item} ${ITEM_CLASS[i.kds_status]}`}>
-                    <span className={styles.itemName}>{i.name}</span>
-                    <span className={styles.badge}>{KDS_STATUS_LABEL[i.kds_status]}</span>
-                    {mayManage && i.kds_status === 'PENDING' ? (
-                      <button
-                        type="button"
-                        className={styles.action}
-                        disabled={busy}
-                        onClick={() => void advance(() => banquetApi.startItem(ctx!, i.id))}
-                      >
-                        Start
-                      </button>
-                    ) : null}
-                    {mayManage && i.kds_status !== 'READY' ? (
-                      <button
-                        type="button"
-                        className={`${styles.action} ${styles.primary}`}
-                        disabled={busy}
-                        onClick={() => void advance(() => banquetApi.readyItem(ctx!, i.id))}
-                      >
-                        Ready
-                      </button>
-                    ) : null}
-                  </li>
-                ))}
-              </ul>
-            </section>
-          ))}
+        <div className={styles.month}>
+          <div className={styles.weekdays} aria-hidden="true">
+            {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((d, i) => <span key={i}>{d}</span>)}
+          </div>
+          <div className={styles.grid}>
+            {Array.from({ length: weekday(monthStart(anchor)) }, (_, i) => <span key={`lead-${i}`} />)}
+            {Array.from({ length: daysInMonth(anchor) }, (_, i) => {
+              const date = `${anchor.slice(0, 7)}-${String(i + 1).padStart(2, '0')}`;
+              const n = byDay.get(date)?.length ?? 0;
+              return (
+                <button
+                  key={date}
+                  type="button"
+                  className={styles.cell}
+                  aria-pressed={date === selectedDay}
+                  aria-label={`${i + 1} ${MONTH_LONG[Number(date.slice(5, 7)) - 1]}, ${n} ${n === 1 ? 'booking' : 'bookings'}`}
+                  data-today={date === today}
+                  onClick={() => setSelectedDay(date)}
+                >
+                  <span className={styles.cellNum}>{i + 1}</span>
+                  {n > 0 ? <span className={styles.cellCount}>{n}</span> : <span className={styles.cellCountEmpty} />}
+                </button>
+              );
+            })}
+          </div>
+          <div className={styles.dayList}>
+            <h3 className={styles.dayTitle}>
+              {WEEKDAY_LONG[weekday(selectedDay)]}, {dayNum(selectedDay)} {MONTH_SHORT[Number(selectedDay.slice(5, 7)) - 1]}
+            </h3>
+            {(byDay.get(selectedDay) ?? []).length > 0 ? (
+              (byDay.get(selectedDay) ?? []).map(card)
+            ) : (
+              <p className={styles.monthEmpty}>No bookings</p>
+            )}
+          </div>
         </div>
       )}
+
     </>
   );
 }
+

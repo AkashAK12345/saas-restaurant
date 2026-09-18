@@ -42,6 +42,8 @@ const apiMock = vi.hoisted(() => ({
   dispatchPlates: vi.fn(),
   listPhotos: vi.fn(),
   finance: vi.fn(),
+  chefCalendar: vi.fn(),
+  chefEvent: vi.fn(),
 }));
 
 vi.mock('@/lib/auth/auth-provider', () => ({
@@ -106,14 +108,17 @@ vi.mock('@/lib/display/display-api', async () => {
 import BookingDetailPage from './(staff)/(app)/banquet/[id]/page';
 import BookingEditPage from './(staff)/(app)/banquet/[id]/edit/page';
 import BanquetLayout from './(staff)/(app)/banquet/layout';
-import KitchenPage from './(staff)/(app)/banquet/kitchen/page';
+import { ScreenTabBar } from '@/components/app/screen-tab-bar';
+import KdsPage from './(staff)/(app)/banquet/kds/page';
+import ChefPage from './(staff)/(app)/banquet/kitchen/page';
+import ChefEventPage from './(staff)/(app)/banquet/kitchen/[id]/page';
 import BookingsPage from './(staff)/(app)/banquet/page';
 import CatalogPage from './(staff)/(app)/banquet/catalog/page';
 import CalendarPage from './(staff)/(app)/banquet/calendar/page';
 import BillPage from './(staff)/(app)/banquet/[id]/bill/page';
 import KotPage from './(staff)/(app)/banquet/[id]/kot/page';
 import FinancePage from './(staff)/(app)/banquet/finance/page';
-import { branchToday } from '@/lib/format/datetime';
+import { addCalendarDays, branchToday, daysInMonth } from '@/lib/format/datetime';
 import ChefDisplayPage from './(display)/display/banquet/page';
 import { deviceSession } from '@/lib/display/device-session';
 
@@ -1193,6 +1198,34 @@ describe('Banquet sub-navigation', () => {
     expect(within(bar).getByRole('link', { name: 'Home' }).getAttribute('href')).toBe('/');
   });
 
+  it('keeps Chef marked on an event\'s details screen beneath it', () => {
+    pathname = '/banquet/kitchen/ev-1';
+    render(
+      <BanquetLayout>
+        <p>child</p>
+      </BanquetLayout>,
+    );
+    const bar = screen.getByRole('navigation', { name: 'Banquet sections' });
+    expect(within(bar).getByRole('link', { name: 'Chef' }).getAttribute('aria-current')).toBe('page');
+    expect(within(bar).getByRole('link', { name: 'KDS' }).getAttribute('aria-current')).toBeNull();
+  });
+
+  it('prefers an exact tab over a parent one', () => {
+    pathname = '/queue/podium';
+    render(
+      <ScreenTabBar
+        label="Queue screens"
+        items={[
+          { key: 'q', href: '/queue', tab: 'Queue', icon: 'queue', tone: 'blue' },
+          { key: 'p', href: '/queue/podium', tab: 'Podium', icon: 'people', tone: 'green' },
+        ]}
+      />,
+    );
+    const bar = screen.getByRole('navigation', { name: 'Queue screens' });
+    expect(within(bar).getByRole('link', { name: 'Podium' }).getAttribute('aria-current')).toBe('page');
+    expect(within(bar).getByRole('link', { name: 'Queue' }).getAttribute('aria-current')).toBeNull();
+  });
+
   // The main nav and the home card open /banquet (bookings). A chef may use
   // the kitchen only, and used to land on a refusal instead.
   it('sends someone who may only use the kitchen from /banquet to the kitchen', () => {
@@ -1296,7 +1329,7 @@ describe('Staff kitchen board', () => {
   it('lists plate requests for the board’s day and approves one someone else asked for', async () => {
     apiMock.kitchenPlateRequests.mockResolvedValue({ service_date: '2027-11-20', requests: [plate()] });
     apiMock.approvePlates.mockResolvedValue(plate({ status: 'APPROVED' }));
-    render(<KitchenPage />);
+    render(<KdsPage />);
     const open = await screen.findByRole('list', { name: 'Open plate requests' });
     expect(open.textContent).toMatch('20 × Paneer Tikka');
     expect(open.textContent).toMatch('asked by Sam');
@@ -1312,7 +1345,7 @@ describe('Staff kitchen board', () => {
       service_date: '2027-11-20',
       requests: [plate({ requested_by: { id: 'u-me', name: 'Me' } })],
     });
-    render(<KitchenPage />);
+    render(<KdsPage />);
     await screen.findByRole('list', { name: 'Open plate requests' });
     expect(screen.queryByRole('button', { name: /^Approve/ })).toBeNull();
     expect(screen.queryByRole('button', { name: /^Reject/ })).toBeNull();
@@ -1326,7 +1359,7 @@ describe('Staff kitchen board', () => {
     });
     apiMock.rejectPlates.mockResolvedValue(plate({ status: 'REJECTED' }));
     apiMock.dispatchPlates.mockResolvedValue(plate({ id: 'pr-2', status: 'DISPATCHED' }));
-    render(<KitchenPage />);
+    render(<KdsPage />);
     await screen.findByRole('list', { name: 'Open plate requests' });
 
     fireEvent.click(screen.getByRole('button', { name: 'Reject 20 plates of Paneer Tikka' }));
@@ -1336,26 +1369,29 @@ describe('Staff kitchen board', () => {
     fireEvent.click(confirm);
     await waitFor(() => expect(apiMock.rejectPlates).toHaveBeenCalledWith({ companyId: 'co-1', branchId: 'br-1' }, 'pr-1', 'Out of paneer'));
 
-    fireEvent.click(screen.getByRole('button', { name: 'Dispatch 5 plates of Dal' }));
+    // The board is busy until the rejection has been reconciled; a click before then is ignored.
+    const dispatch = () => screen.getByRole('button', { name: 'Dispatch 5 plates of Dal' }) as HTMLButtonElement;
+    await waitFor(() => expect(dispatch().disabled).toBe(false));
+    fireEvent.click(dispatch());
     await waitFor(() => expect(apiMock.dispatchPlates).toHaveBeenCalledWith({ companyId: 'co-1', branchId: 'br-1' }, 'pr-2'));
   });
 
   it('shows plate requests read-only without banquet.kds.manage, and says why a list failed', async () => {
     branchPermissions = ['banquet.kds.view'];
     apiMock.kitchenPlateRequests.mockResolvedValue({ service_date: '2027-11-20', requests: [plate({ status: 'APPROVED' })] });
-    const { unmount } = render(<KitchenPage />);
+    const { unmount } = render(<KdsPage />);
     await screen.findByRole('list', { name: 'Open plate requests' });
     expect(screen.queryByRole('button', { name: /^Dispatch/ })).toBeNull();
     unmount();
 
     apiMock.kitchenPlateRequests.mockRejectedValue(new Error('Forbidden'));
-    render(<KitchenPage />);
+    render(<KdsPage />);
     expect((await screen.findAllByRole('alert')).some((a) => /Forbidden/.test(a.textContent ?? ''))).toBe(true);
     expect(screen.queryByText('No plate requests for this day.')).toBeNull();
   });
 
   it('shows the events, the kitchen notes and the customer', async () => {
-    render(<KitchenPage />);
+    render(<KdsPage />);
     expect(await screen.findByText('Crystal')).toBeTruthy();
     expect(screen.getByText('Paneer Tikka')).toBeTruthy();
     expect(screen.getByText('No nuts')).toBeTruthy();
@@ -1363,7 +1399,7 @@ describe('Staff kitchen board', () => {
   });
 
   it('advances an item and reconciles', async () => {
-    render(<KitchenPage />);
+    render(<KdsPage />);
     await screen.findByText('Crystal');
     apiMock.kdsBoard.mockClear();
 
@@ -1376,7 +1412,7 @@ describe('Staff kitchen board', () => {
   });
 
   it('refetches when a banquet event arrives', async () => {
-    render(<KitchenPage />);
+    render(<KdsPage />);
     await screen.findByText('Crystal');
     await waitFor(() => expect(FakeEventSource.last()).toBeDefined());
     apiMock.kdsBoard.mockResolvedValue(
@@ -1388,7 +1424,7 @@ describe('Staff kitchen board', () => {
   });
 
   it('puts only the ticket in the stream URL', async () => {
-    render(<KitchenPage />);
+    render(<KdsPage />);
     await waitFor(() => expect(FakeEventSource.last()).toBeDefined());
     const url = FakeEventSource.last()!.url;
     expect(url).toContain(`ticket=${'a'.repeat(64)}`);
@@ -1397,7 +1433,7 @@ describe('Staff kitchen board', () => {
 
   it('hides the advance buttons without banquet.kds.manage', async () => {
     branchPermissions = ['banquet.view', 'banquet.kds.view'];
-    render(<KitchenPage />);
+    render(<KdsPage />);
     await screen.findByText('Crystal');
     expect(screen.queryByRole('button', { name: 'Start' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Ready' })).toBeNull();
@@ -1571,6 +1607,156 @@ describe('New booking', () => {
     expect(await screen.findByText('No bookings match these filters.')).toBeTruthy();
   });
 
+});
+
+// ── chef display ─────────────────────────────────────────────────────────────
+
+describe('Chef display', () => {
+  const today = branchToday('Asia/Kolkata');
+  const plus = (n: number) => addCalendarDays(today, n);
+  const event = (over: Record<string, unknown> = {}) => ({
+    id: 'ev-1',
+    branch_id: 'br-1',
+    date: today,
+    customer_name: 'John',
+    hall_name: 'Crown Hall',
+    slot_name: 'Lunch',
+    guest_count: 100,
+    starts_at: `${today}T06:30:00.000Z`,
+    ends_at: `${today}T09:30:00.000Z`,
+    service_at: null,
+    kitchen_notes: null,
+    setup_notes: null,
+    status: 'CONFIRMED',
+    package_name: 'Silver',
+    items: [{ id: 'i-1', name: 'Paneer tikka', position: 0, kds_status: 'PENDING', started_at: null, ready_at: null }],
+    ...over,
+  });
+  const calendar = (bookings: unknown[]) => ({ branch_id: 'br-1', from: today, to: plus(6), timezone: 'Asia/Kolkata', bookings });
+
+  beforeEach(() => {
+    for (const fn of Object.values(apiMock)) fn.mockReset();
+    branchPermissions = ['banquet.kds.view', 'banquet.view'];
+    selectedBranchId = 'br-1';
+    pathname = '/banquet/kitchen';
+    apiMock.chefCalendar.mockResolvedValue(
+      calendar([
+        event(),
+        event({ id: 'ev-2', date: plus(2), customer_name: 'Rajendran', slot_name: 'Dinner', package_name: '', items: [] }),
+      ]),
+    );
+  });
+
+  it('shows a week from today, a column per day, with each event\'s plates, hall and slot', async () => {
+    render(<ChefPage />);
+    const card = (await screen.findByText('John')).closest('article')!;
+    expect(apiMock.chefCalendar).toHaveBeenCalledWith({ companyId: 'co-1', branchId: 'br-1' }, { from: today, to: plus(6) });
+    expect(within(card).getByText('100 pax')).toBeTruthy();
+    expect(within(card).getByText('Crown Hall')).toBeTruthy();
+    expect(within(card).getByText('Lunch')).toBeTruthy();
+    expect(screen.getByText('2 bookings')).toBeTruthy();
+    // Seven day columns; a day without events says so.
+    expect(document.querySelectorAll('section[aria-label]').length).toBe(7);
+    expect(screen.getAllByText('No bookings').length).toBe(5);
+  });
+
+  it('opens View details as its own screen that knows the way back to this week', async () => {
+    render(<ChefPage />);
+    await screen.findByText('John');
+    const link = screen.getByRole('link', { name: /^View details for John/ });
+    const href = new URL(link.getAttribute('href')!, 'http://x');
+    expect(href.pathname).toBe('/banquet/kitchen/ev-1');
+    expect(href.searchParams.get('back')).toBe(`/banquet/kitchen?view=week&date=${today}`);
+  });
+
+  it('keeps the view and day in the address, and restores them from it', async () => {
+    searchParams = new URLSearchParams(`view=month&date=${plus(2)}`);
+    render(<ChefPage />);
+    expect(await screen.findByText('Rajendran')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Monthly' }).getAttribute('aria-pressed')).toBe('true');
+    await waitFor(() =>
+      expect(router.replace).toHaveBeenLastCalledWith(`/banquet/kitchen?view=month&date=${plus(2)}`, { scroll: false }),
+    );
+    searchParams = new URLSearchParams();
+  });
+
+  it('calls an event "Event" for someone who may not see who it is for', async () => {
+    apiMock.chefCalendar.mockResolvedValue(calendar([event({ customer_name: null })]));
+    render(<ChefPage />);
+    expect(await screen.findByText('Event')).toBeTruthy();
+  });
+
+  it('switches to a month with a count per day, and lists the day tapped', async () => {
+    render(<ChefPage />);
+    await screen.findByText('John');
+    fireEvent.click(screen.getByRole('button', { name: 'Monthly' }));
+
+    await waitFor(() =>
+      expect(apiMock.chefCalendar).toHaveBeenLastCalledWith(expect.anything(), {
+        from: `${today.slice(0, 7)}-01`,
+        to: `${today.slice(0, 7)}-${String(daysInMonth(today)).padStart(2, '0')}`,
+      }),
+    );
+    const dayCell = await screen.findByRole('button', { name: new RegExp(`^${Number(today.slice(8, 10))} \\w+, 1 booking$`) });
+    expect(dayCell.getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByText('John')).toBeTruthy();
+  });
+
+  describe('event details screen', () => {
+    afterEach(() => {
+      searchParams = new URLSearchParams();
+    });
+
+    it('shows the event full screen with its menu, and goes back to the week it came from', async () => {
+      apiMock.chefEvent.mockResolvedValue(event());
+      searchParams = new URLSearchParams(`back=${encodeURIComponent(`/banquet/kitchen?view=week&date=${today}`)}`);
+      render(<ChefEventPage />);
+
+      expect(await screen.findByRole('heading', { name: 'John', level: 1 })).toBeTruthy();
+      expect(apiMock.chefEvent).toHaveBeenCalledWith({ companyId: 'co-1', branchId: 'br-1' }, 'bk-1');
+      expect(screen.getByText('100 pax')).toBeTruthy();
+      expect(screen.getByText(/^Lunch · /)).toBeTruthy();
+      expect(screen.getByText('Menu — Silver')).toBeTruthy();
+      expect(screen.getByText('Paneer tikka')).toBeTruthy();
+      expect(screen.getByRole('link', { name: 'Back to Chef Display' }).getAttribute('href')).toBe(
+        `/banquet/kitchen?view=week&date=${today}`,
+      );
+    });
+
+    it('leaves the menu out when none was chosen', async () => {
+      apiMock.chefEvent.mockResolvedValue(event({ customer_name: 'Rajendran', slot_name: 'Dinner', package_name: '', items: [] }));
+      render(<ChefEventPage />);
+      await screen.findByRole('heading', { name: 'Rajendran', level: 1 });
+      expect(screen.queryByText(/^Menu/)).toBeNull();
+    });
+
+    it('never follows a back address outside the chef display', async () => {
+      apiMock.chefEvent.mockResolvedValue(event());
+      searchParams = new URLSearchParams('back=https://evil.example/');
+      render(<ChefEventPage />);
+      await screen.findByRole('heading', { name: 'John', level: 1 });
+      expect(screen.getByRole('link', { name: 'Back to Chef Display' }).getAttribute('href')).toBe('/banquet/kitchen');
+    });
+
+    it('says why an event cannot be shown', async () => {
+      apiMock.chefEvent.mockRejectedValue(new Error('Not Found'));
+      render(<ChefEventPage />);
+      expect((await screen.findByRole('alert')).textContent).toMatch(/Not Found/);
+    });
+  });
+
+  it('moves a week at a time and comes back with Today', async () => {
+    render(<ChefPage />);
+    await screen.findByText('John');
+    fireEvent.click(screen.getByRole('button', { name: 'Next week' }));
+    await waitFor(() =>
+      expect(apiMock.chefCalendar).toHaveBeenLastCalledWith(expect.anything(), { from: plus(7), to: plus(13) }),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Today' }));
+    await waitFor(() =>
+      expect(apiMock.chefCalendar).toHaveBeenLastCalledWith(expect.anything(), { from: today, to: plus(6) }),
+    );
+  });
 });
 
 // ── finance overview ─────────────────────────────────────────────────────────

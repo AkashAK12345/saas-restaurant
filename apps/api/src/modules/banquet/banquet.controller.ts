@@ -27,6 +27,7 @@ import { BanquetPlatesService } from './banquet-plates.service.js';
 import {
   AvailabilityQueryDto,
   CancelBookingDto,
+  ChefCalendarQueryDto,
   CreateAdjustmentDto,
   CreateBookingDto,
   CreateHallDto,
@@ -246,6 +247,45 @@ export class BanquetController {
       PERMISSION_KEYS.BANQUET_VIEW,
     );
     return this.kds.staffBoard(branchId, query.service_date, includeCustomer);
+  }
+
+  /** The chef calendar: a week or month of confirmed events with their menus. */
+  @Get('kds/calendar')
+  @UseGuards(PermissionGuard)
+  @RequireBranchPermission(PERMISSION_KEYS.BANQUET_KDS_VIEW)
+  async chefCalendar(
+    @Headers('x-company-id') companyId: string,
+    @Headers('x-branch-id') branchId: string,
+    @Query() query: ChefCalendarQueryDto,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    // Same rule as the board: who an event is for is banquet data.
+    const includeCustomer = await this.authorization.hasBranchPermission(
+      req.user.id,
+      companyId,
+      branchId,
+      PERMISSION_KEYS.BANQUET_VIEW,
+    );
+    return this.kds.chefCalendar(branchId, query.from, query.to, includeCustomer);
+  }
+
+  /** One calendar event, for its full-screen details. */
+  @Get('kds/events/:id')
+  @UseGuards(PermissionGuard)
+  @RequireBranchPermission(PERMISSION_KEYS.BANQUET_KDS_VIEW)
+  async chefEvent(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Headers('x-company-id') companyId: string,
+    @Headers('x-branch-id') branchId: string,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    const includeCustomer = await this.authorization.hasBranchPermission(
+      req.user.id,
+      companyId,
+      branchId,
+      PERMISSION_KEYS.BANQUET_VIEW,
+    );
+    return this.kds.chefEvent(branchId, id, includeCustomer);
   }
 
   @Post('kds/items/:id/start')

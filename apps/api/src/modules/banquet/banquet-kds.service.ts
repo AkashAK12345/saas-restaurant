@@ -1,4 +1,10 @@
-import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Inject,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import {
   AuditEventType,
   BanquetBookingStatus,
@@ -13,7 +19,12 @@ import {
   type RealtimeScope,
 } from '../../common/realtime/event-broker.js';
 import { RealtimeChannel } from '../../common/realtime/channels.js';
-import { branchLocalDate, toBranchLocal } from '../../common/scheduler/branch-time.js';
+import {
+  branchLocalDate,
+  branchLocalToInstant,
+  toBranchLocal,
+} from '../../common/scheduler/branch-time.js';
+import { addDays, isCalendarDate } from './banquet-catalog.service.js';
 import type { BanquetActorContext } from './banquet-context.js';
 import {
   InvalidKdsTransitionError,
@@ -28,6 +39,8 @@ import {
 import type {
   BanquetBookingItemView,
   ChefBoardView,
+  ChefCalendarBookingView,
+  ChefCalendarView,
   StaffKdsBoardView,
 } from './banquet-views.js';
 
@@ -35,6 +48,10 @@ const AUDIT_ITEM = 'BANQUET_BOOKING_ITEM';
 
 /** One branch-day of events is far below this; the cap just bounds the query. */
 const BOARD_MAX_BOOKINGS = 200;
+
+/** A month view spans at most six weeks. */
+export const CALENDAR_MAX_DAYS = 42;
+const CALENDAR_MAX_BOOKINGS = 1000;
 
 /**
  * The kitchen board and the item lifecycle behind it.
@@ -89,6 +106,125 @@ export class BanquetKdsService {
       bookings: rows.map((b) => this.bookings.toChefView(b)),
       counts: this.countItems(rows),
     };
+  }
+
+  /**
+   * The chef calendar: every confirmed or completed event starting within a
+   * branch-local date range (a week or a month), with its menu. Drafts stay
+   * invisible to the kitchen, as on the board. Each event is matched to the
+   * hall slot it sits in (Lunch, Dinner…) by its branch-local start time.
+   */
+  async chefCalendar(
+    branchId: string,
+    from: string,
+    to: string,
+    includeCustomer = false,
+  ): Promise<ChefCalendarView> {
+    if (!isCalendarDate(from) || !isCalendarDate(to)) {
+      throw new BadRequestException('from and to must be real calendar dates');
+    }
+    if (to < from) throw new BadRequestException('to must not be before from');
+    const days = Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000) + 1;
+    if (days > CALENDAR_MAX_DAYS) {
+      throw new BadRequestException(`Ask for at most ${CALENDAR_MAX_DAYS} days at a time`);
+    }
+
+    const branch = await this.prisma.branch.findUnique({
+      where: { id: branchId },
+      select: { timezone: true },
+    });
+    if (!branch) throw new NotFoundException();
+    const tz = branch.timezone;
+
+    const rows = await this.prisma.banquetBooking.findMany({
+      where: {
+        branch_id: branchId,
+        status: { in: [BanquetBookingStatus.CONFIRMED, BanquetBookingStatus.COMPLETED] },
+        starts_at: {
+          gte: branchLocalToInstant(from, '00:00', tz),
+          lt: branchLocalToInstant(addDays(to, 1), '00:00', tz),
+        },
+      },
+      include: BOOKING_INCLUDE,
+      orderBy: [{ starts_at: 'asc' }, { id: 'asc' }],
+      take: CALENDAR_MAX_BOOKINGS,
+    });
+
+    return {
+      branch_id: branchId,
+      from,
+      to,
+      timezone: tz,
+      bookings: await this.toCalendarViews(rows, tz, includeCustomer),
+    };
+  }
+
+  /**
+   * One event as the chef calendar shows it, for its full-screen details.
+   * Same visibility as the calendar: only a confirmed or completed booking of
+   * this branch; anything else is a 404, never a hint that it exists.
+   */
+  async chefEvent(
+    branchId: string,
+    bookingId: string,
+    includeCustomer = false,
+  ): Promise<ChefCalendarBookingView> {
+    const branch = await this.prisma.branch.findUnique({
+      where: { id: branchId },
+      select: { timezone: true },
+    });
+    if (!branch) throw new NotFoundException();
+    const booking = await this.prisma.banquetBooking.findFirst({
+      where: {
+        id: bookingId,
+        branch_id: branchId,
+        status: { in: [BanquetBookingStatus.CONFIRMED, BanquetBookingStatus.COMPLETED] },
+      },
+      include: BOOKING_INCLUDE,
+    });
+    if (!booking) throw new NotFoundException();
+    const [view] = await this.toCalendarViews([booking], branch.timezone, includeCustomer);
+    return view;
+  }
+
+  /** Chef projections plus day, slot and menu name; the customer only when allowed. */
+  private async toCalendarViews(
+    rows: BookingRecord[],
+    tz: string,
+    includeCustomer: boolean,
+  ): Promise<ChefCalendarBookingView[]> {
+    const slots = rows.length
+      ? await this.prisma.banquetHallSlot.findMany({
+          where: { hall_id: { in: [...new Set(rows.map((b) => b.hall_id))] } },
+          select: { hall_id: true, name: true, start_time: true, end_time: true },
+          orderBy: [{ position: 'asc' }, { start_time: 'asc' }],
+        })
+      : [];
+
+    const slotFor = (hallId: string, localStart: string): string | null => {
+      const own = slots.filter((s) => s.hall_id === hallId);
+      const exact = own.find((s) => s.start_time === localStart);
+      if (exact) return exact.name;
+      // Otherwise the slot the start falls inside (overnight slots wrap past midnight).
+      const inside = own.find((s) =>
+        s.end_time > s.start_time
+          ? localStart >= s.start_time && localStart < s.end_time
+          : localStart >= s.start_time || localStart < s.end_time,
+      );
+      return inside?.name ?? null;
+    };
+
+    return rows.map((b) => {
+      const local = toBranchLocal(b.starts_at, tz);
+      return {
+        ...this.bookings.toChefView(b),
+        date: local.date,
+        customer_name: includeCustomer ? (b.customer?.name ?? null) : null,
+        slot_name: slotFor(b.hall_id, local.time),
+        package_name: b.package_name,
+        setup_notes: b.event_plan?.setup_notes ?? null,
+      };
+    });
   }
 
   /** PENDING ─▶ IN_PROGRESS */

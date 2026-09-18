@@ -19,12 +19,15 @@ export function ScreenHeader({
   crumb,
   actions,
   plain = false,
+  back = { href: '/', label: 'Back to home' },
 }: {
   title: string;
   crumb?: string;
   actions?: ReactNode;
   /** With a breadcrumb: a sans title and the branch pill on the right. */
   plain?: boolean;
+  /** Where the back arrow goes; Home unless the screen sits under another. */
+  back?: { href: string; label: string };
 }) {
   const tools = (
     <div className={`${styles.tools} ${crumb ? styles.toolsBelow : ''} ${crumb && plain ? styles.toolsEnd : ''}`}>
@@ -36,7 +39,7 @@ export function ScreenHeader({
   return (
     <header className={styles.header}>
       <div className={styles.headerRow}>
-        <Link href="/" className={`${styles.back} ${crumb ? styles.backBox : ''}`} aria-label="Back to home">
+        <Link href={back.href} className={`${styles.back} ${crumb ? styles.backBox : ''}`} aria-label={back.label}>
           <AppIcon name="back" />
         </Link>
         <div className={styles.titles}>

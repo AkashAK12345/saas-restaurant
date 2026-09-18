@@ -79,6 +79,34 @@ export function addCalendarDays(date: string, days: number): string {
   return d.toISOString().slice(0, 10);
 }
 
+/** Month names, fixed rather than from Intl: some locales write "Sept". */
+export const MONTH_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+export const MONTH_LONG = [
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
+];
+
+/** Number of days in a label's month. */
+export function daysInMonth(date: string): number {
+  return new Date(Date.UTC(Number(date.slice(0, 4)), Number(date.slice(5, 7)), 0)).getUTCDate();
+}
+
+/** First day of a label's month. */
+export function monthStart(date: string): string {
+  return `${date.slice(0, 7)}-01`;
+}
+
+/** Last day of a label's month. */
+export function monthEnd(date: string): string {
+  return `${date.slice(0, 7)}-${String(daysInMonth(date)).padStart(2, '0')}`;
+}
+
+/** First day of the month `n` months after a label's month. */
+export function addCalendarMonths(date: string, n: number): string {
+  const d = new Date(Date.UTC(Number(date.slice(0, 4)), Number(date.slice(5, 7)) - 1 + n, 1));
+  return d.toISOString().slice(0, 10);
+}
+
 /** Today's calendar label at the branch. */
 export function branchToday(timeZone: string, now: Date = new Date()): string {
   try {
