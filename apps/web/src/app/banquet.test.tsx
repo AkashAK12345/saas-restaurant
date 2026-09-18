@@ -758,6 +758,59 @@ describe('Banquet booking edit', () => {
     expect(apiMock.updateBooking.mock.calls[0][2]).toEqual({ guest_count: 90 });
   });
 
+  describe('leaving with unsaved changes', () => {
+    const LEAVE = /You are about to leave this page/;
+
+    beforeEach(() => {
+      branchPermissions = [...ALL_PERMS, 'banquet.booking.update'];
+      router.push.mockClear();
+    });
+
+    it('goes straight back when nothing was changed', async () => {
+      render(<BookingEditPage />);
+      await screen.findByDisplayValue('Meera Iyer');
+      fireEvent.click(screen.getByRole('link', { name: 'Back to booking' }));
+      expect(screen.queryByText(LEAVE)).toBeNull();
+    });
+
+    it('asks first, and Discard leaves without saving', async () => {
+      render(<BookingEditPage />);
+      await screen.findByDisplayValue('Meera Iyer');
+      fireEvent.change(screen.getByLabelText('Number of Guests (PAX) *'), { target: { value: '90' } });
+      fireEvent.click(screen.getByRole('link', { name: 'Back to booking' }));
+
+      const dialog = screen.getByRole('alertdialog');
+      expect(within(dialog).getByText(LEAVE)).toBeTruthy();
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Discard' }));
+      expect(router.push).toHaveBeenCalledWith('/banquet/bk-1');
+      expect(apiMock.updateBooking).not.toHaveBeenCalled();
+    });
+
+    it('Save saves the changes, then leaves', async () => {
+      apiMock.updateBooking.mockResolvedValue(booking({ guest_count: 90 }));
+      render(<BookingEditPage />);
+      await screen.findByDisplayValue('Meera Iyer');
+      fireEvent.change(screen.getByLabelText('Number of Guests (PAX) *'), { target: { value: '90' } });
+      fireEvent.click(screen.getByRole('link', { name: 'Back to booking' }));
+      fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Save' }));
+
+      await waitFor(() => expect(router.push).toHaveBeenCalledWith('/banquet/bk-1'));
+      expect(apiMock.updateBooking.mock.calls[0][2]).toEqual({ guest_count: 90 });
+    });
+
+    it('stays on the page with the reason when saving fails', async () => {
+      apiMock.updateBooking.mockRejectedValue(new Error('That hall is already booked for an overlapping time.'));
+      render(<BookingEditPage />);
+      await screen.findByDisplayValue('Meera Iyer');
+      fireEvent.change(screen.getByLabelText('Number of Guests (PAX) *'), { target: { value: '90' } });
+      fireEvent.click(screen.getByRole('link', { name: 'Back to booking' }));
+      fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: 'Save' }));
+
+      expect((await screen.findByRole('alert')).textContent).toMatch(/already booked/);
+      expect(router.push).not.toHaveBeenCalled();
+    });
+  });
+
   it('updates the customer record when the name or phone changes', async () => {
     branchPermissions = [...ALL_PERMS];
     companyPermissions = ['customers.update'];

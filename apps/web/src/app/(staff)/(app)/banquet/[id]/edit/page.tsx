@@ -264,6 +264,7 @@ export default function BanquetBookingEditPage() {
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [leaveOpen, setLeaveOpen] = useState(false);
 
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
@@ -384,12 +385,15 @@ export default function BanquetBookingEditPage() {
     return () => { cancelled = true; };
   }, [ctx, bookingId, bookingUpdatedAt]);
 
-  const run = async (fn: () => Promise<unknown>, success: string) => {
+  /** Runs an action, then reconciles with the server. Resolves to whether it succeeded. */
+  const run = async (fn: () => Promise<unknown>, success: string): Promise<boolean> => {
     setBusy(true);
     setActionError(null);
     setNotice(null);
+    let ok = false;
     try {
       await fn();
+      ok = true;
       setNotice(success);
     } catch (e) {
       setActionError(e instanceof Error ? e.message : 'The action failed');
@@ -397,6 +401,7 @@ export default function BanquetBookingEditPage() {
       await refresh();
       setBusy(false);
     }
+    return ok;
   };
 
   const handleShare = async () => {
@@ -526,8 +531,8 @@ export default function BanquetBookingEditPage() {
     packageId !== (b.package_id ?? '');
   const canSave = customerChanged || bookingBodyChanged || !!pendingPayment;
 
-  const saveAll = () => {
-    void run(async () => {
+  const saveAll = () =>
+    run(async () => {
       if (b.customer && may.customerUpdate && customerChanged) {
         await banquetApi.updateCustomer(ctx!, b.customer.id, {
           name: customerName.trim(),
@@ -552,13 +557,24 @@ export default function BanquetBookingEditPage() {
         setPendingPayment(null);
       }
     }, 'Booking updated.');
+
+  // Back with unsaved changes asks first; with nothing changed it just goes.
+  const backHref = `/banquet/${b.id}`;
+  const saveAndLeave = async () => {
+    setLeaveOpen(false);
+    if (await saveAll()) router.push(backHref);
   };
 
   return (
     <>
       <header className={chrome.header}>
         <div className={chrome.headerRow}>
-          <Link href={`/banquet/${b.id}`} className={`${chrome.back} ${chrome.backBox}`} aria-label="Back to booking">
+          <Link href={backHref} className={`${chrome.back} ${chrome.backBox}`} aria-label="Back to booking"
+            onClick={(e) => {
+              if (!canSave) return;
+              e.preventDefault();
+              setLeaveOpen(true);
+            }}>
             <AppIcon name="back" />
           </Link>
           <div className={chrome.titles}>
@@ -1121,7 +1137,7 @@ export default function BanquetBookingEditPage() {
       ) : null}
 
       <div className={formStyles.actions}>
-        <button type="button" className={formStyles.confirmBtn} disabled={busy || !canSave} onClick={saveAll}>
+        <button type="button" className={formStyles.confirmBtn} disabled={busy || !canSave} onClick={() => void saveAll()}>
           Update Booking
         </button>
         {deletable && !deleteOpen ? (
@@ -1148,6 +1164,24 @@ export default function BanquetBookingEditPage() {
             <button type="button" className={styles.action} disabled={busy} onClick={() => setDeleteOpen(false)}>
               Keep booking
             </button>
+          </div>
+        </div>
+      ) : null}
+
+      {leaveOpen ? (
+        <div className={formStyles.leaveBackdrop}>
+          <div role="alertdialog" aria-modal="true" aria-labelledby="leave-message" className={formStyles.leaveDialog}>
+            <p id="leave-message">
+              You are about to leave this page. Do you want to discard the changes or save it?
+            </p>
+            <div className={formStyles.leaveActions}>
+              <button type="button" className={styles.action} onClick={() => router.push(backHref)}>
+                Discard
+              </button>
+              <button type="button" className={`${styles.action} ${styles.primary}`} onClick={() => void saveAndLeave()}>
+                Save
+              </button>
+            </div>
           </div>
         </div>
       ) : null}
