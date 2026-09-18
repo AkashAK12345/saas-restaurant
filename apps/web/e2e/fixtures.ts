@@ -10,7 +10,6 @@ import {
 import { SamcoApi } from './support/api';
 import {
   BRANCH,
-  COMPANY_A,
   USERS,
   loadCredentials,
   loadFixture,
@@ -67,7 +66,7 @@ async function newContext(browser: Browser, contexts: BrowserContext[], options:
   return context;
 }
 
-/** The real login form: email, this run's password, Sign in. */
+/** The real login form: email, this run's password, Sign in. The dashboard greets by ROLE. */
 export async function signIn(page: Page, role: Role): Promise<void> {
   const user = USERS[role];
   await page.goto('/login');
@@ -78,15 +77,14 @@ export async function signIn(page: Page, role: Role): Promise<void> {
   await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page).toHaveURL((u) => u.pathname === '/');
   await expect(
-    page.getByRole('heading', { level: 1, name: new RegExp(`^Good (morning|afternoon|evening), ${user.firstName}$`) }),
+    page.getByRole('heading', { level: 1, name: new RegExp(`^Good (morning|afternoon|evening),\\s*${user.roleName}$`, 'i') }),
   ).toBeVisible();
 }
 
-/** The branch chip: company, then branch. */
-export async function chooseBranch(page: Page, company: string, branch: string): Promise<void> {
-  await page.getByRole('button', { name: 'Select a branch' }).click();
-  const sheet = page.getByRole('dialog', { name: 'Choose company and branch' });
-  await sheet.getByLabel('Company').selectOption({ label: company });
+/** The branch pill: one company, so only a branch to choose. */
+export async function chooseBranch(page: Page, branch: string): Promise<void> {
+  await page.getByRole('button', { name: /^(All Branches|Select a branch)$/ }).click();
+  const sheet = page.getByRole('dialog', { name: 'Choose branch' });
   await sheet.getByRole('button', { name: new RegExp(`^${branch}\\b`) }).click();
   await expect(page.getByRole('button', { name: branch, exact: true })).toBeVisible();
 }
@@ -156,7 +154,7 @@ export const test = base.extend<Fixtures>({
     await provide(async (role, options) => {
       const page = await (await newContext(browser, contexts, options)).newPage();
       await signIn(page, role);
-      await chooseBranch(page, COMPANY_A, BRANCH.bengaluru);
+      await chooseBranch(page, BRANCH.bengaluru);
       return page;
     });
     for (const c of contexts) await c.close();

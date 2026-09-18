@@ -1,0 +1,404 @@
+/*
+ * Building blocks shared by the queue screens: stat tiles, the next-token
+ * card, the segmented tabs, rows with actions, form fields and the customer
+ * display's number grids. Phone-first; nothing here sets a width wider than
+ * its column.
+ */
+
+/* ── Stat tiles ─────────────────────────────────────────────────────────── */
+
+.stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.stat {
+  display: grid;
+  justify-items: start;
+  gap: 10px;
+  min-width: 0;
+  padding: 18px 16px;
+  border: 1px solid var(--color-border);
+  border-radius: 22px;
+  background: var(--color-surface);
+}
+
+.statValue {
+  font-size: 2rem;
+  font-weight: 700;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+.statLabel {
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+  line-height: 1.25;
+}
+
+/* ── Next token ──────────────────────────────────────────────────────────── */
+
+.nextToken {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.nextTokenLabel {
+  margin: 0;
+  color: var(--color-text-muted);
+}
+
+.nextTokenNumber {
+  margin: 0;
+  font-size: 2.75rem;
+  font-weight: 700;
+  line-height: 1.05;
+  color: var(--color-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Segmented tabs ──────────────────────────────────────────────────────── */
+
+.segmented {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  gap: 6px;
+  padding: 6px;
+  border: 1px solid var(--color-border);
+  border-radius: 18px;
+  background: var(--color-surface-muted);
+}
+
+.segment {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 50px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 14px;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.segmentActive {
+  background: var(--color-surface);
+  color: var(--color-primary);
+  box-shadow: 0 1px 3px rgba(60, 45, 30, 0.12);
+}
+
+/* ── Sections, lists and rows ────────────────────────────────────────────── */
+
+.sectionTitle {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+
+.list {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px 14px;
+  padding: 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 16px;
+  background: var(--color-surface);
+  min-width: 0;
+}
+
+.rowMain {
+  display: grid;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.rowTitle {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.rowMeta {
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+}
+
+.rowActions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  width: 100%;
+}
+
+.rowActions > select {
+  flex: 1 1 10rem;
+  width: auto;
+}
+
+.badge {
+  padding: 4px 12px;
+  border-radius: var(--radius-pill);
+  background: var(--color-surface-muted);
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.badgeFree {
+  background: var(--accent-green-bg);
+  color: var(--accent-green-fg);
+}
+
+.badgeBusy {
+  background: var(--accent-amber-bg);
+  color: var(--accent-amber-fg);
+}
+
+.tokenBadge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  min-width: 52px;
+  height: 52px;
+  padding: 0 8px;
+  border-radius: 14px;
+  background: var(--accent-terracotta-bg);
+  color: var(--color-primary);
+  font-size: 1.25rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.hint {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+}
+
+.warn {
+  margin: 0;
+  color: var(--color-warning);
+  font-size: 0.9rem;
+}
+
+/* ── Controls ────────────────────────────────────────────────────────────── */
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 48px;
+  padding: 0 18px;
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.button:hover:not(:disabled) {
+  background: var(--color-surface-muted);
+}
+
+.primary {
+  border-color: var(--color-primary);
+  background: var(--color-primary);
+  color: var(--color-primary-contrast);
+}
+
+.primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-primary) 88%, #000);
+}
+
+.block {
+  width: 100%;
+  min-height: 56px;
+  font-size: 1.05rem;
+}
+
+.button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.form {
+  display: grid;
+  gap: 18px;
+}
+
+.field {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.label {
+  font-weight: 500;
+}
+
+.optional {
+  color: var(--color-text-muted);
+  font-weight: 400;
+}
+
+.input,
+.select {
+  width: 100%;
+  min-height: 52px;
+  padding: 0 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.input::placeholder {
+  color: #a8a196;
+}
+
+.addRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: end;
+}
+
+/* ── Success ─────────────────────────────────────────────────────────────── */
+
+.success {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  text-align: center;
+}
+
+.successTitle {
+  margin: 0;
+  font-size: 1.15rem;
+}
+
+.successNumber {
+  font-size: 4rem;
+  font-weight: 800;
+  line-height: 1;
+  color: var(--color-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.successText {
+  margin: 0 0 8px;
+  color: var(--color-text-muted);
+}
+
+/* ── Customer display ────────────────────────────────────────────────────── */
+
+.displayTitle {
+  margin: 0;
+  flex: 1;
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.serving {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr));
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.servingItem {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  padding: 18px 12px;
+  border-radius: 18px;
+  background: var(--accent-green-bg);
+  text-align: center;
+}
+
+.servingNumber {
+  font-size: 2.75rem;
+  font-weight: 800;
+  line-height: 1;
+  color: var(--accent-green-fg);
+  font-variant-numeric: tabular-nums;
+}
+
+.servingWhere {
+  font-size: 0.95rem;
+}
+
+.waitingTokens {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.waitingToken {
+  min-width: 64px;
+  padding: 12px 16px;
+  border-radius: 14px;
+  background: var(--color-surface-muted);
+  font-size: 1.5rem;
+  font-weight: 700;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.pillGreen {
+  background: var(--accent-green-bg);
+  color: var(--accent-green-fg);
+}
+
+.pillAmber {
+  background: var(--accent-amber-bg);
+  color: var(--accent-amber-fg);
+}
+
+@media (max-width: 520px) {
+  .addRow {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+  .addRow > button {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (max-width: 420px) {
+  .stat {
+    padding: 14px 12px;
+  }
+  .statValue {
+    font-size: 1.6rem;
+  }
+}

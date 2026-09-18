@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { hasAnyPermission } from '@/lib/auth/permissions';
-import { NAV_ITEMS, type NavItem } from './nav-items';
+import { NAV_ITEMS, SETTINGS_ITEM, type NavItem } from './nav-items';
 import { NavIcon } from './nav-icons';
 import styles from './nav.module.css';
 
@@ -21,10 +21,26 @@ export function visibleNavItems(
   items: readonly NavItem[] = NAV_ITEMS,
 ): NavItem[] {
   return items.filter((item) => {
+    if (item.settings) return false;
     if (item.requiresBranch && !hasBranch) return false;
     if (item.permissions.length === 0) return true;
     return hasAnyPermission(permissions, item.permissions);
   });
+}
+
+/**
+ * The phone's bottom bar: the destinations a shift runs on, then Settings.
+ * A thumb bar holds about six targets, so the rest of the navigation lives in
+ * the workspace grid and the Settings hub — both reachable in one tap — rather
+ * than in a bar that scrolls sideways.
+ */
+/** The bar reads left to right in the order the product design sets out. */
+const BAR_ORDER = ['/', '/queue', '/tasks', '/banquet', '/reports'];
+
+export function bottomNavItems(permissions: readonly string[], hasBranch: boolean): NavItem[] {
+  const primary = visibleNavItems(permissions, hasBranch).filter((i) => i.primary);
+  primary.sort((a, b) => BAR_ORDER.indexOf(a.href) - BAR_ORDER.indexOf(b.href));
+  return [...primary, SETTINGS_ITEM];
 }
 
 /**
@@ -34,7 +50,10 @@ export function visibleNavItems(
  */
 export function Nav({ permissions, hasBranch, variant, onNavigate }: NavProps) {
   const pathname = usePathname();
-  const items = visibleNavItems(permissions, hasBranch);
+  const items =
+    variant === 'bottom'
+      ? bottomNavItems(permissions, hasBranch)
+      : [...visibleNavItems(permissions, hasBranch), SETTINGS_ITEM];
 
   return (
     <nav className={variant === 'side' ? styles.side : styles.bottom} aria-label="Main">

@@ -85,11 +85,22 @@ test.describe('Conformance — banquet money and documents', () => {
   test('the availability calendar works on a phone without sideways page scroll', async ({ staff }) => {
     const page = await staff('manager', PHONE);
     const main = await gotoMain(page, '/banquet/calendar');
-    await expect(main.getByRole('heading', { level: 1, name: 'Availability' })).toBeVisible();
-    await expect(main.getByRole('table')).toBeVisible();
+    await expect(main.getByRole('heading', { level: 1, name: 'Banquet Availability' })).toBeVisible();
+
+    // The month grid, then the same window a month later.
+    const grid = main.getByRole('list', { name: /availability$/ });
+    await expect(grid).toBeVisible();
+    const days = await grid.getByRole('button').count();
+    expect(days).toBeGreaterThan(27);
     await expectFitsViewport(page);
-    await main.getByRole('button', { name: 'Next' }).click();
-    await expect(main.getByRole('table')).toBeVisible();
+    await main.getByRole('button', { name: 'Next month' }).click();
+    await expect(grid).toBeVisible();
+
+    // The week, reached from the view switch, scrolls inside itself.
+    await main.getByRole('tab', { name: 'Weekly' }).click();
+    await expect(main.getByRole('list', { name: 'Bookings this week' })).toBeVisible();
+    await main.getByRole('button', { name: 'Next week' }).click();
+    await expectFitsViewport(page);
   });
 });
 
@@ -152,7 +163,8 @@ test.describe('Conformance — account and sign-in', () => {
     const other = await SamcoApi.login(USERS.manager.email, testPassword(), data.companyA);
     try {
       const page = await staff('manager');
-      await page.getByRole('link', { name: 'Devices', exact: true }).click();
+      await page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'Settings' }).click();
+      await page.getByRole('main').getByRole('link', { name: /^Devices/ }).click();
       const main = page.getByRole('main');
       await expect(main.getByRole('heading', { name: 'Signed-in devices' })).toBeVisible();
       await expect(main.getByText('This device')).toBeVisible();

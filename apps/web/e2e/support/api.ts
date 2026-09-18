@@ -72,6 +72,10 @@ export class SamcoApi {
     return this.send('POST', `queue-tokens/${tokenId}/call`, branchId, {});
   }
 
+  cancel(branchId: string, tokenId: string): Promise<QueueTokenView> {
+    return this.send('POST', `queue-tokens/${tokenId}/cancel`, branchId, {});
+  }
+
   seat(branchId: string, tokenId: string, tableId?: string): Promise<QueueTokenView> {
     return this.send('POST', `queue-tokens/${tokenId}/seat`, branchId, tableId ? { table_id: tableId } : {});
   }

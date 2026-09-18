@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Headers,
   HttpCode,
@@ -12,8 +13,10 @@ import {
   Put,
   Query,
   Req,
+  Res,
   UseGuards,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import { BanquetCatalogService } from './banquet-catalog.service.js';
 import {
   ADJUSTMENT_ROUTE_PERMISSIONS,
@@ -28,6 +31,7 @@ import {
   CreateBookingDto,
   CreateHallDto,
   CreateHallSlotDto,
+  FinanceQueryDto,
   CreatePackageDto,
   CreatePaymentDto,
   CreatePlateRequestDto,
@@ -38,6 +42,8 @@ import {
   UpdateHallDto,
   UpdateHallSlotDto,
   UpdatePackageDto,
+  UpdatePaymentDto,
+  UploadBookingPhotoDto,
   UpsertEventPlanDto,
   VerifyPaymentDto,
 } from './banquet.dto.js';
@@ -211,6 +217,15 @@ export class BanquetController {
     return this.catalog.updatePackage(this.companyCtx(companyId, req), id, dto);
   }
 
+  // ── Finance (declared before :id routes) ──────────────────────────────────
+
+  @Get('finance')
+  @UseGuards(PermissionGuard)
+  @RequireBranchPermission(PERMISSION_KEYS.BANQUET_FINANCE_VIEW)
+  finance(@Headers('x-branch-id') branchId: string, @Query() query: FinanceQueryDto) {
+    return this.bookings.financeSummary(branchId, query);
+  }
+
   // ── Kitchen board (declared before :id routes) ────────────────────────────
 
   @Get('kds/board')
@@ -312,6 +327,20 @@ export class BanquetController {
     return this.bookings.update(this.branchCtx(companyId, branchId, req), id, dto);
   }
 
+  /** Draft: banquet.booking.delete. Confirmed: also banquet.booking.edit_locked (checked in the service). */
+  @Delete('bookings/:id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @UseGuards(PermissionGuard)
+  @RequireBranchPermission(PERMISSION_KEYS.BANQUET_BOOKING_DELETE)
+  async deleteBooking(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Headers('x-company-id') companyId: string,
+    @Headers('x-branch-id') branchId: string,
+    @Req() req: AuthenticatedRequest,
+  ): Promise<void> {
+    await this.bookings.remove(this.branchCtx(companyId, branchId, req), id);
+  }
+
   @Post('bookings/:id/confirm')
   @HttpCode(HttpStatus.OK)
   @UseGuards(PermissionGuard)
@@ -405,6 +434,25 @@ export class BanquetController {
     @Req() req: AuthenticatedRequest,
   ) {
     return this.bookings.createPayment(this.branchCtx(companyId, branchId, req), id, dto);
+  }
+
+  /**
+   * Corrects an unverified payment. Never an in-place update — the row
+   * itself is never touched — this reverses it and records a fresh one,
+   * returning the corrected payment.
+   */
+  @Patch('bookings/:id/payments/:paymentId')
+  @UseGuards(PermissionGuard)
+  @RequireBranchPermission(PERMISSION_KEYS.BANQUET_PAYMENT_CREATE)
+  updatePayment(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('paymentId', ParseUUIDPipe) paymentId: string,
+    @Headers('x-company-id') companyId: string,
+    @Headers('x-branch-id') branchId: string,
+    @Body() dto: UpdatePaymentDto,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.bookings.updatePayment(this.branchCtx(companyId, branchId, req), id, paymentId, dto);
   }
 
   /** Second-person verification. Adds a record; the payment itself is never changed. */
@@ -514,5 +562,57 @@ export class BanquetController {
     @Req() req: AuthenticatedRequest,
   ) {
     return this.bookings.upsertEventPlan(this.branchCtx(companyId, branchId, req), id, dto);
+  }
+
+  // ── Booking photos ──────────────────────────────────────────────────────
+
+  @Get('bookings/:id/photos')
+  @UseGuards(PermissionGuard)
+  @RequireBranchPermission(PERMISSION_KEYS.BANQUET_VIEW)
+  listPhotos(@Param('id', ParseUUIDPipe) id: string, @Headers('x-branch-id') branchId: string) {
+    return this.bookings.listPhotos(branchId, id);
+  }
+
+  @Get('bookings/:id/photos/:photoId')
+  @UseGuards(PermissionGuard)
+  @RequireBranchPermission(PERMISSION_KEYS.BANQUET_VIEW)
+  async getPhoto(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('photoId', ParseUUIDPipe) photoId: string,
+    @Headers('x-branch-id') branchId: string,
+    @Res() res: Response,
+  ) {
+    const { data, mime_type, file_name } = await this.bookings.getPhotoData(branchId, id, photoId);
+    res.setHeader('Content-Type', mime_type);
+    if (file_name) res.setHeader('Content-Disposition', `inline; filename="${file_name}"`);
+    res.send(data);
+  }
+
+  @Post('bookings/:id/photos')
+  @HttpCode(HttpStatus.CREATED)
+  @UseGuards(PermissionGuard)
+  @RequireBranchPermission(PERMISSION_KEYS.BANQUET_BOOKING_UPDATE)
+  uploadPhoto(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Headers('x-company-id') companyId: string,
+    @Headers('x-branch-id') branchId: string,
+    @Body() dto: UploadBookingPhotoDto,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.bookings.uploadPhoto(this.branchCtx(companyId, branchId, req), id, dto);
+  }
+
+  @Delete('bookings/:id/photos/:photoId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @UseGuards(PermissionGuard)
+  @RequireBranchPermission(PERMISSION_KEYS.BANQUET_BOOKING_UPDATE)
+  deletePhoto(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('photoId', ParseUUIDPipe) photoId: string,
+    @Headers('x-company-id') companyId: string,
+    @Headers('x-branch-id') branchId: string,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.bookings.deletePhoto(this.branchCtx(companyId, branchId, req), id, photoId);
   }
 }

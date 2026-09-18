@@ -112,8 +112,18 @@ export const queueApi = {
   customers: (ctx: QueueContext, limit = 100) =>
     api.get<Paginated<Customer>>(`/customers?limit=${limit}`, { companyId: ctx.companyId }),
 
+  /** Company customers whose name or phone digits match, searched on the server. */
+  findCustomers: (ctx: QueueContext, q: string, limit = 25) =>
+    api.get<Paginated<Customer>>(
+      `/customers?limit=${limit}&status=ACTIVE&q=${encodeURIComponent(q)}`,
+      { companyId: ctx.companyId },
+    ),
+
   createCustomer: (ctx: QueueContext, body: { name: string; phone?: string }) =>
     api.post<Customer>('/customers', body, { companyId: ctx.companyId }),
+
+  updateCustomer: (ctx: QueueContext, id: string, body: { name?: string; phone?: string | null }) =>
+    api.patch<Customer>(`/customers/${id}`, body, { companyId: ctx.companyId }),
 
   tables: (ctx: QueueContext, limit = 100) =>
     api.get<Paginated<RestaurantTable>>(`/tables?limit=${limit}`, ctxOpts(ctx)),

@@ -31,9 +31,9 @@ export function partOfDay(timezone: string, now: Date = new Date()): PartOfDay {
 }
 
 const LABEL: Record<PartOfDay, string> = {
-  morning: 'Good morning',
-  afternoon: 'Good afternoon',
-  evening: 'Good evening',
+  morning: 'Good Morning',
+  afternoon: 'Good Afternoon',
+  evening: 'Good Evening',
 };
 
 export function greetingFor(timezone: string, now: Date = new Date()): string {
@@ -41,27 +41,24 @@ export function greetingFor(timezone: string, now: Date = new Date()): string {
 }
 
 /**
- * "Wednesday, 9 September", in the branch's own day.
+ * "Wednesday, 16 September", in the branch's own day.
  *
  * The locale is pinned to en-GB for DAY-BEFORE-MONTH order, which is what the
  * product's design calls for and what most of its markets read. The viewer's
  * own locale is used everywhere a number or currency is shown; only this one
  * decorative header line is fixed, so the greeting cannot flip to "September
- * 9" on a US-configured tablet.
+ * 16" on a US-configured tablet. The comma after the weekday is added here:
+ * en-GB does not print one, and the design asks for it.
  */
 export function branchDateLabel(timezone: string, now: Date = new Date()): string {
+  const format = (options: Intl.DateTimeFormatOptions) =>
+    new Intl.DateTimeFormat('en-GB', options).formatToParts(now);
+  let parts: Intl.DateTimeFormatPart[];
   try {
-    return new Intl.DateTimeFormat('en-GB', {
-      timeZone: timezone,
-      weekday: 'long',
-      day: 'numeric',
-      month: 'long',
-    }).format(now);
+    parts = format({ timeZone: timezone, weekday: 'long', day: 'numeric', month: 'long' });
   } catch {
-    return new Intl.DateTimeFormat('en-GB', {
-      weekday: 'long',
-      day: 'numeric',
-      month: 'long',
-    }).format(now);
+    parts = format({ weekday: 'long', day: 'numeric', month: 'long' });
   }
+  const get = (type: Intl.DateTimeFormatPartTypes) => parts.find((p) => p.type === type)?.value ?? '';
+  return `${get('weekday')}, ${get('day')} ${get('month')}`;
 }

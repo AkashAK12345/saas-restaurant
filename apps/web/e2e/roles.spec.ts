@@ -54,7 +54,8 @@ async function expectRefused(page: Page, path: string): Promise<void> {
   await expect(main.getByRole('alert').first(), `${path} must say it was refused`).toContainText(
     /Forbidden|not allowed|permission/i,
   );
-  await expect(mainNav(page), `${path} must keep the app shell`).toBeVisible();
+  const wayOut = page.getByRole('link', { name: 'Home', exact: true }).or(mainNav(page));
+  await expect(wayOut.first(), `${path} must leave a way out of the refusal`).toBeVisible();
 
   const text = await main.innerText();
   for (const item of PROTECTED_DATA) expect(text, `${path} must not show "${item}"`).not.toContain(item);
@@ -67,16 +68,18 @@ async function expectRefused(page: Page, path: string): Promise<void> {
 test.describe('Chef', () => {
   test('sees only Home and Banquet, and Banquet opens the kitchen', async ({ staff }) => {
     const page = await staff('chef');
-    await expect(mainNav(page).getByRole('link')).toHaveText(['Home', 'Banquet']);
+    await expect(mainNav(page).getByRole('link')).toHaveText(['Dashboard', 'Banquet', 'Settings']);
 
     await mainNav(page).getByRole('link', { name: 'Banquet' }).click();
     await expect(page).toHaveURL(/\/banquet\/kitchen$/);
     await expect(page.getByRole('heading', { level: 1, name: 'Kitchen' })).toBeVisible();
-    await expect(page.getByRole('navigation', { name: 'Banquet sections' }).getByRole('link')).toHaveText(['Kitchen']);
+    await expect(page.getByRole('navigation', { name: 'Banquet sections' }).getByRole('link')).toHaveText(['Home', 'Chef', 'KDS']);
     await expect(page.getByRole('main').getByRole('alert')).toHaveCount(0);
 
-    // Home's workspace card for Banquet lands in the same place.
-    await mainNav(page).getByRole('link', { name: 'Home' }).click();
+    // The banquet frame carries its own way home, and the dashboard card
+    // lands in the same place.
+    await page.getByRole('navigation', { name: 'Banquet sections' }).getByRole('link', { name: 'Home' }).click();
+    await expect(page).toHaveURL((u) => u.pathname === '/');
     await page.getByRole('main').getByRole('link', { name: /Banquet/ }).click();
     await expect(page.getByRole('heading', { level: 1, name: 'Kitchen' })).toBeVisible();
   });
@@ -114,7 +117,7 @@ test.describe('Chef', () => {
 
   test('works on a phone', async ({ staff }) => {
     const page = await staff('chef', PHONE);
-    await expect(mainNav(page).getByRole('link')).toHaveText(['Home', 'Banquet']);
+    await expect(mainNav(page).getByRole('link')).toHaveText(['Dashboard', 'Banquet', 'Settings']);
     await mainNav(page).getByRole('link', { name: 'Banquet' }).click();
     await expect(page.getByRole('heading', { level: 1, name: 'Kitchen' })).toBeVisible();
     await expectFitsViewport(page);
@@ -126,7 +129,7 @@ test.describe('Chef', () => {
 test.describe('Worker', () => {
   test('sees only Home and Tasks, and the task board without staff-only controls', async ({ staff }) => {
     const page = await staff('worker');
-    await expect(mainNav(page).getByRole('link')).toHaveText(['Home', 'Tasks']);
+    await expect(mainNav(page).getByRole('link')).toHaveText(['Dashboard', 'Tasks', 'Settings']);
 
     await mainNav(page).getByRole('link', { name: 'Tasks' }).click();
     await expect(page.getByRole('heading', { level: 1, name: 'Tasks' })).toBeVisible();
@@ -203,7 +206,7 @@ test.describe('Worker', () => {
 
   test('works on a phone', async ({ staff }) => {
     const page = await staff('worker', PHONE);
-    await expect(mainNav(page).getByRole('link')).toHaveText(['Home', 'Tasks']);
+    await expect(mainNav(page).getByRole('link')).toHaveText(['Dashboard', 'Tasks', 'Settings']);
     await mainNav(page).getByRole('link', { name: 'Tasks' }).click();
     await expect(page.getByRole('heading', { level: 1, name: 'Tasks' })).toBeVisible();
     await expectFitsViewport(page);
@@ -213,7 +216,7 @@ test.describe('Worker', () => {
 test.describe('No-permission user', () => {
   test('gets Home only, with no dashboard figures or workspace cards', async ({ staff }) => {
     const page = await staff('noperm');
-    await expect(mainNav(page).getByRole('link')).toHaveText(['Home']);
+    await expect(mainNav(page).getByRole('link')).toHaveText(['Dashboard', 'Settings']);
     const main = page.getByRole('main');
     await expect(main.getByRole('link')).toHaveCount(0);
     const text = await main.innerText();
@@ -242,7 +245,7 @@ test.describe('No-permission user', () => {
 
   test('works on a phone', async ({ staff }) => {
     const page = await staff('noperm', PHONE);
-    await expect(mainNav(page).getByRole('link')).toHaveText(['Home']);
+    await expect(mainNav(page).getByRole('link')).toHaveText(['Dashboard', 'Settings']);
     await expectFitsViewport(page);
   });
 });

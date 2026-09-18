@@ -1,0 +1,372 @@
+/*
+ * Queue screens: their own header and a bottom tab bar, as in the product
+ * design. Phone-first; on wider screens the content column stays readable and
+ * centred while the bars span the width.
+ */
+
+.frame {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-bg);
+  /* Room for the fixed tab bar and the phone's home indicator. */
+  padding-bottom: calc(var(--queue-tabbar-height) + env(safe-area-inset-bottom, 0px));
+}
+
+.body {
+  flex: 1;
+  min-width: 0;
+}
+
+/* ── Header ──────────────────────────────────────────────────────────────── */
+
+.header {
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+  padding: 16px var(--gap-lg) 14px;
+  display: grid;
+  gap: 12px;
+}
+
+.headerRow {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+  max-width: var(--queue-content-max);
+  width: 100%;
+  margin: 0 auto;
+}
+
+.back {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 46px;
+  height: 46px;
+  border-radius: 14px;
+  color: var(--color-text);
+}
+
+.backBox {
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+}
+
+.back:hover {
+  text-decoration: none;
+  background: var(--color-surface-muted);
+}
+
+.titles {
+  min-width: 0;
+  flex: 1;
+}
+
+.crumb {
+  margin: 0 0 2px;
+  font-size: 0.875rem;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.title,
+.titleSerif {
+  margin: 0;
+  font-size: 1.3rem;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.title {
+  font-weight: 600;
+}
+
+.titleSerif {
+  font-family: var(--font-serif);
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.tools {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.toolsBelow {
+  justify-content: space-between;
+  max-width: var(--queue-content-max);
+  width: 100%;
+  margin: 0 auto;
+}
+
+.toolsEnd {
+  justify-content: flex-end;
+}
+
+.titlePlain {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 600;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+
+.iconButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 48px;
+  height: 48px;
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.iconButton:hover {
+  background: var(--color-surface-muted);
+}
+
+.iconPlain {
+  border-color: transparent;
+}
+
+/* ── Content column ──────────────────────────────────────────────────────── */
+
+.content {
+  max-width: var(--queue-content-max);
+  margin: 0 auto;
+  padding: var(--gap-lg);
+  display: grid;
+  gap: var(--gap-lg);
+  align-content: start;
+}
+
+.card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 22px;
+  padding: 22px;
+  box-shadow: 0 1px 2px rgba(60, 45, 30, 0.04);
+  min-width: 0;
+}
+
+.cardHead {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.cardTitle {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 600;
+  flex: 1;
+  min-width: 0;
+}
+
+.cardTitleAccent {
+  color: var(--color-primary);
+}
+
+.countPill {
+  padding: 6px 14px;
+  border-radius: var(--radius-pill);
+  font-size: 0.95rem;
+  font-weight: 600;
+  background: var(--accent-terracotta-bg);
+  color: var(--color-primary);
+  white-space: nowrap;
+}
+
+.tile {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 56px;
+  height: 56px;
+  border-radius: 16px;
+  background: var(--tone-bg, var(--color-surface-muted));
+  color: var(--tone-fg, var(--color-text-muted));
+}
+
+.tileLarge {
+  width: 88px;
+  height: 88px;
+  border-radius: 20px;
+}
+
+/* CSS Modules only accept selectors scoped to a local class. */
+.tile[data-tone='blue'],
+.tab[data-tone='blue'] {
+  --tone-bg: var(--accent-blue-bg);
+  --tone-fg: var(--accent-blue-fg);
+}
+.tile[data-tone='green'],
+.tab[data-tone='green'] {
+  --tone-bg: var(--accent-green-bg);
+  --tone-fg: var(--accent-green-fg);
+}
+.tile[data-tone='amber'],
+.tab[data-tone='amber'] {
+  --tone-bg: var(--accent-amber-bg);
+  --tone-fg: var(--accent-amber-fg);
+}
+.tile[data-tone='purple'],
+.tab[data-tone='purple'] {
+  --tone-bg: var(--accent-purple-bg);
+  --tone-fg: var(--accent-purple-fg);
+}
+.tile[data-tone='terracotta'],
+.tab[data-tone='terracotta'] {
+  --tone-bg: var(--accent-terracotta-bg);
+  --tone-fg: var(--accent-terracotta-fg);
+}
+
+/* ── Empty state ─────────────────────────────────────────────────────────── */
+
+.empty {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  padding: 36px 16px;
+  text-align: center;
+  color: var(--color-text-muted);
+}
+
+.emptyIcon {
+  color: #9a948b;
+  margin-bottom: 8px;
+}
+
+.emptyTitle {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+.emptyText {
+  margin: 0;
+}
+
+/* ── Status lines ────────────────────────────────────────────────────────── */
+
+.alert,
+.notice {
+  margin: 0;
+  padding: 14px 16px;
+  border-radius: 16px;
+}
+
+.alert {
+  background: var(--color-danger-bg);
+  color: var(--color-danger);
+}
+
+.notice {
+  background: color-mix(in srgb, var(--color-success) 12%, var(--color-surface));
+  color: var(--color-text);
+}
+
+.stream {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+}
+
+.linkButton {
+  min-height: 36px;
+  padding: 0 14px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface);
+  cursor: pointer;
+}
+
+/* ── Tab bar ─────────────────────────────────────────────────────────────── */
+
+.tabbar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 20;
+  background: var(--color-surface);
+  border-top: 1px solid var(--color-border);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.tabs {
+  list-style: none;
+  margin: 0 auto;
+  padding: 10px 6px 12px;
+  max-width: var(--queue-content-max);
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+}
+
+.tab {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  padding: 0 2px;
+  color: #9a948b;
+  font-size: 0.8rem;
+  text-decoration: none;
+  min-width: 0;
+}
+
+.tab:hover {
+  text-decoration: none;
+}
+
+.tabIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 58px;
+  height: 58px;
+  max-width: 100%;
+  border-radius: 16px;
+}
+
+.tabLabel {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.tabActive {
+  color: var(--tone-fg);
+  font-weight: 600;
+}
+
+.tabActive .tabIcon {
+  background: var(--tone-bg);
+}
+
+@media (min-width: 900px) {
+  .title,
+  .titleSerif {
+    font-size: 1.6rem;
+  }
+}

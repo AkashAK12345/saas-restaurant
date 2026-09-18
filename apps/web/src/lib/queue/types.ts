@@ -91,6 +91,12 @@ export interface QueueWaitingTotals {
 export interface QueueBoard {
   branch_id: string;
   service_date: string;
+  /**
+   * The number the branch's counter will issue next today. A preview: another
+   * registration at the same moment can take it, and the issued token is the
+   * one the register response returns.
+   */
+  next_token_number: number;
   counts: QueueCounts;
   totals: QueueWaitingTotals;
   next_waiting: QueueToken | null;

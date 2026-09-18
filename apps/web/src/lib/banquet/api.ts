@@ -8,8 +8,10 @@ import type {
   BanquetBooking,
   BanquetBookingDetail,
   BanquetBookingItem,
+  BanquetBookingPhoto,
   BanquetBookingStatus,
   BanquetEventPlan,
+  BanquetFinance,
   BanquetHall,
   BanquetHallSlot,
   BanquetPackage,
@@ -82,6 +84,8 @@ export const banquetApi = {
   ) => api.patch<BanquetHallSlot>(`/banquet/halls/${hallId}/slots/${slotId}`, body, branch(ctx)),
   availability: (ctx: BanquetContext, params: { from: string; to: string; hall_id?: string }) =>
     api.get<Availability>(`/banquet/availability${qs(params)}`, branch(ctx)),
+  finance: (ctx: BanquetContext, params: { from: string; to: string; payment?: string }) =>
+    api.get<BanquetFinance>(`/banquet/finance${qs(params)}`, branch(ctx)),
 
   // Packages (company-scoped)
   listPackages: (ctx: BanquetContext, limit = 100) =>
@@ -121,13 +125,14 @@ export const banquetApi = {
     body: {
       customer_id: string;
       hall_id: string;
-      package_id: string;
+      package_id?: string;
       starts_at: string;
       ends_at: string;
       guest_count: number;
       extra_pax?: number;
       apply_gst?: boolean;
       notes?: string;
+      initial_payment?: { amount_minor: number; method?: string; reference?: string };
     },
   ) => api.post<BanquetBookingDetail>('/banquet/bookings', body, branch(ctx)),
   updateBooking: (
@@ -140,6 +145,7 @@ export const banquetApi = {
       guest_count: number;
       extra_pax: number;
       apply_gst: boolean;
+      package_id: string | null;
       notes: string | null;
     }>,
   ) => api.patch<BanquetBookingDetail>(`/banquet/bookings/${id}`, body, branch(ctx)),
@@ -148,6 +154,8 @@ export const banquetApi = {
     api.post<BanquetBookingDetail>(`/banquet/bookings/${id}/confirm`, undefined, branch(ctx)),
   completeBooking: (ctx: BanquetContext, id: string) =>
     api.post<BanquetBookingDetail>(`/banquet/bookings/${id}/complete`, undefined, branch(ctx)),
+  deleteBooking: (ctx: BanquetContext, id: string) =>
+    api.delete<void>(`/banquet/bookings/${id}`, branch(ctx)),
   cancelBooking: (ctx: BanquetContext, id: string, reason?: string) =>
     api.post<BanquetBookingDetail>(
       `/banquet/bookings/${id}/cancel`,
@@ -178,6 +186,18 @@ export const banquetApi = {
   ) =>
     api.post<{ payment: BanquetPayment; balance: BanquetBookingDetail['balance'] }>(
       `/banquet/bookings/${id}/payments`,
+      body,
+      branch(ctx),
+    ),
+  /** Corrects an unverified payment: reverses it and records a fresh one — never an in-place edit. */
+  updatePayment: (
+    ctx: BanquetContext,
+    bookingId: string,
+    paymentId: string,
+    body: { amount_minor: number; method?: string; reference?: string },
+  ) =>
+    api.patch<{ payment: BanquetPayment; balance: BanquetBookingDetail['balance'] }>(
+      `/banquet/bookings/${bookingId}/payments/${paymentId}`,
       body,
       branch(ctx),
     ),
@@ -222,6 +242,16 @@ export const banquetApi = {
   dispatchPlates: (ctx: BanquetContext, id: string) =>
     api.post<PlateRequest>(`/banquet/kds/plate-requests/${id}/dispatch`, undefined, branch(ctx)),
 
+  // Booking photos
+  listPhotos: (ctx: BanquetContext, bookingId: string) =>
+    api.get<BanquetBookingPhoto[]>(`/banquet/bookings/${bookingId}/photos`, branch(ctx)),
+  uploadPhoto: (ctx: BanquetContext, bookingId: string, body: { data: string; mime_type: string; file_name?: string }) =>
+    api.post<BanquetBookingPhoto>(`/banquet/bookings/${bookingId}/photos`, body, branch(ctx)),
+  deletePhoto: (ctx: BanquetContext, bookingId: string, photoId: string) =>
+    api.delete(`/banquet/bookings/${bookingId}/photos/${photoId}`, branch(ctx)),
+  photoUrl: (ctx: BanquetContext, bookingId: string, photoId: string) =>
+    `/api/banquet/bookings/${bookingId}/photos/${photoId}`,
+
   /** Single-use, 60-second ticket for the banquet-kds stream. */
   streamTicket: (ctx: BanquetContext) =>
     api.post<StreamTicketResponse>('/realtime/tickets/banquet-kds', undefined, branch(ctx)),
@@ -229,4 +259,9 @@ export const banquetApi = {
   /** Customers for the booking form — company-scoped, like the queue register. */
   customers: (ctx: BanquetContext, limit = 100) =>
     api.get<Paginated<Customer>>(`/customers${qs({ limit })}`, company(ctx)),
+  createCustomer: (ctx: BanquetContext, body: { name: string; phone?: string }) =>
+    api.post<Customer>('/customers', body, company(ctx)),
+  getCustomer: (ctx: BanquetContext, id: string) => api.get<Customer>(`/customers/${id}`, company(ctx)),
+  updateCustomer: (ctx: BanquetContext, id: string, body: { name?: string; phone?: string | null }) =>
+    api.patch<Customer>(`/customers/${id}`, body, company(ctx)),
 };

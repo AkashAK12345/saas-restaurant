@@ -63,7 +63,15 @@ const rangeDays = (from: string, to: string) => Math.round((Date.parse(to) - Dat
  */
 export default function HomePage() {
   const { user } = useAuth();
-  const { selectedCompanyId, selectedBranchId, selectedBranch, branches, branchPermissions, companyPermissions } =
+  const {
+    selectedCompanyId,
+    selectedBranchId,
+    selectedBranch,
+    branches,
+    branchPermissions,
+    companyPermissions,
+    roleNames,
+  } =
     useAppContext();
 
   const ctx = useMemo(
@@ -73,22 +81,34 @@ export default function HomePage() {
         : null,
     [selectedCompanyId, selectedBranchId],
   );
+  // The all-branches total needs only the company: the server proves each
+  // branch on its own, and returns the ones this caller may see.
+  const companyCtx = useMemo(
+    () => (selectedCompanyId ? { companyId: selectedCompanyId } : null),
+    [selectedCompanyId],
+  );
+  /** "All Branches" on the pill: no branch chosen, but the company has some. */
+  const allBranchesMode = !selectedBranchId && (branches?.length ?? 0) > 0;
   const mayViewDashboard = hasPermission(branchPermissions, 'dashboard.view');
   const mayViewReports = hasPermission(branchPermissions, 'reports.view');
   const offerAllBranches = (branches?.length ?? 0) > 1;
-  const zone = selectedBranch?.timezone ?? deviceTimeZone();
+  // A branch clock, not the device's, even when no single branch is selected:
+  // the first branch is a far better guess than wherever the laptop happens to be.
+  const zone = selectedBranch?.timezone ?? branches?.[0]?.timezone ?? deviceTimeZone();
 
   const [preset, setPreset] = useState<Preset>('30d');
   const [custom, setCustom] = useState<{ from: string; to: string } | null>(null);
   const [draft, setDraft] = useState<{ from: string; to: string }>({ from: '', to: '' });
-  const [scope, setScope] = useState<Scope>('branch');
+  const [branchScope, setBranchScope] = useState<Scope>('branch');
+  const scope: Scope = allBranchesMode ? 'all' : branchScope;
+  const setScope = setBranchScope;
   const [dashboard, setDashboard] = useState<DashboardResponse | null>(null);
   const [allBranches, setAllBranches] = useState<AllBranchesDashboardResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    if (!ctx) return;
+    if (scope === 'all' ? !companyCtx : !ctx) return;
     setLoading(true);
     setError(null);
     if (preset === 'custom' && !custom) {
@@ -98,9 +118,9 @@ export default function HomePage() {
     const { from, to } = windowFor(preset, zone, custom);
     try {
       if (scope === 'all') {
-        setAllBranches(await reportsApi.dashboardAllBranches(ctx, from, to));
+        setAllBranches(await reportsApi.dashboardAllBranches(companyCtx!, from, to));
       } else {
-        setDashboard(await reportsApi.dashboard(ctx, from, to));
+        setDashboard(await reportsApi.dashboard(ctx!, from, to));
       }
     } catch (e) {
       if (scope === 'all') setAllBranches(null);
@@ -109,47 +129,64 @@ export default function HomePage() {
     } finally {
       setLoading(false);
     }
-  }, [ctx, preset, scope, zone, custom]);
+  }, [ctx, companyCtx, preset, scope, zone, custom]);
 
   useEffect(() => {
-    if (!ctx || !mayViewDashboard) return;
+    if (allBranchesMode ? !companyCtx : !ctx || !mayViewDashboard) return;
     // Deferred into a task so the first render is not interrupted by the
     // state the fetch sets on its way in.
     void (async () => {
       await load();
     })();
-  }, [ctx, mayViewDashboard, load]);
+  }, [ctx, companyCtx, allBranchesMode, mayViewDashboard, load]);
 
   // Until the dashboard answers we do not know the branch's zone, so the
   // greeting starts on the device clock and settles on the branch's.
-  const timezone = dashboard?.timezone;
-  const greeting = `${greetingFor(timezone ?? 'UTC')}${user?.first_name ? `, ${user.first_name}` : ''}`;
+  const timezone = dashboard?.timezone ?? (allBranchesMode ? zone : undefined);
+  const salutation = greetingFor(timezone ?? 'UTC');
+  /**
+   * Two lines: "Good Morning," above WHO THIS PERSON IS HERE — the role they
+   * hold ("Manager"), which is what a shift cares about, falling back to their
+   * name while the context loads or if they hold no role at all.
+   */
+  const who = roleNames.length > 0 ? roleNames.join(', ') : (user?.first_name ?? '');
+  const greeting = (
+    <h1 className={styles.greeting}>
+      {who ? (
+        <>
+          <span className={styles.greetingLine}>{salutation},</span> {who}
+        </>
+      ) : (
+        salutation
+      )}
+    </h1>
+  );
   const dateLabel = branchDateLabel(timezone ?? 'UTC');
   const permissions = Array.from(new Set([...companyPermissions, ...branchPermissions]));
 
   if (!selectedCompanyId) {
     return (
       <section className={styles.page}>
-        <h1 className={styles.title}>{greeting}</h1>
+        {greeting}
         <p className={styles.notice}>Select a company to get started.</p>
       </section>
     );
   }
 
-  if (!selectedBranchId) {
+  if (!selectedBranchId && !allBranchesMode) {
     return (
       <section className={styles.page}>
-        <h1 className={styles.title}>{greeting}</h1>
+        {greeting}
         <p className={styles.notice}>Select a branch to see branch operations.</p>
       </section>
     );
   }
 
-  if (!mayViewDashboard) {
+  if (!mayViewDashboard && !allBranchesMode) {
     return (
       <section className={styles.page}>
         <header>
-          <h1 className={styles.title}>{greeting}</h1>
+          {greeting}
           <p className={styles.zone}>{dateLabel}</p>
         </header>
         <WorkspaceGrid permissions={permissions} hasBranch={!!selectedBranchId} />
@@ -174,11 +211,8 @@ export default function HomePage() {
     <section className={styles.page}>
       <header className={styles.header}>
         <div>
-          <h1 className={styles.title}>{greeting}</h1>
-          <p className={styles.zone}>
-            {dateLabel}
-            {windowLabel ? ` · ${windowLabel}` : ''}
-          </p>
+          {greeting}
+          <p className={styles.zone}>{dateLabel}</p>
         </div>
         <div className={styles.actions}>
           <button
@@ -196,6 +230,14 @@ export default function HomePage() {
           ) : null}
         </div>
       </header>
+
+      <WorkspaceGrid permissions={permissions} hasBranch={!!selectedBranchId} />
+      {allBranchesMode ? (
+        <p className={styles.subtitle}>
+          Showing every branch. Choose one on the branch selector to open the queue, banquet and task
+          screens, which each belong to a single branch.
+        </p>
+      ) : null}
 
       <div className={styles.actions} role="group" aria-label="Dashboard period">
         {PRESETS.map((p) => (
@@ -225,7 +267,7 @@ export default function HomePage() {
         >
           Custom
         </button>
-        {offerAllBranches ? (
+        {offerAllBranches && !allBranchesMode ? (
           <button
             type="button"
             className={`${styles.button} ${scope === 'all' ? styles.primary : ''}`}
@@ -279,6 +321,7 @@ export default function HomePage() {
         </form>
       ) : null}
       <p className={styles.subtitle}>
+        {windowLabel ? `${windowLabel}. ` : ''}
         Tiles marked &ldquo;Right now&rdquo; always show the present; the period applies to the others.
       </p>
 
@@ -343,8 +386,6 @@ export default function HomePage() {
           </div>
         </>
       ) : null}
-
-      <WorkspaceGrid permissions={permissions} hasBranch={!!selectedBranchId} />
     </section>
   );
 }

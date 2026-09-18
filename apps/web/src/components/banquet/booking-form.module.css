@@ -1,0 +1,454 @@
+/* New / Edit booking form — phone-first, matches the reference screenshots. */
+
+.chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 14px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.chipDate {
+  background: #fde8e0;
+  color: var(--color-primary);
+}
+
+.chipHall {
+  background: #fde8e0;
+  color: var(--color-primary);
+}
+
+.chipIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: var(--accent-green-fg);
+  color: #fff;
+  cursor: pointer;
+  border: 0;
+}
+
+/* ── Section card ──────────────────────────────────────────────────────── */
+
+.section {
+  margin-bottom: 16px;
+  border: 1px solid var(--color-border);
+  border-radius: 18px;
+  background: var(--color-surface);
+  padding: 18px 16px;
+}
+
+.sectionHead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.sectionIcon {
+  flex: none;
+  color: var(--color-primary);
+}
+
+.sectionTitle {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+/* ── Form fields ───────────────────────────────────────────────────────── */
+
+.fieldGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.fieldLabel {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+  font-weight: 500;
+}
+
+.fieldLabel svg {
+  flex: none;
+  color: var(--color-text-muted);
+}
+
+.input {
+  min-height: 48px;
+  padding: 0 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  background: var(--color-surface-muted);
+  color: var(--color-text);
+  font-size: 0.95rem;
+}
+
+.input::placeholder {
+  color: var(--color-text-muted);
+  opacity: 0.7;
+}
+
+.select {
+  min-height: 48px;
+  padding: 0 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  background: var(--color-surface-muted);
+  color: var(--color-text);
+  font-size: 0.95rem;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%23999' stroke-width='1.5' fill='none'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 14px center;
+  padding-right: 36px;
+}
+
+/* ── Payment info table ────────────────────────────────────────────────── */
+
+.paymentTable {
+  width: 100%;
+  border-collapse: collapse;
+  border: 1px solid #fde8e0;
+  border-radius: 14px;
+  overflow: hidden;
+}
+
+.paymentTable td {
+  padding: 8px 14px;
+  font-size: 0.9rem;
+}
+
+.paymentTable td:last-child {
+  text-align: right;
+  font-weight: 600;
+  color: var(--color-primary);
+}
+
+.paymentTable tr:last-child td {
+  border-top: 1px solid #fde8e0;
+  font-weight: 700;
+}
+
+.paymentTable tr {
+  background: #fdf8f6;
+}
+
+/* ── Payment history ───────────────────────────────────────────────────── */
+
+.collapsible {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 14px 16px;
+  border: 1px solid var(--color-border);
+  border-radius: 18px 18px 18px 18px;
+  background: var(--color-surface);
+  cursor: pointer;
+  margin-bottom: 16px;
+}
+
+.collapsibleExpanded {
+  border-radius: 18px 18px 0 0;
+  margin-bottom: 0;
+}
+
+.collapsible svg:first-child {
+  flex: none;
+  transition: transform 0.15s ease;
+}
+
+.collapsibleOpen svg:first-child {
+  transform: rotate(180deg);
+}
+
+.collapsibleTitle {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+}
+
+.collapsibleCount {
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+}
+
+.collapsibleBody {
+  border: 1px solid var(--color-border);
+  border-top: 0;
+  border-radius: 0 0 18px 18px;
+  background: var(--color-surface);
+  padding: 14px 16px 16px;
+  margin-bottom: 16px;
+}
+
+/* ── Payment entry row ────────────────────────────────────────────────── */
+
+.paymentEntryRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.paymentEntryField {
+  flex: 1;
+  min-width: 0;
+}
+
+.paymentEntryInput {
+  width: 100%;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--color-surface-muted);
+  color: var(--color-text);
+  font-size: 0.9rem;
+}
+
+.paymentEntryInput::placeholder {
+  color: var(--color-text-muted);
+  opacity: 0.7;
+}
+
+.paymentEntryDate {
+  flex: none;
+  width: 100px;
+  min-height: 44px;
+  padding: 0 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--color-surface-muted);
+  color: var(--color-text);
+  font-size: 0.9rem;
+  text-align: center;
+}
+
+.paymentEntryAdd {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--accent-green-fg);
+  color: #fff;
+  cursor: pointer;
+}
+
+.paymentEntryFields {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* ── Reference photos ──────────────────────────────────────────────────── */
+
+.photosHead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.photosIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 42px;
+  height: 42px;
+  border-radius: 14px;
+  background: #ede4f5;
+  color: #8b5cf6;
+}
+
+.photosTitle {
+  flex: 1;
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--color-primary);
+}
+
+.photosAdd {
+  flex: none;
+  color: var(--color-primary);
+  cursor: pointer;
+  background: none;
+  border: 0;
+}
+
+.photosEmpty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 32px 16px;
+  border: 1px dashed var(--color-border);
+  border-radius: 14px;
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+  text-align: center;
+}
+
+.photosEmpty svg {
+  opacity: 0.4;
+}
+
+.photosGrid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.photoThumb {
+  position: relative;
+  width: 80px;
+  height: 80px;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+}
+
+.photoThumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.photoRemove {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+/* ── Menu selection ────────────────────────────────────────────────────── */
+
+.menuHead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.menuIcon {
+  flex: none;
+  color: var(--color-primary);
+}
+
+.menuTitle {
+  flex: 1;
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+}
+
+.menuSetup {
+  color: var(--color-primary);
+  font-weight: 600;
+  font-size: 0.85rem;
+  text-decoration: none;
+}
+
+.addOnButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 0 18px;
+  border: 0;
+  border-radius: 14px;
+  background: #c99a1f;
+  color: #fff;
+  font-weight: 600;
+  font-size: 0.9rem;
+  cursor: pointer;
+  margin-top: 10px;
+}
+
+/* ── Bottom actions ────────────────────────────────────────────────────── */
+
+.actions {
+  display: flex;
+  gap: 12px;
+  padding: 16px 16px 24px;
+  position: sticky;
+  bottom: calc(var(--queue-tabbar-height, 96px) + env(safe-area-inset-bottom, 0px));
+  background: var(--color-bg);
+  z-index: 10;
+}
+
+.confirmBtn {
+  flex: 1;
+  min-height: 52px;
+  border: 0;
+  border-radius: 14px;
+  background: var(--color-primary);
+  color: var(--color-primary-contrast);
+  font-size: 1rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.confirmBtn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.draftBtn {
+  flex: 1;
+  min-height: 52px;
+  border: 2px solid #c99a1f;
+  border-radius: 14px;
+  background: var(--color-surface);
+  color: #c99a1f;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.draftBtn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}

@@ -1,0 +1,123 @@
+/* The dashboard's Queue sheet: rises from the bottom on a phone, a centred
+   panel on wider screens. */
+
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: rgb(30 24 20 / 0.45);
+}
+
+.sheet {
+  width: 100%;
+  max-width: 560px;
+  max-height: 88dvh;
+  overflow-y: auto;
+  padding: 10px var(--gap-lg) calc(var(--gap-lg) + env(safe-area-inset-bottom, 0px));
+  border-radius: 28px 28px 0 0;
+  background: var(--color-bg);
+  box-shadow: 0 -12px 40px rgb(0 0 0 / 0.18);
+}
+
+.handle {
+  display: block;
+  width: 48px;
+  height: 5px;
+  margin: 0 auto 14px;
+  border-radius: var(--radius-pill);
+  background: var(--color-border);
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.title {
+  flex: 1;
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: 1.5rem;
+  font-weight: 700;
+}
+
+.close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  font-size: 1.4rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.list {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.item {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 16px;
+  border: 1px solid var(--color-border);
+  border-radius: 20px;
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.item:hover {
+  text-decoration: none;
+  border-color: var(--tone-fg, var(--color-primary));
+}
+
+.item[data-tone='blue'] { --tone-fg: var(--accent-blue-fg); }
+.item[data-tone='green'] { --tone-fg: var(--accent-green-fg); }
+.item[data-tone='amber'] { --tone-fg: var(--accent-amber-fg); }
+.item[data-tone='purple'] { --tone-fg: var(--accent-purple-fg); }
+.item[data-tone='terracotta'] { --tone-fg: var(--accent-terracotta-fg); }
+
+.text {
+  display: grid;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.itemTitle {
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.itemSub {
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+}
+
+.chevron {
+  color: var(--color-text-muted);
+}
+
+@media (min-width: 640px) {
+  .backdrop {
+    align-items: center;
+    padding: var(--gap-lg);
+  }
+  .sheet {
+    border-radius: 28px;
+  }
+}

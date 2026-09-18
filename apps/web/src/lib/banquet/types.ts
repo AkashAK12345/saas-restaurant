@@ -78,6 +78,12 @@ export interface BanquetPayment {
   kind: BanquetPaymentKind | null;
   actor_user_id: string | null;
   verification: { verified_by_user_id: string; verified_at: string; note: string | null } | null;
+  /** Set on a correcting row: the payment it reverses. */
+  reverses_id: string | null;
+  /** Set on a corrected row: the row that reverses it. */
+  reversed_by_id: string | null;
+  /** Counts toward paid_minor: neither a correction nor corrected. */
+  active: boolean;
   created_at: string;
 }
 
@@ -119,6 +125,15 @@ export interface BanquetBalance {
   paid_minor: number;
   balance_minor: number;
   fully_paid: boolean;
+}
+
+export interface BanquetBookingPhoto {
+  id: string;
+  booking_id: string;
+  mime_type: string;
+  file_name: string | null;
+  position: number;
+  created_at: string;
 }
 
 export interface BanquetEventPlan {
@@ -296,6 +311,42 @@ export interface PlateRequest {
   rejection_reason: string | null;
   dispatched_at: string | null;
   dispatched_by: { id: string; name: string } | null;
+}
+
+// ── Finance ──────────────────────────────────────────────────────────────────
+
+export interface FinanceBookingRow {
+  id: string;
+  customer_name: string;
+  hall_name: string;
+  starts_at: string;
+  guest_count: number;
+  extra_pax: number;
+  status: BanquetBookingStatus;
+  total_amount_minor: number;
+  paid_minor: number;
+  balance_minor: number;
+  /** Total minus paid, signed: negative when more was received than the total. */
+  remaining_minor: number;
+  payment_status: BanquetPaymentStatus;
+  currency: string;
+}
+
+export interface BanquetFinance {
+  from: string;
+  to: string;
+  currency: string;
+  total_bookings: number;
+  confirmed_bookings: number;
+  completed_bookings: number;
+  cancelled_bookings: number;
+  draft_bookings: number;
+  total_revenue_minor: number;
+  total_paid_minor: number;
+  total_outstanding_minor: number;
+  total_advance_minor: number;
+  billable_days: number;
+  bookings: FinanceBookingRow[];
 }
 
 export const BOOKING_STATUS_LABEL: Record<BanquetBookingStatus, string> = {

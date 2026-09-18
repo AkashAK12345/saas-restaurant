@@ -80,6 +80,7 @@ describe('QueueTokensService', () => {
       $transaction: vi.fn((fn: (t: unknown) => Promise<unknown>) => fn(tx)),
       branch: { findUnique: vi.fn().mockResolvedValue({ timezone: 'Asia/Kolkata' }) },
       queueToken: { findMany: vi.fn().mockResolvedValue([]), count: vi.fn().mockResolvedValue(0), findFirst: vi.fn() },
+      queueCounter: { findUnique: vi.fn().mockResolvedValue(null) },
     };
     audit = { create: vi.fn().mockResolvedValue(undefined) };
     broker = { publish: vi.fn(), subscribe: vi.fn(), subscriberCount: vi.fn() };
@@ -585,6 +586,18 @@ describe('QueueTokensService', () => {
     it('names the lowest-numbered waiting token as next — first come, first served', async () => {
       const board = await service.board(BRANCH);
       expect(board.next_waiting?.token_number).toBe(4);
+    });
+
+    it('previews the next token number from the branch-day counter without writing it', async () => {
+      expect((await service.board(BRANCH)).next_token_number).toBe(1);
+
+      prisma.queueCounter.findUnique.mockResolvedValue({ next_number: 8 });
+      const board = await service.board(BRANCH, '2026-09-01');
+      expect(board.next_token_number).toBe(8);
+      const where = prisma.queueCounter.findUnique.mock.calls[1][0].where.branch_id_service_date;
+      expect(where.branch_id).toBe(BRANCH);
+      expect(where.service_date.toISOString().slice(0, 10)).toBe('2026-09-01');
+      expect(prisma.$transaction).not.toHaveBeenCalled();
     });
 
     it('has no next when nobody is waiting', async () => {

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { FakeEventSource } from '@/lib/realtime/fake-event-source';
 import type { BanquetBookingDetail, ChefBoard, StaffKdsBoard } from '@/lib/banquet/types';
 
@@ -10,7 +10,9 @@ const apiMock = vi.hoisted(() => ({
   confirmBooking: vi.fn(),
   completeBooking: vi.fn(),
   cancelBooking: vi.fn(),
+  deleteBooking: vi.fn(),
   createPayment: vi.fn(),
+  updatePayment: vi.fn(),
   saveEventPlan: vi.fn(),
   kdsBoard: vi.fn(),
   startItem: vi.fn(),
@@ -30,12 +32,16 @@ const apiMock = vi.hoisted(() => ({
   listHalls: vi.fn(),
   listPackages: vi.fn(),
   customers: vi.fn(),
+  getCustomer: vi.fn(),
+  updateCustomer: vi.fn(),
   bookingPlateRequests: vi.fn(),
   requestPlates: vi.fn(),
   kitchenPlateRequests: vi.fn(),
   approvePlates: vi.fn(),
   rejectPlates: vi.fn(),
   dispatchPlates: vi.fn(),
+  listPhotos: vi.fn(),
+  finance: vi.fn(),
 }));
 
 vi.mock('@/lib/auth/auth-provider', () => ({
@@ -73,11 +79,13 @@ vi.mock('@/lib/context/app-context-provider', () => ({
 }));
 
 let pathname = '/banquet';
+let searchParams = new URLSearchParams();
 const router = vi.hoisted(() => ({ push: vi.fn(), replace: vi.fn() }));
 vi.mock('next/navigation', () => ({
   usePathname: () => pathname,
   useParams: () => ({ id: 'bk-1' }),
   useRouter: () => router,
+  useSearchParams: () => searchParams,
 }));
 
 const displayApiMock = vi.hoisted(() => ({
@@ -96,6 +104,7 @@ vi.mock('@/lib/display/display-api', async () => {
 });
 
 import BookingDetailPage from './(staff)/(app)/banquet/[id]/page';
+import BookingEditPage from './(staff)/(app)/banquet/[id]/edit/page';
 import BanquetLayout from './(staff)/(app)/banquet/layout';
 import KitchenPage from './(staff)/(app)/banquet/kitchen/page';
 import BookingsPage from './(staff)/(app)/banquet/page';
@@ -103,6 +112,8 @@ import CatalogPage from './(staff)/(app)/banquet/catalog/page';
 import CalendarPage from './(staff)/(app)/banquet/calendar/page';
 import BillPage from './(staff)/(app)/banquet/[id]/bill/page';
 import KotPage from './(staff)/(app)/banquet/[id]/kot/page';
+import FinancePage from './(staff)/(app)/banquet/finance/page';
+import { branchToday } from '@/lib/format/datetime';
 import ChefDisplayPage from './(display)/display/banquet/page';
 import { deviceSession } from '@/lib/display/device-session';
 
@@ -218,7 +229,6 @@ const chefBoard = (over: Partial<ChefBoard> = {}): ChefBoard => ({
 
 const ALL_PERMS = [
   'banquet.view',
-  'banquet.booking.confirm',
   'banquet.booking.complete',
   'banquet.booking.cancel',
   'banquet.payment.create',
@@ -233,11 +243,9 @@ describe('Banquet booking detail', () => {
   beforeEach(() => {
     for (const fn of Object.values(apiMock)) fn.mockReset();
     apiMock.getBooking.mockResolvedValue(booking());
-    apiMock.confirmBooking.mockResolvedValue(booking({ status: 'CONFIRMED' }));
     apiMock.cancelBooking.mockResolvedValue(booking({ status: 'CANCELLED' }));
     apiMock.completeBooking.mockResolvedValue(booking({ status: 'COMPLETED' }));
-    apiMock.createPayment.mockResolvedValue({ payment: {}, balance: {} });
-    apiMock.saveEventPlan.mockResolvedValue({});
+    apiMock.listPhotos.mockResolvedValue([]);
     branchPermissions = [...ALL_PERMS];
     companyPermissions = [];
   });
@@ -249,48 +257,261 @@ describe('Banquet booking detail', () => {
     expect(screen.getByText(/Gold Veg/)).toBeTruthy();
     // ₹100,000.00 total, nothing paid
     expect(screen.getAllByText(/1,00,000|100,000/).length).toBeGreaterThan(0);
-    expect(screen.getByText('Balance due')).toBeTruthy();
+    expect(screen.getByText('Balance:')).toBeTruthy();
   });
 
   it('offers only the actions the current state allows', async () => {
     render(<BookingDetailPage />);
     await screen.findByText('Meera Iyer');
-    expect(screen.getByRole('button', { name: 'Confirm booking' })).toBeTruthy();
+    // Confirming is no longer a manual action — it's a side effect of the
+    // first payment above zero, so no "Confirm booking" button exists at all.
+    expect(screen.queryByRole('button', { name: 'Confirm booking' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Mark completed' })).toBeNull();
     expect(screen.getByRole('button', { name: 'Cancel booking' })).toBeTruthy();
   });
 
-  it('confirms and then reconciles with the server', async () => {
+  it('does not offer editing a completed booking without the edit_locked override', async () => {
+    apiMock.getBooking.mockResolvedValue(booking({ status: 'COMPLETED' }));
+    branchPermissions = [...ALL_PERMS, 'banquet.booking.update'];
     render(<BookingDetailPage />);
     await screen.findByText('Meera Iyer');
-    apiMock.getBooking.mockClear();
-
-    fireEvent.click(screen.getByRole('button', { name: 'Confirm booking' }));
-    await waitFor(() => expect(apiMock.confirmBooking).toHaveBeenCalled());
-    await waitFor(() => expect(apiMock.getBooking).toHaveBeenCalled());
+    expect(screen.queryByRole('link', { name: 'Edit booking' })).toBeNull();
   });
 
-  it('shows a hall conflict plainly and still refetches', async () => {
-    apiMock.confirmBooking.mockRejectedValue(
-      new Error('That hall is already booked for an overlapping time.'),
+  it('deletes a draft after asking, then leaves for the calendar', async () => {
+    branchPermissions = [...ALL_PERMS, 'banquet.booking.delete'];
+    apiMock.deleteBooking.mockResolvedValue(undefined);
+    render(<BookingDetailPage />);
+    await screen.findByText('Meera Iyer');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete booking' }));
+    expect(apiMock.deleteBooking).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Yes, delete booking' }));
+    await waitFor(() => expect(apiMock.deleteBooking).toHaveBeenCalledWith({ companyId: 'co-1', branchId: 'br-1' }, 'bk-1'));
+    await waitFor(() => expect(router.push).toHaveBeenCalledWith('/banquet/calendar'));
+  });
+
+  it.each(['CONFIRMED', 'COMPLETED'] as const)(
+    'offers deleting a %s booking only with the edit_locked override',
+    async (status) => {
+      apiMock.getBooking.mockResolvedValue(booking({ status }));
+      branchPermissions = [...ALL_PERMS, 'banquet.booking.delete'];
+      const { unmount } = render(<BookingDetailPage />);
+      await screen.findByText('Meera Iyer');
+      expect(screen.queryByRole('button', { name: 'Delete booking' })).toBeNull();
+      unmount();
+
+      branchPermissions = [...ALL_PERMS, 'banquet.booking.delete', 'banquet.booking.edit_locked'];
+      render(<BookingDetailPage />);
+      await screen.findByText('Meera Iyer');
+      expect(screen.getByRole('button', { name: 'Delete booking' })).toBeTruthy();
+    },
+  );
+
+  it('never offers deleting a cancelled booking, override or not', async () => {
+    apiMock.getBooking.mockResolvedValue(booking({ status: 'CANCELLED' }));
+    branchPermissions = [...ALL_PERMS, 'banquet.booking.delete', 'banquet.booking.edit_locked'];
+    render(<BookingDetailPage />);
+    await screen.findByText('Meera Iyer');
+    expect(screen.queryByRole('button', { name: 'Delete booking' })).toBeNull();
+  });
+
+  it('offers editing a completed booking to someone holding the edit_locked override', async () => {
+    apiMock.getBooking.mockResolvedValue(booking({ status: 'COMPLETED' }));
+    branchPermissions = [...ALL_PERMS, 'banquet.booking.update', 'banquet.booking.edit_locked'];
+    render(<BookingDetailPage />);
+    await screen.findByText('Meera Iyer');
+    expect(screen.getByRole('link', { name: 'Edit booking' })).toBeTruthy();
+  });
+
+  it('offers verification only on unverified payments recorded by someone else', async () => {
+    branchPermissions = [...ALL_PERMS, 'banquet.payment.verify'];
+    apiMock.verifyPayment.mockResolvedValue({});
+    const pay = (id: string, actor: string, verified: boolean) => ({
+      id,
+      booking_id: 'bk-1',
+      amount_minor: 100_000,
+      currency: 'INR',
+      paid_at: '2037-01-01T10:00:00.000Z',
+      method: 'cash',
+      reference: null,
+      kind: 'ADVANCE' as const,
+      actor_user_id: actor,
+      verification: verified ? { verified_by_user_id: 'u-x', verified_at: '', note: null } : null,
+      reverses_id: null,
+      reversed_by_id: null,
+      active: true,
+      created_at: '',
+    });
+    apiMock.getBooking.mockResolvedValue(
+      booking({ status: 'CONFIRMED', payments: [pay('p-other', 'u-2', false), pay('p-mine', 'u-me', false), pay('p-done', 'u-2', true)] }),
     );
     render(<BookingDetailPage />);
     await screen.findByText('Meera Iyer');
-    apiMock.getBooking.mockClear();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Confirm booking' }));
-    expect((await screen.findByRole('alert')).textContent).toMatch(/already booked/i);
-    await waitFor(() => expect(apiMock.getBooking).toHaveBeenCalled());
+    const buttons = screen.getAllByRole('button', { name: /^Verify payment/ });
+    expect(buttons).toHaveLength(1);
+    expect(screen.getAllByText('Verified')).toHaveLength(1);
+    expect(screen.getAllByText('Not verified')).toHaveLength(1);
+    fireEvent.click(buttons[0]);
+    await waitFor(() =>
+      expect(apiMock.verifyPayment).toHaveBeenCalledWith({ companyId: 'co-1', branchId: 'br-1' }, 'p-other'),
+    );
   });
 
-  it('sends a payment as whole minor units', async () => {
-    apiMock.getBooking.mockResolvedValue(booking({ status: 'CONFIRMED' }));
+  it('hides every mutation without the permissions', async () => {
+    branchPermissions = ['banquet.view'];
     render(<BookingDetailPage />);
     await screen.findByText('Meera Iyer');
+    expect(screen.queryByRole('button', { name: 'Cancel booking' })).toBeNull();
+    expect(screen.queryByRole('link', { name: 'Edit booking' })).toBeNull();
+  });
+
+  it('cancels with the reason the operator gives', async () => {
+    render(<BookingDetailPage />);
+    await screen.findByText('Meera Iyer');
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel booking' }));
+    fireEvent.change(screen.getByLabelText('Reason for cancelling (optional)'), {
+      target: { value: 'Client postponed' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm cancellation' }));
+    await waitFor(() =>
+      expect(apiMock.cancelBooking).toHaveBeenCalledWith({ companyId: 'co-1', branchId: 'br-1' }, 'bk-1', 'Client postponed'),
+    );
+  });
+
+  it('shows times in the branch timezone as dd/MM/yyyy', async () => {
+    render(<BookingDetailPage />);
+    await screen.findByText('Meera Iyer');
+    // 12:00Z is 5:30 pm in Kolkata.
+    expect(screen.getByText(/^20\/11\/2037, 5:30\s?pm$/i)).toBeTruthy();
+  });
+});
+
+// ── booking edit ─────────────────────────────────────────────────────────────
+
+describe('Banquet booking edit', () => {
+  beforeEach(() => {
+    for (const fn of Object.values(apiMock)) fn.mockReset();
+    apiMock.getBooking.mockResolvedValue(booking());
+    apiMock.getCustomer.mockResolvedValue({ id: 'c-1', company_id: 'co-1', name: 'Meera Iyer', phone: null, status: 'ACTIVE' });
+    apiMock.listPackages.mockResolvedValue({ data: [], meta: { total: 0, limit: 100, offset: 0 } });
+    apiMock.listPhotos.mockResolvedValue([]);
+    apiMock.bookingPlateRequests.mockResolvedValue([]);
+    apiMock.createPayment.mockResolvedValue({ payment: {}, balance: {} });
+    apiMock.saveEventPlan.mockResolvedValue({});
+    branchPermissions = [...ALL_PERMS];
+    companyPermissions = [];
+  });
+
+  afterEach(() => {
+    searchParams = new URLSearchParams();
+  });
+
+  it('adds another slot on the same day as a separate booking pre-filled from this one', async () => {
+    branchPermissions = [...ALL_PERMS, 'banquet.booking.create'];
+    searchParams = new URLSearchParams('pick=add');
+    apiMock.availability.mockResolvedValue({
+      days: [{
+        date: '2037-11-20',
+        halls: [{
+          hall_id: 'h-1',
+          hall_name: 'Crystal',
+          state: 'partial',
+          slots: [
+            { slot_id: 's-l', name: 'Lunch', starts_at: '2037-11-20T06:00:00.000Z', ends_at: '2037-11-20T10:30:00.000Z', state: 'booked', booking_ids: ['bk-1'] },
+            { slot_id: 's-d', name: 'Dinner', starts_at: '2037-11-20T12:30:00.000Z', ends_at: '2037-11-20T17:30:00.000Z', state: 'available', booking_ids: [] },
+          ],
+        }],
+      }],
+    });
+    apiMock.createBooking.mockResolvedValue(booking({ id: 'bk-2' }));
+    render(<BookingEditPage />);
+
+    // Fixed to the booking's own day: no day navigation in this mode.
+    const sheet = await screen.findByRole('dialog', { name: 'Add another slot for this day' });
+    expect(within(sheet).queryByRole('button', { name: /Next day/ })).toBeNull();
+    // This booking's own slot is simply taken here, not "Keep".
+    fireEvent.click(await within(sheet).findByRole('button', { name: 'Select' }));
+
+    await waitFor(() => expect(apiMock.createBooking).toHaveBeenCalled());
+    expect(apiMock.createBooking.mock.calls[0][1]).toMatchObject({
+      customer_id: 'c-1',
+      hall_id: 'h-1',
+      starts_at: '2037-11-20T12:30:00.000Z',
+      guest_count: 80,
+    });
+    await waitFor(() => expect(router.push).toHaveBeenCalledWith('/banquet/bk-2/edit'));
+  });
+
+  it('deletes a draft from the edit screen after asking, then leaves for the calendar', async () => {
+    branchPermissions = [...ALL_PERMS, 'banquet.booking.delete'];
+    apiMock.deleteBooking.mockResolvedValue(undefined);
+    render(<BookingEditPage />);
+    await screen.findByDisplayValue('Meera Iyer');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete booking' }));
+    expect(apiMock.deleteBooking).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Yes, delete booking' }));
+    await waitFor(() => expect(apiMock.deleteBooking).toHaveBeenCalledWith({ companyId: 'co-1', branchId: 'br-1' }, 'bk-1'));
+    await waitFor(() => expect(router.push).toHaveBeenCalledWith('/banquet/calendar'));
+  });
+
+  it('offers deleting a confirmed, advance-paid booking from the edit screen only with the edit_locked override', async () => {
+    apiMock.getBooking.mockResolvedValue(booking({ status: 'CONFIRMED', paid_minor: 500_000 }));
+    branchPermissions = [...ALL_PERMS, 'banquet.booking.delete'];
+    const { unmount } = render(<BookingEditPage />);
+    await screen.findByDisplayValue('Meera Iyer');
+    expect(screen.queryByRole('button', { name: 'Delete booking' })).toBeNull();
+    unmount();
+
+    branchPermissions = [...ALL_PERMS, 'banquet.booking.delete', 'banquet.booking.edit_locked'];
+    apiMock.deleteBooking.mockResolvedValue(undefined);
+    render(<BookingEditPage />);
+    await screen.findByDisplayValue('Meera Iyer');
+    fireEvent.click(screen.getByRole('button', { name: 'Delete booking' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Yes, delete booking' }));
+    await waitFor(() => expect(apiMock.deleteBooking).toHaveBeenCalledWith({ companyId: 'co-1', branchId: 'br-1' }, 'bk-1'));
+  });
+
+  it('offers deleting a completed, advance-paid booking from the edit screen with the edit_locked override', async () => {
+    // A completed booking is only reachable on the edit screen at all with
+    // the same override — see "offers editing a completed booking...".
+    apiMock.getBooking.mockResolvedValue(booking({ status: 'COMPLETED', paid_minor: 500_000 }));
+    branchPermissions = [...ALL_PERMS, 'banquet.booking.delete', 'banquet.booking.edit_locked'];
+    apiMock.deleteBooking.mockResolvedValue(undefined);
+    render(<BookingEditPage />);
+    await screen.findByDisplayValue('Meera Iyer');
+    fireEvent.click(screen.getByRole('button', { name: 'Delete booking' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Yes, delete booking' }));
+    await waitFor(() => expect(apiMock.deleteBooking).toHaveBeenCalledWith({ companyId: 'co-1', branchId: 'br-1' }, 'bk-1'));
+  });
+
+  it('moves a booking to any date picked straight from the calendar input', async () => {
+    searchParams = new URLSearchParams('pick=move');
+    apiMock.availability.mockResolvedValue({ days: [{ date: '2037-12-24', halls: [] }] });
+    render(<BookingEditPage />);
+    const sheet = await screen.findByRole('dialog', { name: 'Move to' });
+    fireEvent.change(within(sheet).getByLabelText('Go to date'), { target: { value: '2037-12-24' } });
+    await waitFor(() =>
+      expect(apiMock.availability).toHaveBeenLastCalledWith(expect.anything(), { from: '2037-12-24', to: '2037-12-24' }),
+    );
+  });
+
+  it('stages a payment without recording it, then sends it as whole minor units only when the booking is saved', async () => {
+    apiMock.getBooking.mockResolvedValue(booking({ status: 'CONFIRMED' }));
+    apiMock.updateBooking.mockResolvedValue(booking({ status: 'CONFIRMED' }));
+    render(<BookingEditPage />);
+    await screen.findByDisplayValue('Meera Iyer');
 
     fireEvent.change(screen.getByLabelText('Amount (INR)'), { target: { value: '25000.50' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Record payment' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Stage payment' }));
 
+    // Not sent yet — staged locally, and the totals shown are untouched.
+    expect(apiMock.createPayment).not.toHaveBeenCalled();
+    expect(screen.getByText(/pending — tap Update Booking/)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Update Booking' }));
     await waitFor(() => expect(apiMock.createPayment).toHaveBeenCalled());
     expect(apiMock.createPayment.mock.calls[0][2]).toEqual({
       amount_minor: 2_500_050,
@@ -298,12 +519,29 @@ describe('Banquet booking detail', () => {
     });
   });
 
-  it('refuses to submit an unparseable or excessive amount', async () => {
+  it('lets a staged payment be removed before it is ever sent', async () => {
     apiMock.getBooking.mockResolvedValue(booking({ status: 'CONFIRMED' }));
-    render(<BookingDetailPage />);
-    await screen.findByText('Meera Iyer');
+    render(<BookingEditPage />);
+    await screen.findByDisplayValue('Meera Iyer');
+
+    fireEvent.change(screen.getByLabelText('Amount (INR)'), { target: { value: '1000' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Stage payment' }));
+    expect(screen.getByText(/pending — tap Update Booking/)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Remove pending payment' }));
+    expect(screen.queryByText(/pending — tap Update Booking/)).toBeNull();
+    // Nothing left to save, so Update Booking is disabled again.
+    expect((screen.getByRole('button', { name: 'Update Booking' }) as HTMLButtonElement).disabled).toBe(true);
+    expect(apiMock.createPayment).not.toHaveBeenCalled();
+    expect(apiMock.updateBooking).not.toHaveBeenCalled();
+  });
+
+  it('refuses to stage an unparseable or excessive amount', async () => {
+    apiMock.getBooking.mockResolvedValue(booking({ status: 'CONFIRMED' }));
+    render(<BookingEditPage />);
+    await screen.findByDisplayValue('Meera Iyer');
     const field = screen.getByLabelText('Amount (INR)');
-    const submit = () => screen.getByRole('button', { name: 'Record payment' }) as HTMLButtonElement;
+    const submit = () => screen.getByRole('button', { name: 'Stage payment' }) as HTMLButtonElement;
 
     fireEvent.change(field, { target: { value: 'abc' } });
     expect(submit().disabled).toBe(true);
@@ -328,42 +566,86 @@ describe('Banquet booking detail', () => {
         },
       }),
     );
-    render(<BookingDetailPage />);
-    await screen.findByText('Meera Iyer');
-    expect(screen.queryByRole('button', { name: 'Record payment' })).toBeNull();
+    render(<BookingEditPage />);
+    await screen.findByDisplayValue('Meera Iyer');
+    expect(screen.queryByRole('button', { name: 'Stage payment' })).toBeNull();
   });
 
-  it('says payments cannot be edited', async () => {
-    render(<BookingDetailPage />);
-    await screen.findByText('Meera Iyer');
-    expect(screen.getByText(/permanent record and cannot be edited/i)).toBeTruthy();
+  it('says a verified payment becomes permanent', async () => {
+    render(<BookingEditPage />);
+    await screen.findByDisplayValue('Meera Iyer');
+    fireEvent.click(screen.getByRole('button', { name: /Payment History/ }));
+    expect(screen.getByText(/becomes a permanent record/i)).toBeTruthy();
+  });
+
+  it('corrects an unverified payment by reversing it and recording a fresh one', async () => {
+    branchPermissions = [...ALL_PERMS];
+    apiMock.updatePayment.mockResolvedValue({});
+    apiMock.getBooking.mockResolvedValue(
+      booking({
+        status: 'CONFIRMED',
+        payments: [
+          {
+            id: 'p-1', booking_id: 'bk-1', amount_minor: 500_000, currency: 'INR',
+            paid_at: '2037-01-01T10:00:00.000Z', method: 'cash', reference: null, kind: 'ADVANCE',
+            actor_user_id: 'u-2', verification: null, reverses_id: null, reversed_by_id: null, active: true,
+            created_at: '',
+          },
+        ],
+      }),
+    );
+    render(<BookingEditPage />);
+    await screen.findByDisplayValue('Meera Iyer');
+    fireEvent.click(screen.getByRole('button', { name: /Payment History/ }));
+
+    fireEvent.click(screen.getByRole('button', { name: /^Edit payment of/ }));
+    const field = screen.getByLabelText(/Corrected amount/);
+    fireEvent.change(field, { target: { value: '3000' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => expect(apiMock.updatePayment).toHaveBeenCalled());
+    expect(apiMock.updatePayment.mock.calls[0][1]).toBe('bk-1');
+    expect(apiMock.updatePayment.mock.calls[0][2]).toBe('p-1');
+    expect(apiMock.updatePayment.mock.calls[0][3]).toEqual({ amount_minor: 300_000, method: 'cash' });
+  });
+
+  it('offers no correction on a verified payment', async () => {
+    branchPermissions = [...ALL_PERMS];
+    apiMock.getBooking.mockResolvedValue(
+      booking({
+        status: 'CONFIRMED',
+        payments: [
+          {
+            id: 'p-1', booking_id: 'bk-1', amount_minor: 500_000, currency: 'INR',
+            paid_at: '2037-01-01T10:00:00.000Z', method: 'cash', reference: null, kind: 'ADVANCE',
+            actor_user_id: 'u-2',
+            verification: { verified_by_user_id: 'u-3', verified_at: '', note: null },
+            reverses_id: null, reversed_by_id: null, active: true,
+            created_at: '',
+          },
+        ],
+      }),
+    );
+    render(<BookingEditPage />);
+    await screen.findByDisplayValue('Meera Iyer');
+    fireEvent.click(screen.getByRole('button', { name: /Payment History/ }));
+    expect(screen.queryByRole('button', { name: /^Edit payment of/ })).toBeNull();
   });
 
   it('saves the event plan', async () => {
     apiMock.getBooking.mockResolvedValue(booking({ status: 'CONFIRMED' }));
-    render(<BookingDetailPage />);
-    await screen.findByText('Meera Iyer');
+    render(<BookingEditPage />);
+    await screen.findByDisplayValue('Meera Iyer');
 
-    fireEvent.change(screen.getByLabelText('Kitchen notes'), { target: { value: 'No nuts' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Save plan' }));
+    fireEvent.click(screen.getByRole('button', { name: /Additional Information/ }));
+    fireEvent.change(screen.getByLabelText('Event Management (Optional)'), { target: { value: 'No nuts' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 
     await waitFor(() => expect(apiMock.saveEventPlan).toHaveBeenCalled());
     expect(apiMock.saveEventPlan.mock.calls[0][2]).toMatchObject({ kitchen_notes: 'No nuts' });
   });
 
-  it('hides every mutation without the permissions', async () => {
-    branchPermissions = ['banquet.view'];
-    render(<BookingDetailPage />);
-    await screen.findByText('Meera Iyer');
-    expect(screen.queryByRole('button', { name: 'Confirm booking' })).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Cancel booking' })).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Record payment' })).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Save plan' })).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Edit booking' })).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Add line' })).toBeNull();
-  });
-
-  it('shows GST as equal CGST and SGST halves, and a no-GST booking plainly', async () => {
+  it('shows GST as split CGST/SGST, and a no-GST booking as not applied', async () => {
     apiMock.getBooking.mockResolvedValue(
       booking({
         gst_rate_bps: 500,
@@ -371,54 +653,59 @@ describe('Banquet booking detail', () => {
         invoice: { ...booking().invoice, gst_rate_bps: 500, cgst_minor: 250_000, sgst_minor: 250_000, tax_minor: 500_000, total_minor: 10_500_000 },
       }),
     );
-    const { unmount } = render(<BookingDetailPage />);
-    await screen.findByText('Meera Iyer');
-    expect(screen.getByText('CGST · 2.5%')).toBeTruthy();
-    expect(screen.getByText('SGST · 2.5%')).toBeTruthy();
+    const { unmount } = render(<BookingEditPage />);
+    await screen.findByDisplayValue('Meera Iyer');
+    expect(screen.getByText('CGST:')).toBeTruthy();
+    expect(screen.getByText('SGST:')).toBeTruthy();
     unmount();
 
     apiMock.getBooking.mockResolvedValue(booking());
-    render(<BookingDetailPage />);
-    await screen.findByText('Meera Iyer');
+    render(<BookingEditPage />);
+    await screen.findByDisplayValue('Meera Iyer');
     expect(screen.getByText('Not applied')).toBeTruthy();
   });
 
-  it('cancels with the reason the operator gives', async () => {
-    render(<BookingDetailPage />);
-    await screen.findByText('Meera Iyer');
-    fireEvent.click(screen.getByRole('button', { name: 'Cancel booking' }));
-    fireEvent.change(screen.getByLabelText('Reason for cancelling (optional)'), {
-      target: { value: 'Client postponed' },
-    });
-    fireEvent.click(screen.getByRole('button', { name: 'Confirm cancellation' }));
-    await waitFor(() =>
-      expect(apiMock.cancelBooking).toHaveBeenCalledWith({ companyId: 'co-1', branchId: 'br-1' }, 'bk-1', 'Client postponed'),
-    );
-  });
-
-  it('adds a discount in whole minor units, offering only the kinds the viewer may add', async () => {
-    branchPermissions = [...ALL_PERMS, 'banquet.discount.apply'];
+  it('applies an admin discount as a whole-minor amount', async () => {
+    branchPermissions = [...ALL_PERMS, 'banquet.discount.admin'];
     apiMock.addAdjustment.mockResolvedValue(booking());
-    render(<BookingDetailPage />);
-    await screen.findByText('Meera Iyer');
+    render(<BookingEditPage />);
+    await screen.findByDisplayValue('Meera Iyer');
 
-    const kinds = Array.from((screen.getByLabelText('Line type') as HTMLSelectElement).options).map((o) => o.value);
-    expect(kinds).toEqual(['', 'LINE_DISCOUNT', 'PER_HEAD_DISCOUNT']);
+    expect(screen.getByRole('button', { name: 'Amount (₹)' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Percentage (%)' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: 'Per Head (₹)' })).toBeNull();
 
-    fireEvent.change(screen.getByLabelText('Line type'), { target: { value: 'LINE_DISCOUNT' } });
-    fireEvent.change(screen.getByLabelText('Description'), { target: { value: 'Loyalty' } });
-    fireEvent.change(screen.getByLabelText('Line amount (INR)'), { target: { value: '500.50' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Add line' }));
+    fireEvent.change(screen.getByLabelText('Discount Amount'), { target: { value: '500.50' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Apply Discount' }));
 
     await waitFor(() => expect(apiMock.addAdjustment).toHaveBeenCalled());
     expect(apiMock.addAdjustment.mock.calls[0][2]).toEqual({
-      kind: 'LINE_DISCOUNT',
-      description: 'Loyalty',
+      kind: 'ADMIN_DISCOUNT',
+      description: 'Admin discount',
       amount_minor: 50_050,
     });
   });
 
-  it('withdraws a line through its reversal, and shows a withdrawn line without a button', async () => {
+  it('computes a percentage discount from the taxable value', async () => {
+    branchPermissions = [...ALL_PERMS, 'banquet.discount.admin'];
+    apiMock.addAdjustment.mockResolvedValue(booking());
+    render(<BookingEditPage />);
+    await screen.findByDisplayValue('Meera Iyer');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Percentage (%)' }));
+    fireEvent.change(screen.getByLabelText('Discount Percentage'), { target: { value: '10' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Apply Discount' }));
+
+    await waitFor(() => expect(apiMock.addAdjustment).toHaveBeenCalled());
+    // 10% of the ₹100,000.00 taxable value.
+    expect(apiMock.addAdjustment.mock.calls[0][2]).toEqual({
+      kind: 'ADMIN_DISCOUNT',
+      description: '10% discount',
+      amount_minor: 1_000_000,
+    });
+  });
+
+  it('withdraws a charge through its reversal, and shows a withdrawn line without a button', async () => {
     branchPermissions = [...ALL_PERMS, 'banquet.charge.manage'];
     apiMock.reverseAdjustment.mockResolvedValue(booking());
     apiMock.getBooking.mockResolvedValue(
@@ -430,8 +717,9 @@ describe('Banquet booking detail', () => {
         ],
       }),
     );
-    render(<BookingDetailPage />);
-    await screen.findByText('Meera Iyer');
+    render(<BookingEditPage />);
+    await screen.findByDisplayValue('Meera Iyer');
+    fireEvent.click(screen.getByRole('button', { name: 'Extra Charges' }));
     expect(screen.getAllByRole('button', { name: /^Withdraw / })).toHaveLength(1);
     fireEvent.click(screen.getByRole('button', { name: 'Withdraw DJ' }));
     await waitFor(() =>
@@ -439,77 +727,57 @@ describe('Banquet booking detail', () => {
     );
   });
 
-  it('offers verification only on unverified payments recorded by someone else', async () => {
-    branchPermissions = [...ALL_PERMS, 'banquet.payment.verify'];
-    apiMock.verifyPayment.mockResolvedValue({});
-    const pay = (id: string, actor: string, verified: boolean) => ({
-      id,
-      booking_id: 'bk-1',
-      amount_minor: 100_000,
-      currency: 'INR',
-      paid_at: '2037-01-01T10:00:00.000Z',
-      method: 'cash',
-      reference: null,
-      kind: 'ADVANCE' as const,
-      actor_user_id: actor,
-      verification: verified ? { verified_by_user_id: 'u-x', verified_at: '', note: null } : null,
-      created_at: '',
-    });
-    apiMock.getBooking.mockResolvedValue(
-      booking({ status: 'CONFIRMED', payments: [pay('p-other', 'u-2', false), pay('p-mine', 'u-me', false), pay('p-done', 'u-2', true)] }),
-    );
-    render(<BookingDetailPage />);
-    await screen.findByText('Meera Iyer');
-
-    const buttons = screen.getAllByRole('button', { name: /^Verify payment/ });
-    expect(buttons).toHaveLength(1);
-    expect(screen.getAllByText('Verified')).toHaveLength(1);
-    expect(screen.getAllByText('Not verified')).toHaveLength(1);
-    fireEvent.click(buttons[0]);
-    await waitFor(() =>
-      expect(apiMock.verifyPayment).toHaveBeenCalledWith({ companyId: 'co-1', branchId: 'br-1' }, 'p-other'),
-    );
-  });
-
-  it('keeps a started event read-only without the past-edit permission', async () => {
-    branchPermissions = [...ALL_PERMS, 'banquet.booking.update', 'banquet.charge.manage'];
+  it('keeps discounts and charges out of reach on a started event without the past-edit permission', async () => {
+    branchPermissions = [...ALL_PERMS, 'banquet.booking.update', 'banquet.charge.manage', 'banquet.discount.admin'];
     const started = booking({ status: 'CONFIRMED', starts_at: '2020-01-01T10:00:00.000Z', ends_at: '2020-01-01T16:00:00.000Z' });
     apiMock.getBooking.mockResolvedValue(started);
-    const { unmount } = render(<BookingDetailPage />);
-    await screen.findByText('Meera Iyer');
+    const { unmount } = render(<BookingEditPage />);
+    await screen.findByDisplayValue('Meera Iyer');
     expect(screen.getByText(/already started/)).toBeTruthy();
-    expect(screen.queryByRole('button', { name: 'Edit booking' })).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Add line' })).toBeNull();
+    expect(screen.queryByText('Admin Discount')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Extra Charges' })).toBeNull();
     unmount();
 
     branchPermissions = [...branchPermissions, 'banquet.booking.edit_past'];
-    render(<BookingDetailPage />);
-    await screen.findByText('Meera Iyer');
+    render(<BookingEditPage />);
+    await screen.findByDisplayValue('Meera Iyer');
     expect(screen.queryByText(/already started/)).toBeNull();
-    expect(screen.getByRole('button', { name: 'Edit booking' })).toBeTruthy();
+    expect(screen.getByText('Admin Discount')).toBeTruthy();
   });
 
-  it('edits send only what changed', async () => {
+  it('sends only what changed', async () => {
     branchPermissions = [...ALL_PERMS, 'banquet.booking.update'];
-    apiMock.listHalls.mockResolvedValue({ data: [{ id: 'h-1', name: 'Crystal', capacity: 200, status: 'ACTIVE', slots: [] }], meta: { total: 1, limit: 100, offset: 0 } });
     apiMock.updateBooking.mockResolvedValue(booking({ guest_count: 90 }));
-    render(<BookingDetailPage />);
-    await screen.findByText('Meera Iyer');
+    render(<BookingEditPage />);
+    await screen.findByDisplayValue('Meera Iyer');
 
-    fireEvent.click(screen.getByRole('button', { name: 'Edit booking' }));
-    await waitFor(() => expect(apiMock.listHalls).toHaveBeenCalled());
-    fireEvent.change(screen.getByLabelText('Guaranteed guests'), { target: { value: '90' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    fireEvent.change(screen.getByLabelText('Number of Guests (PAX) *'), { target: { value: '90' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Update Booking' }));
 
     await waitFor(() => expect(apiMock.updateBooking).toHaveBeenCalled());
     expect(apiMock.updateBooking.mock.calls[0][2]).toEqual({ guest_count: 90 });
   });
 
-  it('shows times in the branch timezone as dd/MM/yyyy', async () => {
-    render(<BookingDetailPage />);
-    await screen.findByText('Meera Iyer');
-    // 12:00Z is 5:30 pm in Kolkata.
-    expect(screen.getByText(/^20\/11\/2037, 5:30\s?pm$/i)).toBeTruthy();
+  it('updates the customer record when the name or phone changes', async () => {
+    branchPermissions = [...ALL_PERMS];
+    companyPermissions = ['customers.update'];
+    apiMock.updateCustomer.mockResolvedValue({});
+    render(<BookingEditPage />);
+    await screen.findByDisplayValue('Meera Iyer');
+
+    fireEvent.change(screen.getByLabelText('Customer Name *'), { target: { value: 'Meera Nair' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Update Booking' }));
+
+    await waitFor(() => expect(apiMock.updateCustomer).toHaveBeenCalled());
+    expect(apiMock.updateCustomer.mock.calls[0][1]).toBe('c-1');
+    expect(apiMock.updateCustomer.mock.calls[0][2]).toEqual({ name: 'Meera Nair', phone: null });
+  });
+
+  it('refuses to edit a completed or cancelled booking', async () => {
+    apiMock.getBooking.mockResolvedValue(booking({ status: 'COMPLETED' }));
+    render(<BookingEditPage />);
+    expect(await screen.findByRole('alert')).toBeTruthy();
+    expect(screen.getByText(/can no longer be edited/i)).toBeTruthy();
   });
 });
 
@@ -539,12 +807,15 @@ describe('Plate requests on a booking', () => {
     for (const fn of Object.values(apiMock)) fn.mockReset();
     branchPermissions = [...ALL_PERMS, 'banquet.plate.request'];
     apiMock.getBooking.mockResolvedValue(booking({ status: 'CONFIRMED' }));
+    apiMock.getCustomer.mockResolvedValue({ id: 'c-1', company_id: 'co-1', name: 'Meera Iyer', phone: null, status: 'ACTIVE' });
+    apiMock.listPackages.mockResolvedValue({ data: [], meta: { total: 0, limit: 100, offset: 0 } });
+    apiMock.listPhotos.mockResolvedValue([]);
     apiMock.bookingPlateRequests.mockResolvedValue([request()]);
     apiMock.requestPlates.mockResolvedValue(request({ id: 'pr-2', status: 'REQUESTED', decided_by: null, rejection_reason: null }));
   });
 
   it('lists the kitchen’s answers, and requests plates of a dish on this booking', async () => {
-    render(<BookingDetailPage />);
+    render(<BookingEditPage />);
     const list = await screen.findByRole('list', { name: 'Plate requests for this booking' });
     expect(list.textContent).toMatch('30 × Paneer Tikka');
     expect(list.textContent).toMatch('Rejected');
@@ -552,8 +823,8 @@ describe('Plate requests on a booking', () => {
 
     fireEvent.change(screen.getByLabelText('Dish'), { target: { value: 'i-1' } });
     fireEvent.change(screen.getByLabelText('Plates'), { target: { value: '12' } });
-    fireEvent.change(screen.getByLabelText('Note for the kitchen (optional)'), { target: { value: 'Head table' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Request plates' }));
+    fireEvent.change(screen.getByLabelText('Note (optional)'), { target: { value: 'Head table' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Place Kitchen Order' }));
     await waitFor(() =>
       expect(apiMock.requestPlates).toHaveBeenCalledWith({ companyId: 'co-1', branchId: 'br-1' }, 'bk-1', {
         item_id: 'i-1',
@@ -565,29 +836,29 @@ describe('Plate requests on a booking', () => {
   });
 
   it('refuses a plate count the API would refuse, before sending it', async () => {
-    render(<BookingDetailPage />);
+    render(<BookingEditPage />);
     await screen.findByRole('list', { name: 'Plate requests for this booking' });
     fireEvent.change(screen.getByLabelText('Dish'), { target: { value: 'i-1' } });
     for (const bad of ['0', '10001', '2.5', '']) {
       fireEvent.change(screen.getByLabelText('Plates'), { target: { value: bad } });
-      expect((screen.getByRole('button', { name: 'Request plates' }) as HTMLButtonElement).disabled).toBe(true);
+      expect((screen.getByRole('button', { name: 'Place Kitchen Order' }) as HTMLButtonElement).disabled).toBe(true);
     }
     expect(apiMock.requestPlates).not.toHaveBeenCalled();
   });
 
   it('offers no request form without banquet.plate.request, or for an event that is not confirmed', async () => {
     branchPermissions = [...ALL_PERMS];
-    const { unmount } = render(<BookingDetailPage />);
+    const { unmount } = render(<BookingEditPage />);
     await screen.findByRole('list', { name: 'Plate requests for this booking' });
-    expect(screen.queryByRole('button', { name: 'Request plates' })).toBeNull();
+    expect((screen.getByRole('button', { name: 'Place Kitchen Order' }) as HTMLButtonElement).disabled).toBe(true);
     unmount();
 
     branchPermissions = [...ALL_PERMS, 'banquet.plate.request'];
     apiMock.getBooking.mockResolvedValue(booking({ status: 'DRAFT' }));
     apiMock.bookingPlateRequests.mockResolvedValue([]);
-    render(<BookingDetailPage />);
-    await screen.findByRole('heading', { name: 'Meera Iyer' });
-    expect(screen.queryByRole('button', { name: 'Request plates' })).toBeNull();
+    render(<BookingEditPage />);
+    await screen.findByDisplayValue('Meera Iyer');
+    expect(screen.queryByRole('button', { name: 'Place Kitchen Order' })).toBeNull();
   });
 });
 
@@ -666,58 +937,160 @@ describe('Banquet bill and KOT', () => {
 
 // ── availability calendar ────────────────────────────────────────────────────
 
-describe('Banquet availability calendar', () => {
+describe('Banquet availability', () => {
+  /** 2026-09-16 is a Wednesday; the fixtures below sit in that week. */
+  const TODAY = new Date('2026-09-16T06:00:00.000Z');
+
+  const hallDay = (over = {}) => ({
+    hall_id: 'h-1',
+    hall_name: 'Crown Hall',
+    state: 'partial',
+    slots: [],
+    confirmed_booking_ids: [],
+    draft_booking_ids: [],
+    ...over,
+  });
+
   beforeEach(() => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(TODAY);
     for (const fn of Object.values(apiMock)) fn.mockReset();
     branchPermissions = ['banquet.view'];
-    apiMock.listHalls.mockResolvedValue({ data: [], meta: { total: 0, limit: 100, offset: 0 } });
-    apiMock.availability.mockImplementation(async (_ctx: unknown, params: { from: string; to: string }) => ({
+    apiMock.availability.mockImplementation(async (_ctx, params) => ({
       branch_id: 'br-1',
       timezone: 'Asia/Kolkata',
       from: params.from,
       to: params.to,
       days: [
         {
-          date: params.from,
+          date: '2026-09-17',
           halls: [
-            {
-              hall_id: 'h-1',
-              hall_name: 'Crystal',
-              state: 'partial',
+            hallDay({
+              state: 'full',
               slots: [
-                { slot_id: 's-1', name: 'Lunch', starts_at: '2028-03-15T05:30:00.000Z', ends_at: '', state: 'booked', booking_ids: ['bk-9'] },
-                { slot_id: 's-2', name: 'Dinner', starts_at: '2028-03-15T13:30:00.000Z', ends_at: '', state: 'available', booking_ids: [] },
+                { slot_id: 's-1', name: 'Lunch', starts_at: '2026-09-17T06:00:00.000Z', ends_at: '', state: 'booked', booking_ids: ['bk-1'] },
+                { slot_id: 's-2', name: 'Dinner', starts_at: '2026-09-17T13:30:00.000Z', ends_at: '', state: 'tentative', booking_ids: ['bk-2'] },
               ],
-              confirmed_booking_ids: ['bk-9'],
-              draft_booking_ids: [],
-            },
+              confirmed_booking_ids: ['bk-1'],
+              draft_booking_ids: ['bk-2'],
+            }),
+          ],
+        },
+        {
+          date: '2026-09-18',
+          halls: [
+            hallDay({
+              state: 'available',
+              slots: [
+                { slot_id: 's-1', name: 'Lunch', starts_at: '2026-09-18T06:00:00.000Z', ends_at: '', state: 'available', booking_ids: [] },
+                { slot_id: 's-2', name: 'Dinner', starts_at: '2026-09-18T13:30:00.000Z', ends_at: '', state: 'available', booking_ids: [] },
+              ],
+            }),
           ],
         },
       ],
     }));
+    apiMock.listBookings.mockResolvedValue({
+      data: [
+        booking({
+          id: 'bk-1',
+          status: 'CONFIRMED',
+          customer: { id: 'c-1', name: 'Praveen' },
+          guest_count: 120,
+          extra_pax: 0,
+          hall_name: 'Crown Hall',
+          starts_at: '2026-09-17T06:00:00.000Z',
+        }),
+        booking({
+          id: 'bk-2',
+          status: 'DRAFT',
+          customer: { id: 'c-2', name: 'Nirmal' },
+          guest_count: 150,
+          extra_pax: 0,
+          hall_name: 'Crown Hall',
+          starts_at: '2026-09-17T13:30:00.000Z',
+        }),
+      ],
+      meta: { total: 2, limit: 200, offset: 0 },
+    });
   });
 
-  it('shows each slot state and links a booked slot to its booking', async () => {
-    render(<CalendarPage />);
-    expect(await screen.findByText('Partly booked')).toBeTruthy();
-    expect(screen.getByRole('link', { name: 'Lunch · Booked' }).getAttribute('href')).toBe('/banquet/bk-9');
-    expect(screen.getByText(/Dinner .* · Free/)).toBeTruthy();
-    // No customer data reaches the calendar.
-    expect(document.body.textContent).not.toMatch(/Meera/);
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
-  it('asks the server for a branch-local week and moves by a week', async () => {
+  it('shows the month, tinted by what each day holds, with a legend', async () => {
     render(<CalendarPage />);
-    await screen.findByText('Partly booked');
-    const first = apiMock.availability.mock.calls[0][1] as { from: string; to: string };
-    expect(first.from).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-    const days = (Date.parse(first.to) - Date.parse(first.from)) / 86_400_000;
-    expect(days).toBe(6);
+    expect(await screen.findByRole('heading', { level: 1, name: 'Banquet Availability' })).toBeTruthy();
+    expect(screen.getByText('Banquet › Booking')).toBeTruthy();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Next' }));
-    await waitFor(() => expect(apiMock.availability).toHaveBeenCalledTimes(2));
-    const second = apiMock.availability.mock.calls[1][1] as { from: string };
-    expect((Date.parse(second.from) - Date.parse(first.from)) / 86_400_000).toBe(7);
+    const grid = screen.getByRole('list', { name: /September 2026 availability/ });
+    // The state is in the accessible name, so it never rests on colour alone.
+    expect(within(grid).getByRole('button', { name: /17 Sep: Fully booked/ })).toBeTruthy();
+    expect(within(grid).getByRole('button', { name: /18 Sep: Available/ })).toBeTruthy();
+    expect(within(grid).getByRole('button', { name: /16 Sep: .*, today/ })).toBeTruthy();
+
+    for (const label of ['Available', 'Partial', 'Fully Booked', 'Today']) {
+      expect(screen.getByText(label)).toBeTruthy();
+    }
+  });
+
+  it('asks the server for the whole visible month, and moves a month at a time', async () => {
+    render(<CalendarPage />);
+    await waitFor(() => expect(apiMock.availability).toHaveBeenCalled());
+    const first = apiMock.availability.mock.calls[0][1];
+    expect(first).toMatchObject({ from: '2026-09-01', to: '2026-09-30' });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Next month' }));
+    await waitFor(() =>
+      expect(apiMock.availability.mock.calls.at(-1)![1]).toMatchObject({ from: '2026-10-01', to: '2026-10-31' }),
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Previous month' }));
+    await waitFor(() =>
+      expect(apiMock.availability.mock.calls.at(-1)![1]).toMatchObject({ from: '2026-09-01', to: '2026-09-30' }),
+    );
+  });
+
+  it('counts only the chosen type: a draft-only day is free for Upcoming', async () => {
+    render(<CalendarPage />);
+    const grid = () => screen.getByRole('list', { name: /September 2026 availability/ });
+    await waitFor(() => expect(within(grid()).getByRole('button', { name: /17 Sep: Fully booked/ })).toBeTruthy());
+
+    // Only the confirmed lunch counts, so the dinner slot is free again.
+    fireEvent.change(screen.getByLabelText('Booking type'), { target: { value: 'upcoming' } });
+    expect(within(grid()).getByRole('button', { name: /17 Sep: Partly booked/ })).toBeTruthy();
+
+    // Only the draft counts.
+    fireEvent.change(screen.getByLabelText('Booking type'), { target: { value: 'draft' } });
+    expect(within(grid()).getByRole('button', { name: /17 Sep: Partly booked/ })).toBeTruthy();
+  });
+
+  it('opens the day sheet from a calendar day, showing halls and their slots', async () => {
+    render(<CalendarPage />);
+    const grid = screen.getByRole('list', { name: /September 2026 availability/ });
+    fireEvent.click(await within(grid).findByRole('button', { name: /17 Sep: Fully booked/ }));
+
+    const sheet = await screen.findByRole('dialog', { name: /Availability for September 17, 2026/ });
+    expect(within(sheet).getByText('Crown Hall')).toBeTruthy();
+    expect(within(sheet).getByText(/0 of 2 available/)).toBeTruthy();
+    expect(within(sheet).getByText('Both')).toBeTruthy();
+    expect(within(sheet).getByText('Dine-in buffets')).toBeTruthy();
+  });
+
+  it('moves a week at a time and returns to today', async () => {
+    render(<CalendarPage />);
+    fireEvent.click(screen.getByRole('tab', { name: /Weekly/ }));
+    await screen.findByText('13 Sep - 19 Sep');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Next week' }));
+    expect(screen.getByText('20 Sep - 26 Sep')).toBeTruthy();
+    await waitFor(() =>
+      expect(apiMock.listBookings.mock.calls.at(-1)![1]).toMatchObject({ from: '2026-09-20', to: '2026-09-26', date_field: 'event' }),
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Today' }));
+    expect(screen.getByText('13 Sep - 19 Sep')).toBeTruthy();
   });
 
   it('shows the refusal instead of an empty grid when the load fails', async () => {
@@ -751,18 +1124,20 @@ describe('Banquet sub-navigation', () => {
   });
 
   it('shows the permitted sections and marks the current one', () => {
+    pathname = '/banquet/calendar';
     render(
       <BanquetLayout>
         <p>child</p>
       </BanquetLayout>,
     );
-    expect(screen.getAllByRole('link').map((l) => l.textContent)).toEqual([
-      'Bookings',
-      'Calendar',
-      'Halls & packages',
-      'Kitchen',
+    const bar = screen.getByRole('navigation', { name: 'Banquet sections' });
+    expect(within(bar).getAllByRole('link').map((l) => l.textContent)).toEqual([
+      'Home',
+      'Booking',
+      'Chef',
+      'KDS',
     ]);
-    expect(screen.getByRole('link', { name: 'Bookings' }).getAttribute('aria-current')).toBe('page');
+    expect(within(bar).getByRole('link', { name: 'Home' }).getAttribute('href')).toBe('/');
   });
 
   // The main nav and the home card open /banquet (bookings). A chef may use
@@ -777,18 +1152,17 @@ describe('Banquet sub-navigation', () => {
     );
     expect(router.replace).toHaveBeenCalledWith('/banquet/kitchen');
     expect(screen.queryByText('child')).toBeNull();
-    expect(screen.getByRole('status').textContent).toBe('Opening Kitchen…');
+    expect(screen.getByRole('status').textContent).toBe('Opening Chef…');
   });
 
-  it('keeps someone who may see bookings on /banquet', () => {
+  it('redirects /banquet to /banquet/calendar since bookings list is not a tab', () => {
     router.replace.mockReset();
     render(
       <BanquetLayout>
         <p>child</p>
       </BanquetLayout>,
     );
-    expect(router.replace).not.toHaveBeenCalled();
-    expect(screen.getByText('child')).toBeTruthy();
+    expect(router.replace).toHaveBeenCalledWith('/banquet/calendar');
   });
 
   it('never redirects away from another banquet page, or without any banquet permission', () => {
@@ -815,17 +1189,18 @@ describe('Banquet sub-navigation', () => {
     expect(router.replace).not.toHaveBeenCalled();
   });
 
-  it('drops the kitchen for someone without banquet.kds.view', () => {
+  it('drops the Chef and KDS for someone without banquet.kds.view', () => {
     branchPermissions = ['banquet.view'];
+    pathname = '/banquet/calendar';
     render(
       <BanquetLayout>
         <p>child</p>
       </BanquetLayout>,
     );
-    expect(screen.getAllByRole('link').map((l) => l.textContent)).toEqual([
-      'Bookings',
-      'Calendar',
-      'Halls & packages',
+    const bar = screen.getByRole('navigation', { name: 'Banquet sections' });
+    expect(within(bar).getAllByRole('link').map((l) => l.textContent)).toEqual([
+      'Home',
+      'Booking',
     ]);
   });
 });
@@ -1067,9 +1442,9 @@ describe('Chef display', () => {
 // ── new booking ──────────────────────────────────────────────────────────────
 
 /**
- * A booking is always created as a draft; confirming is its own operation,
- * because that is where the server checks the hall is free. "Create & confirm"
- * runs both, for someone allowed to do both, and never loses the draft.
+ * This quick form collects no payment, so every booking it creates stays a
+ * draft — confirming (and locking the hall) is a side effect of the first
+ * payment above zero, recorded later from the booking's own page.
  */
 describe('New booking', () => {
   const page = <T,>(data: T[]) => ({ data, meta: { total: data.length, limit: 100, offset: 0 } });
@@ -1083,8 +1458,7 @@ describe('New booking', () => {
     );
     apiMock.customers.mockResolvedValue(page([{ id: 'c-1', name: 'Meera Iyer', status: 'ACTIVE' }]));
     apiMock.createBooking.mockResolvedValue(booking({ id: 'bk-new', guest_count: 80 }));
-    apiMock.confirmBooking.mockResolvedValue(booking({ id: 'bk-new', status: 'CONFIRMED' }));
-    branchPermissions = ['banquet.view', 'banquet.booking.create', 'banquet.booking.confirm'];
+    branchPermissions = ['banquet.view', 'banquet.booking.create'];
     companyPermissions = ['customers.view'];
     selectedBranchId = 'br-1';
     pathname = '/banquet';
@@ -1100,41 +1474,15 @@ describe('New booking', () => {
     fireEvent.change(screen.getByLabelText('Ends'), { target: { value: '2027-11-20T18:00' } });
   }
 
-  it('Create & confirm creates the booking, then confirms that same booking', async () => {
-    render(<BookingsPage />);
-    await fillForm();
-    fireEvent.click(screen.getByRole('button', { name: 'Create & confirm' }));
-
-    await waitFor(() =>
-      expect(apiMock.confirmBooking).toHaveBeenCalledWith({ companyId: 'co-1', branchId: 'br-1' }, 'bk-new'),
-    );
-    expect(apiMock.createBooking).toHaveBeenCalledTimes(1);
-    // The create request itself still carries no status.
-    expect(apiMock.createBooking.mock.calls[0][1]).not.toHaveProperty('status');
-    expect(await screen.findByText(/Booking confirmed for 80 guests/)).toBeTruthy();
-  });
-
-  it('keeps the draft and says why when the hall cannot be confirmed', async () => {
-    apiMock.confirmBooking.mockRejectedValue(new Error('That hall is already booked for an overlapping time.'));
-    render(<BookingsPage />);
-    await fillForm();
-    apiMock.listBookings.mockClear();
-    fireEvent.click(screen.getByRole('button', { name: 'Create & confirm' }));
-
-    const alert = await screen.findByRole('alert');
-    expect(alert.textContent).toMatch(/saved as a draft but could not be confirmed/);
-    expect(alert.textContent).toMatch(/already booked/);
-    // The list is reloaded, so the kept draft is shown.
-    await waitFor(() => expect(apiMock.listBookings).toHaveBeenCalled());
-  });
-
   it('Create draft never confirms', async () => {
     render(<BookingsPage />);
     await fillForm();
     fireEvent.click(screen.getByRole('button', { name: 'Create draft' }));
 
     expect(await screen.findByText(/Draft booking created for 80 guests/)).toBeTruthy();
-    expect(apiMock.confirmBooking).not.toHaveBeenCalled();
+    expect(apiMock.createBooking).toHaveBeenCalledTimes(1);
+    // The create request itself carries no status — the server decides it from payment.
+    expect(apiMock.createBooking.mock.calls[0][1]).not.toHaveProperty('status');
   });
 
   it('sends extra pax and no-GST mode, but never a tax rate or status', async () => {
@@ -1170,12 +1518,145 @@ describe('New booking', () => {
     expect(await screen.findByText('No bookings match these filters.')).toBeTruthy();
   });
 
-  it('offers Create & confirm only to someone allowed to confirm', async () => {
-    branchPermissions = ['banquet.view', 'banquet.booking.create'];
-    render(<BookingsPage />);
-    await fillForm();
-    expect(screen.getByRole('button', { name: 'Create draft' })).toBeTruthy();
-    expect(screen.queryByRole('button', { name: 'Create & confirm' })).toBeNull();
+});
+
+// ── finance overview ─────────────────────────────────────────────────────────
+
+describe('Banquet finance overview', () => {
+  const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+  const today = branchToday('Asia/Kolkata');
+  const ym = today.slice(0, 7);
+  const [year, monthIdx] = [Number(today.slice(0, 4)), Number(today.slice(5, 7)) - 1];
+  const lastDay = new Date(Date.UTC(year, monthIdx + 1, 0)).getUTCDate();
+  const financeRow = (over: Record<string, unknown>) => ({
+    id: 'f-1',
+    customer_name: 'Ramesh',
+    hall_name: 'Crystal',
+    starts_at: '2026-09-18T06:00:00.000Z',
+    guest_count: 180,
+    extra_pax: 20,
+    status: 'CONFIRMED',
+    total_amount_minor: 10_000_000,
+    paid_minor: 5_762_200,
+    balance_minor: 4_237_800,
+    remaining_minor: 4_237_800,
+    payment_status: 'PARTIAL',
+    currency: 'INR',
+    ...over,
+  });
+  const finance = (bookings: unknown[]) => ({
+    from: `${ym}-01`,
+    to: `${ym}-${lastDay}`,
+    currency: 'INR',
+    total_bookings: bookings.length,
+    confirmed_bookings: bookings.length,
+    completed_bookings: 0,
+    cancelled_bookings: 0,
+    draft_bookings: 0,
+    total_revenue_minor: 149_309_000,
+    total_paid_minor: 144_839_600,
+    total_outstanding_minor: 6_167_700,
+    total_advance_minor: 0,
+    billable_days: 1,
+    bookings,
+  });
+
+  beforeEach(() => {
+    for (const fn of Object.values(apiMock)) fn.mockReset();
+    // jsdom has no layout; the picker scrolls the selected month into view.
+    Element.prototype.scrollIntoView = vi.fn();
+    branchPermissions = ['banquet.finance.view'];
+    selectedBranchId = 'br-1';
+    pathname = '/banquet/finance';
+    apiMock.finance.mockResolvedValue(
+      finance([
+        financeRow({}),
+        financeRow({ id: 'f-2', customer_name: 'Swaminathan', guest_count: 90, extra_pax: 0, remaining_minor: -8_550_000, balance_minor: 0 }),
+      ]),
+    );
+  });
+
+  it('opens on the current month in the branch\'s days and shows whole-rupee totals', async () => {
+    render(<FinancePage />);
+    await screen.findByText('Ramesh');
+    expect(apiMock.finance).toHaveBeenCalledWith({ companyId: 'co-1', branchId: 'br-1' }, { from: `${ym}-01`, to: `${ym}-${lastDay}` });
+    expect(screen.getByText('₹1493090')).toBeTruthy();
+    expect(screen.getByText('₹1448396')).toBeTruthy();
+    expect(screen.getByText('₹61677')).toBeTruthy();
+    expect(screen.getByLabelText('2 bookings')).toBeTruthy();
+  });
+
+  it('shows each booking\'s signed remaining: money due in red with the pending mark, overpaid in green', async () => {
+    render(<FinancePage />);
+    const due = (await screen.findByText('Ramesh')).closest('a')!;
+    expect(due.getAttribute('href')).toBe('/banquet/f-1');
+    expect(due.getAttribute('data-pending')).toBe('true');
+    expect(within(due).getByText('₹42378')).toBeTruthy();
+    // 180 + 20 extra pax, on the branch's own day.
+    expect(within(due).getByText(/200 PAX\s+•\s+18 Sep, 2026/)).toBeTruthy();
+
+    const over = screen.getByText('Swaminathan').closest('a')!;
+    expect(over.getAttribute('data-pending')).toBe('false');
+    expect(within(over).getByText('₹-85500')).toBeTruthy();
+  });
+
+  it('filters to pending payments with the switch', async () => {
+    render(<FinancePage />);
+    await screen.findByText('Ramesh');
+    const toggle = screen.getByRole('switch', { name: 'Show Pending Payments Only' });
+    expect(toggle.getAttribute('aria-checked')).toBe('false');
+
+    fireEvent.click(toggle);
+    await waitFor(() =>
+      expect(apiMock.finance).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({ payment: 'pending' })),
+    );
+    expect(toggle.getAttribute('aria-checked')).toBe('true');
+  });
+
+  it('picks a new range on the calendar and applies it only on Save', async () => {
+    render(<FinancePage />);
+    await screen.findByText('Ramesh');
+    fireEvent.click(screen.getByRole('button', { name: /^Date range/ }));
+
+    const picker = screen.getByRole('dialog', { name: 'Select range' });
+    fireEvent.click(within(picker).getByLabelText(`10 ${MONTHS[monthIdx]} ${year}`));
+    fireEvent.click(within(picker).getByLabelText(`24 ${MONTHS[monthIdx]} ${year}`));
+    expect(within(picker).getByText(/10 – .* 24/)).toBeTruthy();
+    const calls = apiMock.finance.mock.calls.length;
+
+    fireEvent.click(within(picker).getByText('Save'));
+    await waitFor(() =>
+      expect(apiMock.finance).toHaveBeenLastCalledWith(expect.anything(), { from: `${ym}-10`, to: `${ym}-24` }),
+    );
+    expect(apiMock.finance.mock.calls.length).toBeGreaterThan(calls);
+    expect(screen.queryByRole('dialog', { name: 'Select range' })).toBeNull();
+  });
+
+  it('keeps the old range when the picker is closed without saving', async () => {
+    render(<FinancePage />);
+    await screen.findByText('Ramesh');
+    fireEvent.click(screen.getByRole('button', { name: /^Date range/ }));
+    const picker = screen.getByRole('dialog', { name: 'Select range' });
+    fireEvent.click(within(picker).getByLabelText(`10 ${MONTHS[monthIdx]} ${year}`));
+    fireEvent.click(within(picker).getByLabelText('Close'));
+
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(apiMock.finance).toHaveBeenCalledTimes(1);
+  });
+
+  it('accepts typed dates from the pencil mode', async () => {
+    render(<FinancePage />);
+    await screen.findByText('Ramesh');
+    fireEvent.click(screen.getByRole('button', { name: /^Date range/ }));
+    const picker = screen.getByRole('dialog', { name: 'Select range' });
+    fireEvent.click(within(picker).getByLabelText('Switch to typing the dates'));
+    fireEvent.change(within(picker).getByLabelText('Start date'), { target: { value: '2026-08-01' } });
+    fireEvent.change(within(picker).getByLabelText('End date'), { target: { value: '2026-08-31' } });
+    fireEvent.click(within(picker).getByText('Save'));
+
+    await waitFor(() =>
+      expect(apiMock.finance).toHaveBeenLastCalledWith(expect.anything(), { from: '2026-08-01', to: '2026-08-31' }),
+    );
   });
 });
 

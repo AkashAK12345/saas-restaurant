@@ -35,6 +35,23 @@
   color: var(--color-text);
 }
 
+/* The dashboard greeting: two lines, the salutation muted above the name. */
+.greeting {
+  margin: 0;
+  font-family: var(--font-serif);
+  font-size: 1.9rem;
+  font-weight: 700;
+  line-height: 1.2;
+  color: var(--color-text);
+}
+
+.greetingLine {
+  display: block;
+  font-size: 1.25rem;
+  font-weight: 400;
+  color: var(--color-text-muted);
+}
+
 .subtitle {
   margin: 4px 0 0;
   color: var(--color-text-muted);
@@ -255,7 +272,9 @@
 
 .cards {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(17rem, 1fr));
+  /* min() so a column can fall below its ideal width on a narrow phone
+     rather than pushing the whole page sideways. */
+  grid-template-columns: repeat(auto-fill, minmax(min(17rem, 100%), 1fr));
   gap: var(--gap);
   margin: 0;
   padding: 0;
@@ -298,8 +317,14 @@
 }
 
 .widget {
+  /* A grid item takes its content width by default; a wide comparison table
+     would otherwise widen the page instead of scrolling inside .tableWrap. */
+  min-width: 0;
   display: flex;
   flex-direction: column;
+  /* A grid item takes its content width by default; a wide comparison table
+     would otherwise widen the page instead of scrolling inside .tableWrap. */
+  min-width: 0;
   gap: var(--gap);
   padding: var(--gap);
   border: 1px solid var(--color-border);

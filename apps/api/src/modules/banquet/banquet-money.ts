@@ -89,9 +89,22 @@ export function balanceMinor(totalMinor: number, paidMinor: number): number {
   return totalMinor - paidMinor;
 }
 
-/** Sum of an append-only payment history. Integer addition only. */
+/** Sum of a payment history. Integer addition only — callers pass whichever rows should count. */
 export function sumPaidMinor(payments: ReadonlyArray<{ amount_minor: number }>): number {
   return payments.reduce((acc, p) => acc + p.amount_minor, 0);
+}
+
+/**
+ * The payments still in force: correcting one (see BanquetBookingsService.
+ * updatePayment) reverses it and records a fresh one, the same reversing
+ * pattern as an adjustment's withdrawal — a reversing row and the row it
+ * reverses cancel out and neither counts toward paid_minor.
+ */
+export function activePayments<T extends { id: string; reverses_id: string | null }>(
+  payments: ReadonlyArray<T>,
+): T[] {
+  const reversed = new Set(payments.map((p) => p.reverses_id).filter((id): id is string => !!id));
+  return payments.filter((p) => p.reverses_id === null && !reversed.has(p.id));
 }
 
 // ── Layered pricing ──────────────────────────────────────────────────────────

@@ -13,6 +13,8 @@ import type { ReactNode } from 'react';
  */
 export type NavIconName =
   | 'home'
+  | 'dashboard'
+  | 'settings'
   | 'customers'
   | 'tables'
   | 'queue'
@@ -97,6 +99,21 @@ const PATHS: Record<NavIconName, ReactNode> = {
     <>
       <path d="M12 3l7.5 3v5.5c0 4.4-3 8.2-7.5 9.5-4.5-1.3-7.5-5.1-7.5-9.5V6z" />
       <path d="m9 12 2.2 2.2L15.5 10" />
+    </>
+  ),
+  dashboard: (
+    <>
+      <rect x="3.5" y="3.5" width="7" height="7" rx="1.6" />
+      <rect x="13.5" y="3.5" width="7" height="7" rx="1.6" />
+      <rect x="3.5" y="13.5" width="7" height="7" rx="1.6" />
+      <rect x="13.5" y="13.5" width="7" height="7" rx="1.6" />
+    </>
+  ),
+  settings: (
+    <>
+      <circle cx="12" cy="12" r="3.4" />
+      <path d="M12 2.5v3M12 18.5v3M21.5 12h-3M5.5 12h-3" />
+      <path d="m18.7 5.3-2.1 2.1M7.4 16.6l-2.1 2.1M18.7 18.7l-2.1-2.1M7.4 7.4 5.3 5.3" />
     </>
   ),
   audit: (

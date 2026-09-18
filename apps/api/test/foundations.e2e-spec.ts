@@ -683,6 +683,10 @@ describe('T0-A Foundations (e2e)', () => {
       expect(res.body.company.branches.map((b: any) => [b.id, b.has_roles])).toEqual(
         expect.arrayContaining([[branchA.id, true], [branchA2.id, false]]),
       );
+      // The role NAMES travel with each branch, for the shell's greeting.
+      expect(res.body.company.branches.map((b: any) => [b.id, b.roles])).toEqual(
+        expect.arrayContaining([[branchA.id, ['Admin']], [branchA2.id, []]]),
+      );
       expect(res.body.company.permissions).toEqual([...ALL_T0A_PERMS].sort());
       expect(res.body.branch).toBeNull();
     });
@@ -692,10 +696,13 @@ describe('T0-A Foundations (e2e)', () => {
       expect(atA.status).toBe(200);
       expect(atA.body.branch.id).toBe(branchA.id);
       expect(atA.body.branch.permissions).toEqual([...ALL_T0A_PERMS].sort());
+      expect(atA.body.branch.roles).toEqual(['Admin']);
 
       const atA2 = await ctx(adminTokenA, companyA.id, branchA2.id);
       expect(atA2.status).toBe(200);
       expect(atA2.body.branch.permissions).toEqual([]);
+      // No role there, so no name to show and nothing to grant.
+      expect(atA2.body.branch.roles).toEqual([]);
 
       // What the context says, the guard does: tables.create present at A → 201; absent at A2 → 403.
       expect((await asA(request(http).post('/api/v1/tables'), adminTokenA, branchA.id).send({ label: 'AC3', capacity: 2 })).status).toBe(201);

@@ -28,9 +28,12 @@ import {
   type RealtimeScope,
 } from '../../common/realtime/event-broker.js';
 import { RealtimeChannel } from '../../common/realtime/channels.js';
+import { branchLocalToInstant } from '../../common/scheduler/branch-time.js';
+import { addDays, isCalendarDate } from './banquet-catalog.service.js';
 import type { Paginated } from '../../common/pagination.dto.js';
 import type { BanquetActorContext } from './banquet-context.js';
 import {
+  HALL_OCCUPYING_STATUSES,
   INITIAL_BOOKING_STATUS,
   InvalidBookingTransitionError,
   assertBookingTransition,
@@ -38,6 +41,7 @@ import {
 } from './banquet-state-machine.js';
 import {
   activeAdjustments,
+  activePayments,
   assertCurrencyCode,
   balanceMinor,
   paymentKindFor,
@@ -45,6 +49,7 @@ import {
   priceBooking,
   sumPaidMinor,
   type BanquetInvoice,
+  type BanquetPaymentStatusName,
 } from './banquet-money.js';
 import type {
   BanquetAdjustmentView,
@@ -53,19 +58,26 @@ import type {
   BanquetBookingDetailView,
   BanquetBookingItemView,
   BanquetBookingView,
+  BanquetBookingPhotoView,
   BanquetEventPlanView,
+  BanquetFinanceView,
   BanquetPaymentView,
   ChefBookingView,
+  FinanceBookingRow,
 } from './banquet-views.js';
 import type {
   CreateAdjustmentDto,
   CreateBookingDto,
   CreatePaymentDto,
+  FinanceQueryDto,
   ListBookingsQueryDto,
   UpdateBookingDto,
+  UpdatePaymentDto,
+  UploadBookingPhotoDto,
   UpsertEventPlanDto,
   VerifyPaymentDto,
 } from './banquet.dto.js';
+import { MAX_BOOKING_PHOTOS, MAX_PHOTO_SIZE_BYTES } from './banquet.dto.js';
 
 /**
  * Realtime event types published on the `banquet-kds` channel. Every payload
@@ -81,6 +93,9 @@ export const BANQUET_EVENT_TYPES = {
   /** Payload is { id, booking_id, status } — no dish text, no customer. */
   PLATE_REQUEST_UPDATED: 'banquet.plate_request.updated',
 } as const;
+
+/** Longest range the finance overview answers in one request (a year). */
+export const MAX_FINANCE_DAYS = 366;
 
 const AUDIT_BOOKING = 'BANQUET_BOOKING';
 const AUDIT_PAYMENT = 'BANQUET_PAYMENT';
@@ -274,8 +289,20 @@ export class BanquetBookingsService {
   async create(ctx: BanquetActorContext, dto: CreateBookingDto): Promise<BanquetBookingDetailView> {
     const { startsAt, endsAt } = this.parseWindow(dto.starts_at, dto.ends_at);
     const extraPax = dto.extra_pax ?? 0;
+    const advance = dto.initial_payment;
+    if (advance) {
+      const mayPay = await this.authorization.hasBranchPermission(
+        ctx.actorUserId,
+        ctx.companyId,
+        ctx.branchId,
+        PERMISSION_KEYS.BANQUET_PAYMENT_CREATE,
+      );
+      if (!mayPay) {
+        throw new ForbiddenException('Recording an advance requires banquet.payment.create');
+      }
+    }
 
-    const booking = await this.mutate(async (tx) => {
+    const { booking, confirmed } = await this.mutate(async (tx) => {
       const customer = await tx.customer.findFirst({
         where: { id: dto.customer_id, company_id: ctx.companyId },
         select: { id: true, status: true },
@@ -286,20 +313,33 @@ export class BanquetBookingsService {
       }
 
       const hall = await this.resolveHall(tx, ctx.branchId, dto.hall_id, dto.guest_count + extraPax);
+      await this.assertCustomerFree(tx, ctx, customer.id, startsAt, endsAt);
 
-      const pkg = await tx.banquetPackage.findFirst({
-        where: { id: dto.package_id, company_id: ctx.companyId },
-        include: { items: { orderBy: { position: 'asc' } } },
-      });
-      if (!pkg) throw new NotFoundException('Package not found');
-      if (pkg.status !== BanquetPackageStatus.ACTIVE) {
-        throw new ConflictException('Package is inactive');
+      let pkgId: string | null = null;
+      let pkgName = '';
+      let pricePerGuest = 0;
+      let currency = 'INR';
+      let pkgItems: Array<{ name: string; position: number }> = [];
+
+      if (dto.package_id) {
+        const pkg = await tx.banquetPackage.findFirst({
+          where: { id: dto.package_id, company_id: ctx.companyId },
+          include: { items: { orderBy: { position: 'asc' } } },
+        });
+        if (!pkg) throw new NotFoundException('Package not found');
+        if (pkg.status !== BanquetPackageStatus.ACTIVE) {
+          throw new ConflictException('Package is inactive');
+        }
+        pkgId = pkg.id;
+        pkgName = pkg.name;
+        pricePerGuest = pkg.price_per_guest_minor;
+        currency = assertCurrencyCode(pkg.currency);
+        pkgItems = pkg.items.map((item) => ({ name: item.name, position: item.position }));
       }
 
-      const currency = assertCurrencyCode(pkg.currency);
       const gstRate = dto.apply_gst === false ? 0 : await this.branchGstRate(tx, ctx.branchId);
       const invoice = priceBooking({
-        price_per_guest_minor: pkg.price_per_guest_minor,
+        price_per_guest_minor: pricePerGuest,
         guest_count: dto.guest_count,
         extra_pax: extraPax,
         gst_rate_bps: gstRate,
@@ -313,22 +353,21 @@ export class BanquetBookingsService {
           customer_id: customer.id,
           hall_id: hall.id,
           hall_name: hall.name,
-          package_id: pkg.id,
+          package_id: pkgId,
           starts_at: startsAt,
           ends_at: endsAt,
           guest_count: dto.guest_count,
           extra_pax: extraPax,
           status: INITIAL_BOOKING_STATUS,
-          // Commercial snapshot — fixed for the life of the booking.
-          package_name: pkg.name,
-          price_per_guest_minor: pkg.price_per_guest_minor,
+          package_name: pkgName,
+          price_per_guest_minor: pricePerGuest,
           currency,
           gst_rate_bps: gstRate,
           total_amount_minor: invoice.total_minor,
           notes: dto.notes ?? null,
-          items: {
-            create: pkg.items.map((item) => ({ name: item.name, position: item.position })),
-          },
+          ...(pkgItems.length > 0
+            ? { items: { create: pkgItems } }
+            : {}),
         },
         include: BOOKING_INCLUDE,
       });
@@ -336,7 +375,7 @@ export class BanquetBookingsService {
       await this.audit(tx, ctx, AuditEventType.CREATE, AUDIT_BOOKING, created.id, {
         action: 'create_booking',
         hall_id: hall.id,
-        package_id: pkg.id,
+        package_id: pkgId,
         guest_count: dto.guest_count,
         extra_pax: extraPax,
         gst_rate_bps: gstRate,
@@ -345,10 +384,59 @@ export class BanquetBookingsService {
         starts_at: startsAt.toISOString(),
         ends_at: endsAt.toISOString(),
       });
-      return created;
+
+      if (!advance) return { booking: created, confirmed: false };
+
+      // Refused inside the transaction, so a bad advance never leaves a stray
+      // draft behind: the booking and its advance succeed or fail together.
+      if (pkgId !== null && advance.amount_minor > invoice.total_minor) {
+        const major = (minor: number) => (minor / 100).toFixed(2);
+        throw new ConflictException(
+          `The advance of ${currency} ${major(advance.amount_minor)} is more than the booking total of ` +
+            `${currency} ${major(invoice.total_minor)}.`,
+        );
+      }
+      const kind = this.settlementStage(created, 0, advance.amount_minor);
+      const payment = await tx.banquetPayment.create({
+        data: {
+          booking_id: created.id,
+          company_id: ctx.companyId,
+          branch_id: ctx.branchId,
+          amount_minor: advance.amount_minor,
+          currency,
+          paid_at: new Date(),
+          method: advance.method || null,
+          reference: advance.reference || null,
+          kind,
+          actor_user_id: ctx.actorUserId,
+        },
+      });
+      const { data, confirmed } = this.autoConfirmUpdate(created, advance.amount_minor);
+      await tx.banquetBooking.update({ where: { id: created.id }, data });
+
+      await this.audit(tx, ctx, AuditEventType.CREATE, AUDIT_PAYMENT, payment.id, {
+        action: 'create_payment',
+        booking_id: created.id,
+        amount_minor: advance.amount_minor,
+        currency,
+        kind,
+        has_reference: !!advance.reference,
+        method: advance.method || null,
+        changes: { paid_minor: { from: 0, to: advance.amount_minor } },
+      });
+      if (confirmed) {
+        await this.audit(tx, ctx, AuditEventType.UPDATE, AUDIT_BOOKING, created.id, {
+          action: 'auto_confirm_on_payment',
+          previous_status: created.status,
+          new_status: BanquetBookingStatus.CONFIRMED,
+          triggering_payment_id: payment.id,
+        });
+      }
+      return { booking: await this.reload(tx, created.id), confirmed };
     });
 
-    // A draft is invisible to the kitchen, so nothing is published yet.
+    // A draft is invisible to the kitchen; a booking confirmed by its advance is not.
+    if (confirmed) this.publish(ctx, BANQUET_EVENT_TYPES.BOOKING_CONFIRMED, booking);
     return this.toDetailView(booking);
   }
 
@@ -369,17 +457,16 @@ export class BanquetBookingsService {
   ): Promise<BanquetBookingDetailView> {
     const booking = await this.mutate(async (tx) => {
       const current = await this.loadForMutation(tx, ctx, bookingId);
-      if (!isEditable(current.status)) {
-        throw new ConflictException(
-          `A ${current.status.toLowerCase()} booking can no longer be edited`,
-        );
-      }
+      await this.assertEditable(ctx, current, 'edited');
       const pastEvent = await this.assertMayAlter(ctx, current);
 
       const startsAt = dto.starts_at ? this.parseInstant(dto.starts_at, 'starts_at') : current.starts_at;
       const endsAt = dto.ends_at ? this.parseInstant(dto.ends_at, 'ends_at') : current.ends_at;
       if (endsAt <= startsAt) {
         throw new BadRequestException('ends_at must be after starts_at');
+      }
+      if (dto.starts_at || dto.ends_at) {
+        await this.assertCustomerFree(tx, ctx, current.customer_id, startsAt, endsAt, current.id);
       }
 
       const guestCount = dto.guest_count ?? current.guest_count;
@@ -395,12 +482,50 @@ export class BanquetBookingsService {
       if (dto.apply_gst === false) gstRate = 0;
       else if (dto.apply_gst === true) gstRate = await this.branchGstRate(tx, ctx.branchId);
 
-      const invoice = this.price(current, {
+      // Package (and its items) is snapshotted, exactly like create — picking
+      // a new one never reaches back into the live package later.
+      let packageId = current.package_id;
+      let packageName = current.package_name;
+      let pricePerGuest = current.price_per_guest_minor;
+      let currency = current.currency;
+      let newItems: Array<{ name: string; position: number }> | null = null;
+
+      if (dto.package_id !== undefined) {
+        if (dto.package_id === null) {
+          packageId = null;
+          packageName = '';
+          pricePerGuest = 0;
+          newItems = [];
+        } else {
+          const pkg = await tx.banquetPackage.findFirst({
+            where: { id: dto.package_id, company_id: ctx.companyId },
+            include: { items: { orderBy: { position: 'asc' } } },
+          });
+          if (!pkg) throw new NotFoundException('Package not found');
+          if (pkg.status !== BanquetPackageStatus.ACTIVE) {
+            throw new ConflictException('Package is inactive');
+          }
+          packageId = pkg.id;
+          packageName = pkg.name;
+          pricePerGuest = pkg.price_per_guest_minor;
+          currency = assertCurrencyCode(pkg.currency);
+          newItems = pkg.items.map((item) => ({ name: item.name, position: item.position }));
+        }
+        if (current.items.some((item) => item.started_at !== null)) {
+          throw new ConflictException(
+            'Cannot change the menu: the kitchen has already started preparing an item from the current one',
+          );
+        }
+      }
+
+      const invoice = priceBooking({
+        price_per_guest_minor: pricePerGuest,
         guest_count: guestCount,
         extra_pax: extraPax,
         gst_rate_bps: gstRate,
+        adjustments: current.adjustments,
       });
-      this.assertCoversPaid(invoice.total_minor, current);
+      if (packageId !== null) this.assertCoversPaid(invoice.total_minor, current);
 
       const data = {
         starts_at: startsAt,
@@ -410,6 +535,10 @@ export class BanquetBookingsService {
         hall_id: hallId,
         hall_name: hallName,
         gst_rate_bps: gstRate,
+        package_id: packageId,
+        package_name: packageName,
+        price_per_guest_minor: pricePerGuest,
+        currency,
         total_amount_minor: invoice.total_minor,
       };
       const { count } = await tx.banquetBooking.updateMany({
@@ -417,6 +546,15 @@ export class BanquetBookingsService {
         data: dto.notes !== undefined ? { ...data, notes: dto.notes } : data,
       });
       if (count !== 1) throw new ConflictException('Booking was modified concurrently');
+
+      if (newItems !== null) {
+        await tx.banquetBookingItem.deleteMany({ where: { booking_id: current.id } });
+        if (newItems.length > 0) {
+          await tx.banquetBookingItem.createMany({
+            data: newItems.map((item) => ({ ...item, booking_id: current.id })),
+          });
+        }
+      }
 
       await this.audit(tx, ctx, AuditEventType.UPDATE, AUDIT_BOOKING, current.id, {
         action: 'update_booking',
@@ -456,7 +594,7 @@ export class BanquetBookingsService {
 
     const booking = await this.mutate(async (tx) => {
       const current = await this.loadForMutation(tx, ctx, bookingId);
-      this.assertPriceable(current);
+      await this.assertPriceable(ctx, current);
       const pastEvent = await this.assertMayAlter(ctx, current);
 
       const created = await tx.banquetBookingAdjustment.create({
@@ -502,7 +640,7 @@ export class BanquetBookingsService {
         throw new ConflictException('This line has already been withdrawn');
       }
       await this.assertMayAdjust(ctx, target.kind);
-      this.assertPriceable(current);
+      await this.assertPriceable(ctx, current);
       const pastEvent = await this.assertMayAlter(ctx, current);
 
       const reversal = await tx.banquetBookingAdjustment.create({
@@ -585,6 +723,118 @@ export class BanquetBookingsService {
     return this.emitAndDetail(ctx, BANQUET_EVENT_TYPES.BOOKING_CANCELLED, booking);
   }
 
+  /**
+   * The hall's lock state is derived from payment, not from a manual confirm
+   * click: a DRAFT booking that has taken any money above zero is, by
+   * definition, no longer just an enquiry. Mirrors confirm()'s own status
+   * write so the same exclusion constraint protects the hall here too.
+   */
+  private autoConfirmUpdate(
+    booking: BookingRecord,
+    newPaid: number,
+  ): { data: Prisma.BanquetBookingUncheckedUpdateInput; confirmed: boolean } {
+    if (booking.status === BanquetBookingStatus.DRAFT && newPaid > 0) {
+      assertBookingTransition(booking.status, BanquetBookingStatus.CONFIRMED);
+      return {
+        data: {
+          paid_minor: newPaid,
+          status: BanquetBookingStatus.CONFIRMED,
+          confirmed_at: new Date(),
+        },
+        confirmed: true,
+      };
+    }
+    return { data: { paid_minor: newPaid }, confirmed: false };
+  }
+
+  /**
+   * Delete a booking outright: the row, its menu, photos, plan and its whole
+   * payment history go, and the hall is freed if it was held. A DRAFT needs
+   * banquet.booking.delete; a CONFIRMED or COMPLETED one — money already
+   * taken, possibly an event already held — is a Super-Admin act and also
+   * needs banquet.booking.edit_locked. A cancelled booking is refused
+   * outright: it already released its hall, and there is nothing left to
+   * override.
+   *
+   * Nothing is lost silently: the booking and every payment are snapshotted
+   * into the audit log first, in the same transaction.
+   */
+  async remove(ctx: BanquetActorContext, bookingId: string): Promise<void> {
+    const removed = await this.mutate(async (tx) => {
+      const booking = await this.loadForMutation(tx, ctx, bookingId);
+      if (
+        booking.status === BanquetBookingStatus.CONFIRMED ||
+        booking.status === BanquetBookingStatus.COMPLETED
+      ) {
+        const override = await this.hasEditLockedOverride(ctx);
+        if (!override) {
+          throw new ForbiddenException(
+            `Deleting a ${booking.status.toLowerCase()} booking requires the banquet.booking.edit_locked permission.`,
+          );
+        }
+      } else if (booking.status !== BanquetBookingStatus.DRAFT) {
+        throw new ConflictException(
+          `A ${booking.status.toLowerCase()} booking cannot be deleted.`,
+        );
+      }
+
+      await this.audit(tx, ctx, AuditEventType.DELETE, AUDIT_BOOKING, booking.id, {
+        action: 'delete_booking',
+        booking_status: booking.status,
+        customer_id: booking.customer_id,
+        hall_id: booking.hall_id,
+        hall_name: booking.hall_name,
+        starts_at: booking.starts_at.toISOString(),
+        ends_at: booking.ends_at.toISOString(),
+        guest_count: booking.guest_count,
+        package_name: booking.package_name,
+        currency: booking.currency,
+        total_amount_minor: booking.total_amount_minor,
+        paid_minor: sumPaidMinor(activePayments(booking.payments)),
+        // The payment history in full, so deleting it never erases the record
+        // that the money was taken.
+        payments: booking.payments.map((p) => ({
+          id: p.id,
+          amount_minor: p.amount_minor,
+          currency: p.currency,
+          kind: p.kind,
+          paid_at: p.paid_at.toISOString(),
+          method: p.method,
+          reverses_id: p.reverses_id,
+          actor_user_id: p.actor_user_id,
+          verified: !!p.verification,
+        })),
+      });
+
+      // Lets this transaction — and only this one — past the append-only
+      // DELETE guards on payments, verifications and adjustments.
+      await tx.$executeRawUnsafe(`SET LOCAL samco.purging_booking = 'on'`);
+      await tx.banquetPaymentVerification.deleteMany({
+        where: { payment: { booking_id: booking.id } },
+      });
+      // Reversing rows first: each names the row it reverses.
+      await tx.banquetPayment.deleteMany({
+        where: { booking_id: booking.id, reverses_id: { not: null } },
+      });
+      await tx.banquetPayment.deleteMany({ where: { booking_id: booking.id } });
+      await tx.banquetBookingAdjustment.deleteMany({
+        where: { booking_id: booking.id, reverses_id: { not: null } },
+      });
+      await tx.banquetBookingAdjustment.deleteMany({ where: { booking_id: booking.id } });
+      await tx.banquetPlateRequest.deleteMany({ where: { booking_id: booking.id } });
+      await tx.banquetEventPlan.deleteMany({ where: { booking_id: booking.id } });
+      await tx.banquetBookingPhoto.deleteMany({ where: { booking_id: booking.id } });
+      await tx.banquetBookingItem.deleteMany({ where: { booking_id: booking.id } });
+      await tx.banquetBooking.delete({ where: { id: booking.id } });
+      return booking;
+    });
+
+    // A confirmed event was on the kitchen board; take it off.
+    if (removed.status === BanquetBookingStatus.CONFIRMED) {
+      this.publish(ctx, BANQUET_EVENT_TYPES.BOOKING_CANCELLED, removed);
+    }
+  }
+
   private async transition(
     ctx: BanquetActorContext,
     bookingId: string,
@@ -639,7 +889,7 @@ export class BanquetBookingsService {
     const currency = assertCurrencyCode(dto.currency);
     const paidAt = dto.paid_at ? this.parseInstant(dto.paid_at, 'paid_at') : new Date();
 
-    return this.mutate(async (tx) => {
+    const result = await this.mutate(async (tx) => {
       // loadForMutation takes the row lock FIRST. Under READ COMMITTED,
       // concurrent payment transactions would otherwise each read the same
       // history, each compute the same outstanding balance, and each decide
@@ -658,16 +908,16 @@ export class BanquetBookingsService {
       // stored paid_minor is refreshed from it below.
       const existing = await tx.banquetPayment.findMany({
         where: { booking_id: booking.id },
-        select: { amount_minor: true },
+        select: { id: true, amount_minor: true, reverses_id: true },
       });
-      const paid = sumPaidMinor(existing);
+      const paid = sumPaidMinor(activePayments(existing));
       const outstanding = balanceMinor(booking.total_amount_minor, paid);
-      if (dto.amount_minor > outstanding) {
+      if (this.isPriced(booking) && dto.amount_minor > outstanding) {
         throw new ConflictException(
           `Payment of ${dto.amount_minor} exceeds the outstanding balance of ${outstanding}`,
         );
       }
-      const kind = paymentKindFor(paid, dto.amount_minor, booking.total_amount_minor);
+      const kind = this.settlementStage(booking, paid, dto.amount_minor);
 
       const payment = await tx.banquetPayment.create({
         data: {
@@ -685,10 +935,8 @@ export class BanquetBookingsService {
         include: { verification: true },
       });
       const newPaid = paid + dto.amount_minor;
-      await tx.banquetBooking.update({
-        where: { id: booking.id },
-        data: { paid_minor: newPaid },
-      });
+      const { data, confirmed } = this.autoConfirmUpdate(booking, newPaid);
+      await tx.banquetBooking.update({ where: { id: booking.id }, data });
 
       await this.audit(tx, ctx, AuditEventType.CREATE, AUDIT_PAYMENT, payment.id, {
         action: 'create_payment',
@@ -701,12 +949,135 @@ export class BanquetBookingsService {
         method: dto.method ?? null,
         changes: { paid_minor: { from: paid, to: newPaid } },
       });
+      if (confirmed) {
+        await this.audit(tx, ctx, AuditEventType.UPDATE, AUDIT_BOOKING, booking.id, {
+          action: 'auto_confirm_on_payment',
+          previous_status: booking.status,
+          new_status: BanquetBookingStatus.CONFIRMED,
+          triggering_payment_id: payment.id,
+        });
+      }
 
       return {
         payment: this.toPaymentView(payment),
-        balance: this.toBalance(booking.total_amount_minor, newPaid, booking.currency),
+        balance: this.toBalance(booking, newPaid),
+        confirmed,
+        reloaded: confirmed ? await this.reload(tx, booking.id) : null,
       };
     });
+
+    if (result.confirmed && result.reloaded) {
+      this.publish(ctx, BANQUET_EVENT_TYPES.BOOKING_CONFIRMED, result.reloaded);
+    }
+    return { payment: result.payment, balance: result.balance };
+  }
+
+  /**
+   * Correct a mistaken payment. Never an UPDATE — the database trigger on
+   * banquet_payments would refuse it anyway — this instead reverses the
+   * original (a new row naming it via reverses_id, exactly how a discount is
+   * withdrawn) and records a fresh, right payment in the same transaction.
+   * The original stays on the record for anyone reading the history; it just
+   * stops counting toward paid_minor.
+   *
+   * Refused once the payment is verified: verification is a second person's
+   * confirmation that the amount shown was actually received, and silently
+   * swapping it out afterwards would defeat that control.
+   */
+  async updatePayment(
+    ctx: BanquetActorContext,
+    bookingId: string,
+    paymentId: string,
+    dto: UpdatePaymentDto,
+  ): Promise<{ payment: BanquetPaymentView; balance: BanquetBalanceView }> {
+    const result = await this.mutate(async (tx) => {
+      const booking = await this.loadForMutation(tx, ctx, bookingId);
+      const original = booking.payments.find((p) => p.id === paymentId);
+      if (!original) throw new NotFoundException();
+      if (original.reverses_id !== null) {
+        throw new ConflictException('This is a correction record itself and cannot be corrected');
+      }
+      if (!activePayments(booking.payments).some((p) => p.id === original.id)) {
+        throw new ConflictException('This payment has already been corrected');
+      }
+      if (original.verification) {
+        throw new ConflictException('A verified payment cannot be corrected');
+      }
+
+      const otherPaid = sumPaidMinor(activePayments(booking.payments).filter((p) => p.id !== original.id));
+      const outstanding = balanceMinor(booking.total_amount_minor, otherPaid);
+      if (this.isPriced(booking) && dto.amount_minor > outstanding) {
+        throw new ConflictException(
+          `Correction of ${dto.amount_minor} exceeds the outstanding balance of ${outstanding}`,
+        );
+      }
+
+      await tx.banquetPayment.create({
+        data: {
+          booking_id: booking.id,
+          company_id: ctx.companyId,
+          branch_id: ctx.branchId,
+          amount_minor: original.amount_minor,
+          currency: original.currency,
+          paid_at: original.paid_at,
+          method: original.method,
+          reference: original.reference,
+          kind: original.kind,
+          actor_user_id: ctx.actorUserId,
+          reverses_id: original.id,
+        },
+      });
+
+      const kind = this.settlementStage(booking, otherPaid, dto.amount_minor);
+      const corrected = await tx.banquetPayment.create({
+        data: {
+          booking_id: booking.id,
+          company_id: ctx.companyId,
+          branch_id: ctx.branchId,
+          amount_minor: dto.amount_minor,
+          currency: original.currency,
+          paid_at: new Date(),
+          method: dto.method ?? null,
+          reference: dto.reference ?? null,
+          kind,
+          actor_user_id: ctx.actorUserId,
+        },
+        include: { verification: true },
+      });
+
+      const newPaid = otherPaid + dto.amount_minor;
+      const { data, confirmed } = this.autoConfirmUpdate(booking, newPaid);
+      await tx.banquetBooking.update({ where: { id: booking.id }, data });
+
+      await this.audit(tx, ctx, AuditEventType.UPDATE, AUDIT_PAYMENT, original.id, {
+        action: 'correct_payment',
+        booking_id: booking.id,
+        corrected_payment_id: corrected.id,
+        from_amount_minor: original.amount_minor,
+        to_amount_minor: dto.amount_minor,
+        changes: { paid_minor: { from: otherPaid + original.amount_minor, to: newPaid } },
+      });
+      if (confirmed) {
+        await this.audit(tx, ctx, AuditEventType.UPDATE, AUDIT_BOOKING, booking.id, {
+          action: 'auto_confirm_on_payment',
+          previous_status: booking.status,
+          new_status: BanquetBookingStatus.CONFIRMED,
+          triggering_payment_id: corrected.id,
+        });
+      }
+
+      return {
+        payment: this.toPaymentView(corrected),
+        balance: this.toBalance(booking, newPaid),
+        confirmed,
+        reloaded: confirmed ? await this.reload(tx, booking.id) : null,
+      };
+    });
+
+    if (result.confirmed && result.reloaded) {
+      this.publish(ctx, BANQUET_EVENT_TYPES.BOOKING_CONFIRMED, result.reloaded);
+    }
+    return { payment: result.payment, balance: result.balance };
   }
 
   /**
@@ -801,6 +1172,185 @@ export class BanquetBookingsService {
     return this.toEventPlanView(plan);
   }
 
+  // ── Booking photos ────────────────────────────────────────────────────────
+
+  async listPhotos(branchId: string, bookingId: string): Promise<BanquetBookingPhotoView[]> {
+    await this.get(branchId, bookingId);
+    const photos = await this.prisma.banquetBookingPhoto.findMany({
+      where: { booking_id: bookingId },
+      orderBy: { position: 'asc' },
+      select: { id: true, booking_id: true, mime_type: true, file_name: true, position: true, created_at: true },
+    });
+    return photos;
+  }
+
+  async getPhotoData(branchId: string, bookingId: string, photoId: string): Promise<{ data: Buffer; mime_type: string; file_name: string | null }> {
+    await this.get(branchId, bookingId);
+    const photo = await this.prisma.banquetBookingPhoto.findFirst({
+      where: { id: photoId, booking_id: bookingId },
+    });
+    if (!photo) throw new NotFoundException('Photo not found');
+    return { data: photo.data, mime_type: photo.mime_type, file_name: photo.file_name };
+  }
+
+  async uploadPhoto(ctx: BanquetActorContext, bookingId: string, dto: UploadBookingPhotoDto): Promise<BanquetBookingPhotoView> {
+    const buf = Buffer.from(dto.data, 'base64');
+    if (buf.length > MAX_PHOTO_SIZE_BYTES) {
+      throw new BadRequestException(`Photo exceeds the ${MAX_PHOTO_SIZE_BYTES / (1024 * 1024)}MB limit`);
+    }
+
+    const photo = await this.mutate(async (tx) => {
+      const booking = await this.loadForMutation(tx, ctx, bookingId);
+      const count = await tx.banquetBookingPhoto.count({ where: { booking_id: booking.id } });
+      if (count >= MAX_BOOKING_PHOTOS) {
+        throw new ConflictException(`A booking can have at most ${MAX_BOOKING_PHOTOS} photos`);
+      }
+      return tx.banquetBookingPhoto.create({
+        data: {
+          booking_id: booking.id,
+          data: buf,
+          mime_type: dto.mime_type,
+          file_name: dto.file_name ?? null,
+          position: count,
+        },
+        select: { id: true, booking_id: true, mime_type: true, file_name: true, position: true, created_at: true },
+      });
+    });
+    return photo;
+  }
+
+  async deletePhoto(ctx: BanquetActorContext, bookingId: string, photoId: string): Promise<void> {
+    await this.mutate(async (tx) => {
+      await this.loadForMutation(tx, ctx, bookingId);
+      const photo = await tx.banquetBookingPhoto.findFirst({
+        where: { id: photoId, booking_id: bookingId },
+        select: { id: true },
+      });
+      if (!photo) throw new NotFoundException('Photo not found');
+      await tx.banquetBookingPhoto.delete({ where: { id: photo.id } });
+    });
+  }
+
+  // ── Finance ──────────────────────────────────────────────────────────────
+
+  async financeSummary(
+    branchId: string,
+    query: FinanceQueryDto,
+  ): Promise<BanquetFinanceView> {
+    if (!isCalendarDate(query.from) || !isCalendarDate(query.to)) {
+      throw new BadRequestException('from and to must be real calendar dates');
+    }
+    if (query.to < query.from) {
+      throw new BadRequestException('to must not be before from');
+    }
+    const dayCount =
+      Math.round((Date.parse(`${query.to}T00:00:00Z`) - Date.parse(`${query.from}T00:00:00Z`)) / 86_400_000) + 1;
+    if (dayCount > MAX_FINANCE_DAYS) {
+      throw new BadRequestException(`Ask for at most ${MAX_FINANCE_DAYS} days at a time`);
+    }
+
+    // The range is in the branch's own days: "1–30 Sep" means from midnight
+    // on the 1st to midnight after the 30th where the hall is, not in UTC.
+    const branch = await this.prisma.branch.findUnique({
+      where: { id: branchId },
+      select: { timezone: true },
+    });
+    if (!branch) throw new NotFoundException();
+    const from = branchLocalToInstant(query.from, '00:00', branch.timezone);
+    const toExclusive = branchLocalToInstant(addDays(query.to, 1), '00:00', branch.timezone);
+
+    const where: Prisma.BanquetBookingWhereInput = {
+      branch_id: branchId,
+      starts_at: { gte: from, lt: toExclusive },
+    };
+
+    const bookings = await this.prisma.banquetBooking.findMany({
+      where,
+      include: {
+        customer: { select: { id: true, name: true } },
+        payments: { select: { id: true, amount_minor: true, kind: true, reverses_id: true } },
+      },
+      // Latest event first, as the finance list reads.
+      orderBy: [{ starts_at: 'desc' }, { id: 'asc' }],
+    });
+
+    let totalRevenue = 0;
+    let totalPaid = 0;
+    let totalOutstanding = 0;
+    let totalAdvance = 0;
+    let confirmed = 0;
+    let completed = 0;
+    let cancelled = 0;
+    let drafts = 0;
+    const eventDates = new Set<string>();
+
+    const rows: FinanceBookingRow[] = [];
+
+    for (const b of bookings) {
+      const activeBPayments = activePayments(b.payments);
+      const paid = sumPaidMinor(activeBPayments);
+      const balance = b.total_amount_minor - paid;
+      const status = this.settlementStatus(b, paid);
+
+      switch (b.status) {
+        case 'CONFIRMED': confirmed++; break;
+        case 'COMPLETED': completed++; break;
+        case 'CANCELLED': cancelled++; break;
+        case 'DRAFT': drafts++; break;
+      }
+
+      if (b.status !== 'CANCELLED') {
+        totalRevenue += b.total_amount_minor;
+        totalPaid += paid;
+        totalOutstanding += Math.max(0, balance);
+        eventDates.add(b.starts_at.toISOString().slice(0, 10));
+      }
+
+      const advance = activeBPayments
+        .filter((p) => p.kind === 'ADVANCE')
+        .reduce((s, p) => s + p.amount_minor, 0);
+      totalAdvance += advance;
+
+      // The list shows exactly what the totals count: a cancelled booking is
+      // neither revenue nor pending, so it is not listed either.
+      if (b.status === 'CANCELLED') continue;
+      if (query.payment === 'pending' && balance <= 0) continue;
+
+      rows.push({
+        id: b.id,
+        customer_name: b.customer?.name ?? 'Guest',
+        hall_name: b.hall_name ?? '',
+        starts_at: b.starts_at,
+        guest_count: b.guest_count,
+        extra_pax: b.extra_pax,
+        status: b.status,
+        total_amount_minor: b.total_amount_minor,
+        paid_minor: paid,
+        balance_minor: Math.max(0, balance),
+        remaining_minor: balance,
+        payment_status: status,
+        currency: b.currency,
+      });
+    }
+
+    return {
+      from: query.from,
+      to: query.to,
+      currency: 'INR',
+      total_bookings: bookings.length,
+      confirmed_bookings: confirmed,
+      completed_bookings: completed,
+      cancelled_bookings: cancelled,
+      draft_bookings: drafts,
+      total_revenue_minor: totalRevenue,
+      total_paid_minor: totalPaid,
+      total_outstanding_minor: totalOutstanding,
+      total_advance_minor: totalAdvance,
+      billable_days: eventDates.size,
+      bookings: rows,
+    };
+  }
+
   // ── Internals ─────────────────────────────────────────────────────────────
 
   /**
@@ -865,6 +1415,38 @@ export class BanquetBookingsService {
     });
   }
 
+  /**
+   * One customer, one place at a time: a second booking whose window overlaps
+   * a live one for the same customer is refused, whichever hall it is in.
+   * Another SLOT on the same day is fine — the slots do not overlap.
+   */
+  private async assertCustomerFree(
+    tx: Prisma.TransactionClient,
+    ctx: BanquetActorContext,
+    customerId: string,
+    startsAt: Date,
+    endsAt: Date,
+    excludeBookingId?: string,
+  ): Promise<void> {
+    const [clash] = await tx.banquetBooking.findMany({
+      where: {
+        company_id: ctx.companyId,
+        customer_id: customerId,
+        ...(excludeBookingId ? { id: { not: excludeBookingId } } : {}),
+        status: { in: [BanquetBookingStatus.DRAFT, ...HALL_OCCUPYING_STATUSES] },
+        starts_at: { lt: endsAt },
+        ends_at: { gt: startsAt },
+      },
+      select: { hall_name: true },
+      take: 1,
+    });
+    if (clash) {
+      throw new ConflictException(
+        `This customer already has a booking in ${clash.hall_name || 'another hall'} at that time.`,
+      );
+    }
+  }
+
   /** A hall must belong to this branch, be ACTIVE, and seat the party. */
   private async resolveHall(
     tx: Prisma.TransactionClient,
@@ -896,28 +1478,50 @@ export class BanquetBookingsService {
     return branch?.banquet_gst_rate_bps ?? 0;
   }
 
-  /** Only a live booking's price can change; history is closed. */
-  private assertPriceable(booking: BookingRecord): void {
-    if (!isEditable(booking.status)) {
-      throw new ConflictException(
-        `A ${booking.status.toLowerCase()} booking can no longer be re-priced`,
-      );
+  /**
+   * Only a live booking, or a completed one held by an edit_locked override,
+   * can be changed; a cancelled booking is closed with no override at all.
+   */
+  private async assertEditable(
+    ctx: BanquetActorContext,
+    booking: BookingRecord,
+    verb: string,
+  ): Promise<void> {
+    if (isEditable(booking.status)) return;
+    if (booking.status === BanquetBookingStatus.COMPLETED && (await this.hasEditLockedOverride(ctx))) {
+      return;
     }
+    throw new ConflictException(`A ${booking.status.toLowerCase()} booking can no longer be ${verb}`);
+  }
+
+  /** Only a live booking's price can change, unless an edit_locked override applies. */
+  private async assertPriceable(ctx: BanquetActorContext, booking: BookingRecord): Promise<void> {
+    await this.assertEditable(ctx, booking, 're-priced');
+  }
+
+  private hasEditLockedOverride(ctx: BanquetActorContext): Promise<boolean> {
+    return this.authorization.hasBranchPermission(
+      ctx.actorUserId,
+      ctx.companyId,
+      ctx.branchId,
+      PERMISSION_KEYS.BANQUET_BOOKING_EDIT_LOCKED,
+    );
   }
 
   /**
    * Revenue-integrity control: once an event has started, changing it needs
-   * banquet.booking.edit_past. Returns whether the event is in the past, for
-   * the audit record.
+   * banquet.booking.edit_past (or the broader edit_locked override). Returns
+   * whether the event is in the past, for the audit record.
    */
   private async assertMayAlter(ctx: BanquetActorContext, booking: BookingRecord): Promise<boolean> {
     if (booking.starts_at.getTime() > Date.now()) return false;
-    const allowed = await this.authorization.hasBranchPermission(
-      ctx.actorUserId,
-      ctx.companyId,
-      ctx.branchId,
-      PERMISSION_KEYS.BANQUET_BOOKING_EDIT_PAST,
-    );
+    const allowed =
+      (await this.authorization.hasBranchPermission(
+        ctx.actorUserId,
+        ctx.companyId,
+        ctx.branchId,
+        PERMISSION_KEYS.BANQUET_BOOKING_EDIT_PAST,
+      )) || (await this.hasEditLockedOverride(ctx));
     if (!allowed) {
       throw new ForbiddenException(
         'This event has already started. Changing it requires the banquet.booking.edit_past permission.',
@@ -959,7 +1563,7 @@ export class BanquetBookingsService {
     adjustments: ReadonlyArray<AdjustmentRecord>,
   ): Promise<number> {
     const invoice = this.price(booking, {}, adjustments);
-    this.assertCoversPaid(invoice.total_minor, booking);
+    if (this.isPriced(booking)) this.assertCoversPaid(invoice.total_minor, booking);
     await tx.banquetBooking.update({
       where: { id: booking.id },
       data: { total_amount_minor: invoice.total_minor },
@@ -967,9 +1571,35 @@ export class BanquetBookingsService {
     return invoice.total_minor;
   }
 
+  /**
+   * A booking with no menu has no price yet, so an advance taken against it
+   * can't be measured against its total. Only a priced booking enforces
+   * "paid never exceeds the total" (as does the database CHECK).
+   */
+  private isPriced(booking: { package_id: string | null }): boolean {
+    return booking.package_id !== null;
+  }
+
+  private settlementStage(
+    booking: { package_id: string | null; total_amount_minor: number },
+    paidBeforeMinor: number,
+    amountMinor: number,
+  ): 'ADVANCE' | 'INTERIM' | 'FINAL' {
+    if (!this.isPriced(booking)) return paidBeforeMinor === 0 ? 'ADVANCE' : 'INTERIM';
+    return paymentKindFor(paidBeforeMinor, amountMinor, booking.total_amount_minor);
+  }
+
+  private settlementStatus(
+    booking: { package_id: string | null; total_amount_minor: number },
+    paidMinor: number,
+  ): BanquetPaymentStatusName {
+    if (!this.isPriced(booking)) return paidMinor > 0 ? 'PARTIAL' : 'UNPAID';
+    return paymentStatusOf(booking.total_amount_minor, paidMinor);
+  }
+
   /** Money already taken is never silently turned into an overpayment. */
   private assertCoversPaid(totalMinor: number, booking: BookingRecord): void {
-    const paid = sumPaidMinor(booking.payments);
+    const paid = sumPaidMinor(activePayments(booking.payments));
     if (totalMinor < paid) {
       throw new ConflictException(
         `This change would make the total ${totalMinor}, less than the ${paid} already paid`,
@@ -1052,7 +1682,7 @@ export class BanquetBookingsService {
   // ── Projections ───────────────────────────────────────────────────────────
 
   toBookingView(booking: BookingRecord): BanquetBookingView {
-    const paid = sumPaidMinor(booking.payments);
+    const paid = sumPaidMinor(activePayments(booking.payments));
     return {
       id: booking.id,
       company_id: booking.company_id,
@@ -1076,7 +1706,7 @@ export class BanquetBookingsService {
       gst_rate_bps: booking.gst_rate_bps,
       total_amount_minor: booking.total_amount_minor,
       paid_minor: paid,
-      payment_status: paymentStatusOf(booking.total_amount_minor, paid),
+      payment_status: this.settlementStatus(booking, paid),
       notes: booking.notes,
       cancellation_reason: booking.cancellation_reason,
       confirmed_at: booking.confirmed_at,
@@ -1088,14 +1718,14 @@ export class BanquetBookingsService {
   }
 
   toDetailView(booking: BookingRecord): BanquetBookingDetailView {
-    const paid = sumPaidMinor(booking.payments);
+    const paid = sumPaidMinor(activePayments(booking.payments));
     return {
       ...this.toBookingView(booking),
       items: booking.items.map((i) => this.toItemView(i)),
-      payments: booking.payments.map((p) => this.toPaymentView(p)),
+      payments: booking.payments.map((p) => this.toPaymentView(p, booking.payments)),
       adjustments: booking.adjustments.map((a) => this.toAdjustmentView(a, booking.adjustments)),
       invoice: this.price(booking),
-      balance: this.toBalance(booking.total_amount_minor, paid, booking.currency),
+      balance: this.toBalance(booking, paid),
       event_plan: booking.event_plan ? this.toEventPlanView(booking.event_plan) : null,
     };
   }
@@ -1126,7 +1756,11 @@ export class BanquetBookingsService {
     };
   }
 
-  private toPaymentView(payment: PaymentRecord): BanquetPaymentView {
+  private toPaymentView(
+    payment: PaymentRecord,
+    all: ReadonlyArray<PaymentRecord> = [payment],
+  ): BanquetPaymentView {
+    const reversal = all.find((p) => p.reverses_id === payment.id) ?? null;
     return {
       id: payment.id,
       booking_id: payment.booking_id,
@@ -1144,6 +1778,9 @@ export class BanquetBookingsService {
             note: payment.verification.note,
           }
         : null,
+      reverses_id: payment.reverses_id,
+      reversed_by_id: reversal?.id ?? null,
+      active: activePayments(all).some((p) => p.id === payment.id),
       created_at: payment.created_at,
     };
   }
@@ -1178,14 +1815,19 @@ export class BanquetBookingsService {
     };
   }
 
-  private toBalance(totalMinor: number, paidMinor: number, currency: string): BanquetBalanceView {
-    const balance = balanceMinor(totalMinor, paidMinor);
+  private toBalance(
+    booking: { package_id: string | null; total_amount_minor: number; currency: string },
+    paidMinor: number,
+  ): BanquetBalanceView {
+    const priced = this.isPriced(booking);
+    // An unpriced booking can hold more than its (zero) total; nothing is owed yet.
+    const balance = Math.max(0, balanceMinor(booking.total_amount_minor, paidMinor));
     return {
-      currency,
-      total_amount_minor: totalMinor,
+      currency: booking.currency,
+      total_amount_minor: booking.total_amount_minor,
       paid_minor: paidMinor,
       balance_minor: balance,
-      fully_paid: balance === 0,
+      fully_paid: priced && balance === 0,
     };
   }
 }

@@ -1,4 +1,4 @@
-/* Podium: the next party is the loudest thing on screen. */
+/* Podium: the next party is the loudest thing on the Call Customers tab. */
 
 .next {
   display: flex;
@@ -6,9 +6,8 @@
   gap: var(--gap-lg);
   flex-wrap: wrap;
   padding: var(--gap-lg);
-  margin-bottom: var(--gap-lg);
   border: 1px solid var(--color-primary);
-  border-radius: var(--radius);
+  border-radius: 22px;
   background: color-mix(in srgb, var(--color-primary) 8%, var(--color-surface));
 }
 
@@ -29,45 +28,49 @@
 
 .nextWho {
   font-size: var(--text-lg);
+  min-width: 0;
 }
 
 .nextAction {
   margin-left: auto;
   min-height: 56px;
-  min-width: 180px;
+  min-width: min(180px, 100%);
   padding: 0 24px;
   font-size: var(--text-lg);
   font-weight: 600;
   border: 1px solid var(--color-primary);
-  border-radius: var(--radius);
+  border-radius: 16px;
   background: var(--color-primary);
   color: var(--color-primary-contrast);
   cursor: pointer;
 }
+
 .nextAction:disabled {
   opacity: 0.55;
   cursor: not-allowed;
 }
 
 .idle {
+  margin: 0;
   padding: var(--gap-lg);
-  margin-bottom: var(--gap-lg);
   border: 1px dashed var(--color-border);
-  border-radius: var(--radius);
+  border-radius: 22px;
   color: var(--color-text-muted);
   text-align: center;
 }
 
-.notice {
-  padding: var(--gap);
-  margin-bottom: var(--gap);
-  border-radius: var(--radius);
-  background: color-mix(in srgb, var(--color-success) 12%, var(--color-surface));
+.totals {
+  margin: 0;
+  color: var(--color-text-muted);
+}
+
+.totals strong {
   color: var(--color-text);
 }
 
-.tablesNote {
-  margin: 0 0 var(--gap);
-  color: var(--color-text-muted);
-  font-size: 0.9rem;
+@media (max-width: 480px) {
+  .nextAction {
+    width: 100%;
+    margin-left: 0;
+  }
 }

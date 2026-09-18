@@ -116,10 +116,26 @@ export const PERMISSION_KEYS = {
    */
   BANQUET_BOOKING_EDIT_PAST: 'banquet.booking.edit_past',
   /**
+   * Edit or re-price a booking that is otherwise locked (completed, or
+   * already started) and correct its recorded payments. A Super-Admin-style
+   * override, grantable per role rather than tied to any hierarchy — SAMCO
+   * has none. Broader than BANQUET_BOOKING_EDIT_PAST: it also lifts the
+   * COMPLETED-status lock, not just the already-started-event one.
+   */
+  BANQUET_BOOKING_EDIT_LOCKED: 'banquet.booking.edit_locked',
+  /**
+   * Delete a booking outright, payment history and all. A draft needs this
+   * key; deleting a CONFIRMED or COMPLETED booking additionally needs
+   * BANQUET_BOOKING_EDIT_LOCKED, the Super-Admin-style override. A cancelled
+   * booking is never deletable — it already released its hall.
+   */
+  BANQUET_BOOKING_DELETE: 'banquet.booking.delete',
+  /**
    * Ask the kitchen for plates of a dish (plate approval). Deciding and
    * dispatching are kitchen work and use BANQUET_KDS_MANAGE.
    */
   BANQUET_PLATE_REQUEST: 'banquet.plate.request',
+  BANQUET_FINANCE_VIEW: 'banquet.finance.view',
 
   // ── Tasks & Routines (Phase 9) ───────────────────────────────────────────
   // TASKS_VIEW (above, from T0-B) still gates every task read and the `tasks`
@@ -480,11 +496,32 @@ export const SYSTEM_PERMISSIONS: Array<{
       'revenue-integrity control)',
   },
   {
+    name: PERMISSION_KEYS.BANQUET_BOOKING_EDIT_LOCKED,
+    module: 'banquet',
+    description:
+      'Edit or re-price a banquet booking that is completed or already started, and ' +
+      'correct its recorded payments (a Super-Admin-style override)',
+  },
+  {
+    name: PERMISSION_KEYS.BANQUET_BOOKING_DELETE,
+    module: 'banquet',
+    description:
+      'Delete a banquet booking and its payment history outright. Deleting a confirmed or ' +
+      'completed booking additionally requires banquet.booking.edit_locked',
+  },
+  {
     name: PERMISSION_KEYS.BANQUET_PLATE_REQUEST,
     module: 'banquet',
     description:
       'Ask the kitchen for plates of a dish for a confirmed event. Someone else in the ' +
       'kitchen (banquet.kds.manage) approves, rejects and dispatches.',
+  },
+  {
+    name: PERMISSION_KEYS.BANQUET_FINANCE_VIEW,
+    module: 'banquet',
+    description:
+      'View the banquet finance overview: revenue summaries, outstanding balances, and ' +
+      'payment history across bookings.',
   },
   {
     name: PERMISSION_KEYS.TASKS_VIEW_OWN,

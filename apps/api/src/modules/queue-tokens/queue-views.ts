@@ -100,6 +100,12 @@ export interface QueueTokenContactView {
 export interface QueueBoard {
   branch_id: string;
   service_date: string;
+  /**
+   * The number the branch-day counter will hand out next. A preview only: a
+   * concurrent registration can take it, and the number actually issued is
+   * the one the register response returns.
+   */
+  next_token_number: number;
   counts: QueueCounts;
   totals: QueueWaitingTotals;
   next_waiting: QueueTokenView | null;

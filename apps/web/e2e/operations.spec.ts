@@ -16,7 +16,7 @@ async function gotoMain(page: Page, path: string) {
   return page.getByRole('main');
 }
 
-test.describe('Queue — the waiter floor view', () => {
+test.describe('Queue — the waiter table management', () => {
   test('seats a called party at a free table and clears it, on a tablet', async ({ staff, manager, data }) => {
     const branch = data.branches.bengaluru;
     // Its own party, so the shared fixture's waiting list is left as it was.
@@ -25,21 +25,26 @@ test.describe('Queue — the waiter floor view', () => {
 
     const page = await staff('manager', TABLET);
     const main = await gotoMain(page, '/queue/tables');
-    await expect(main.getByRole('heading', { level: 1, name: 'Tables' })).toBeVisible();
+    await expect(main.getByRole('heading', { level: 1, name: 'Table Management' })).toBeVisible();
+    await expect(page.getByRole('navigation', { name: 'Queue sections' })).toBeVisible();
     await expectFitsViewport(page);
 
-    const t1 = main.getByRole('listitem', { name: 'Table T1' });
-    await expect(t1).toContainText('Free');
-    await t1.getByLabel('Party for table T1').selectOption({ label: `Token ${party.token_number} · 2 guests` });
-    await t1.getByRole('button', { name: 'Seat here' }).click();
-    await expect(t1).toContainText('Occupied');
+    const available = main.getByRole('list', { name: 'Available tables' });
+    await expect(available.getByRole('listitem', { name: 'Table T1' })).toBeVisible();
+
+    const row = main.getByRole('list', { name: 'Ready to Seat' }).getByRole('listitem', { name: `Token ${party.token_number}` });
+    await row.getByLabel(`Table for token ${party.token_number}`).selectOption(data.tables.T1);
+    await row.getByRole('button', { name: 'Seat' }).click();
+
+    const t1 = main.getByRole('list', { name: 'Occupied tables' }).getByRole('listitem', { name: 'Table T1' });
     await expect(t1).toContainText(`Token ${party.token_number}`);
+    await expect(available.getByRole('listitem', { name: 'Table T1' })).toHaveCount(0);
 
     const seated = (await manager.board(branch)).seated.find((t) => t.id === party.id) as unknown as { assigned_table_id: string };
     expect(seated.assigned_table_id).toBe(data.tables.T1);
 
     await t1.getByRole('button', { name: 'Table cleared' }).click();
-    await expect(t1).toContainText('Free');
+    await expect(available.getByRole('listitem', { name: 'Table T1' })).toBeVisible();
     const after = (await manager.board(branch)).seated.find((t) => t.id === party.id) as unknown as { assigned_table_id: string | null };
     expect(after.assigned_table_id).toBeNull();
   });

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useAppContext } from '@/lib/context/app-context-provider';
 import { hasPermission } from '@/lib/auth/permissions';
 import { queueApi } from '@/lib/queue/api';
@@ -8,25 +8,30 @@ import { useQueueBoard } from '@/lib/queue/use-queue-board';
 import { useQueueActions } from '@/lib/queue/use-queue-actions';
 import { QueueTokenCard } from '@/components/queue/queue-token-card';
 import { QueueStatusBar } from '@/components/queue/queue-status-bar';
+import { ScreenHeader } from '@/components/app/screen-header';
+import { AppIcon } from '@/components/app/icons';
+import { NextTokenCard } from '@/components/queue/next-token-card';
+import { RegisterForm } from '@/components/queue/register-form';
 import type { QueueTableAvailability, QueueToken, RestaurantTable } from '@/lib/queue/types';
-import queue from '@/components/queue/queue.module.css';
+import chrome from '@/components/app/screen-chrome.module.css';
+import screens from '@/components/app/screen-widgets.module.css';
 import styles from './podium.module.css';
 
+type Tab = 'register' | 'call';
+
 /**
- * Podium Operator.
- *
- * One screen to run a shift: the next party to call is unmissable, called
- * parties can be seated (with or without a table), no-showed or cancelled,
- * and seated parties can hand their table back.
+ * Podium Operator: two tabs — Register a party, and Call Customers to run the
+ * shift (call, seat with or without a table, skip, no-show, cancel, release).
  *
  * It reads the SAME queue tokens as every other surface — there is no podium
  * queue — and every action goes through an explicit backend operation, so an
  * illegal move is refused by the state machine rather than silently applied.
- * Concurrency is expected: if another operator calls the same token first,
- * the API returns 409, the message is shown, and the board is refetched.
+ * If another operator acts first, the API answers 409, the message is shown,
+ * and the board is refetched.
  */
 export default function PodiumPage() {
-  const { selectedCompanyId, selectedBranchId, branchPermissions, companyPermissions } = useAppContext();
+  const { selectedCompanyId, selectedBranchId, selectedBranch, branchPermissions, companyPermissions } =
+    useAppContext();
   const ctx = useMemo(
     () =>
       selectedCompanyId && selectedBranchId
@@ -46,6 +51,8 @@ export default function PodiumPage() {
   const mayRegister = hasPermission(branchPermissions, 'queue.register');
   // Reading a phone number is customer data: both keys, and the API re-checks both.
   const mayContact = mayCall && hasPermission(companyPermissions, 'customers.view');
+  const [tab, setTab] = useState<Tab>(mayRegister ? 'register' : 'call');
+  const shownTab: Tab = mayRegister ? tab : 'call';
 
   // Occupancy comes from the API across EVERY service date — a party seated
   // before midnight still holds its table. Refetched whenever the board
@@ -68,8 +75,8 @@ export default function PodiumPage() {
 
   /**
    * Tables free right now: active, held by nobody on any day, and not taken
-   * on the board in the moment since availability was last read. Seating
-   * still fails cleanly if one is taken in the meantime.
+   * on the board since availability was last read. Seating still fails
+   * cleanly if one is taken in the meantime.
    */
   const freeTables = useMemo<RestaurantTable[]>(() => {
     if (!board) return [];
@@ -86,131 +93,176 @@ export default function PodiumPage() {
     [mayContact, ctx],
   );
 
+  const header = <ScreenHeader title="Podium Operator" />;
+
   if (loading) {
     return (
-      <p role="status" aria-live="polite">
-        Loading the queue…
-      </p>
+      <>
+        {header}
+        <div className={chrome.content}>
+          <p role="status" aria-live="polite">
+            Loading the queue…
+          </p>
+        </div>
+      </>
     );
   }
 
   if (error && !board) {
     return (
-      <div role="alert" className={queue.error}>
-        <p>{error}</p>
-        <button type="button" className={queue.action} onClick={() => void refresh()}>
-          Try again
-        </button>
-      </div>
+      <>
+        {header}
+        <div className={chrome.content}>
+          <div role="alert" className={chrome.alert}>
+            <p>{error}</p>
+            <button type="button" className={screens.button} onClick={() => void refresh()}>
+              Try again
+            </button>
+          </div>
+        </div>
+      </>
     );
   }
 
-  if (!board) return null;
+  if (!board || !ctx) return header;
 
   const next = board.next_waiting;
 
+  const column = (title: string, tokens: QueueToken[], emptyText: string, render: (t: QueueToken) => ReactNode) => (
+    <section className={chrome.card} aria-labelledby={`podium-${title}`}>
+      <div className={chrome.cardHead}>
+        <h2 className={chrome.cardTitle} id={`podium-${title}`}>
+          {title}
+        </h2>
+        <span className={chrome.countPill}>{tokens.length}</span>
+      </div>
+      {tokens.length === 0 ? <p className={screens.hint}>{emptyText}</p> : <ul className={screens.list}>{tokens.map(render)}</ul>}
+    </section>
+  );
+
   return (
     <>
-      <h1>Podium</h1>
-
-      <QueueStatusBar
-        counts={board.counts}
-        serviceDate={board.service_date}
-        stream={stream}
-        updatedAt={updatedAt}
-        onRefresh={() => void refresh()}
-        busy={actions.busy}
-      />
-
-      {actions.error ? (
-        <div role="alert" className={queue.error}>
-          {actions.error}
-        </div>
-      ) : null}
-      {actions.notice ? (
-        <div role="status" aria-live="polite" className={styles.notice}>
-          {actions.notice}
-        </div>
-      ) : null}
-      {error ? (
-        <div role="alert" className={queue.error}>
-          {error}
-        </div>
-      ) : null}
-
-      {next ? (
-        <section className={styles.next} aria-label="Next party">
-          <div>
-            <span className={styles.nextLabel}>Next up</span>
-            <span className={styles.nextNumber}>{next.token_number}</span>
-          </div>
-          <div className={styles.nextWho}>
-            <strong>{next.customer?.name ?? 'Walk-in'}</strong>
-            <br />
-            {next.party_size} {next.party_size === 1 ? 'guest' : 'guests'}
-          </div>
-          {mayCall ? (
+      {header}
+      <div className={chrome.content}>
+        {mayRegister ? (
+          <div className={screens.segmented} role="tablist" aria-label="Podium">
             <button
               type="button"
-              className={styles.nextAction}
-              disabled={actions.busy}
-              onClick={() => void actions.call(next)}
+              role="tab"
+              id="podium-tab-register"
+              aria-selected={shownTab === 'register'}
+              aria-controls="podium-panel"
+              className={`${screens.segment} ${shownTab === 'register' ? screens.segmentActive : ''}`}
+              onClick={() => setTab('register')}
             >
-              Call {next.token_number}
+              <AppIcon name="personAdd" size={20} />
+              Register
             </button>
-          ) : null}
-        </section>
-      ) : (
-        <p className={styles.idle}>Nobody is waiting.</p>
-      )}
-
-      <p className={queue.totals} aria-label="Waiting totals">
-        <strong>{board.totals.parties}</strong> {board.totals.parties === 1 ? 'party' : 'parties'} waiting ·{' '}
-        <strong>{board.totals.adults}</strong> adults · <strong>{board.totals.kids}</strong> kids
-        {maySeat && tables.length > 0 ? (
-          <>
-            {' · '}
-            <strong>{freeTables.length}</strong> of {tables.filter((t) => t.status === 'ACTIVE').length} tables free
-          </>
+            <button
+              type="button"
+              role="tab"
+              id="podium-tab-call"
+              aria-selected={shownTab === 'call'}
+              aria-controls="podium-panel"
+              className={`${screens.segment} ${shownTab === 'call' ? screens.segmentActive : ''}`}
+              onClick={() => setTab('call')}
+            >
+              <AppIcon name="bell" size={20} />
+              Call Customers
+            </button>
+          </div>
         ) : null}
-      </p>
 
-      {maySeat && freeTables.length === 0 && tables.length > 0 ? (
-        <p className={styles.tablesNote}>Every table is occupied — seat parties without a table, or release one.</p>
-      ) : null}
-
-      {board.scheduled.length > 0 ? (
-        <div className={queue.column} style={{ marginBottom: 'var(--gap-lg)' }}>
-          <div className={queue.columnHead}>
-            <h2 className={queue.columnTitle}>Scheduled</h2>
-            <span className={queue.count}>{board.scheduled.length}</span>
-          </div>
-          <ul className={queue.list}>
-            {board.scheduled.map((t) => (
-              <QueueTokenCard
-                key={t.id}
-                token={t}
-                busy={actions.busy}
-                onCheckIn={mayRegister ? actions.checkIn : undefined}
-                onCancel={mayCancel ? actions.cancel : undefined}
-                loadContact={loadContact}
+        <div
+          id="podium-panel"
+          className={chrome.content}
+          style={{ padding: 0 }}
+          {...(mayRegister ? { role: 'tabpanel', 'aria-labelledby': `podium-tab-${shownTab}` } : {})}
+        >
+          {shownTab === 'register' ? (
+            <>
+              <NextTokenCard number={board.next_token_number} />
+              <RegisterForm
+                ctx={ctx}
+                timezone={selectedBranch?.timezone ?? 'UTC'}
+                allowAdvance
+                submitLabel="Register Customer"
+                onRegistered={() => void refresh()}
               />
-            ))}
-          </ul>
-        </div>
-      ) : null}
-
-      <div className={queue.columns}>
-        <div className={queue.column}>
-          <div className={queue.columnHead}>
-            <h2 className={queue.columnTitle}>Called</h2>
-            <span className={queue.count}>{board.called.length}</span>
-          </div>
-          {board.called.length === 0 ? (
-            <p className={queue.empty}>Nobody has been called.</p>
+            </>
           ) : (
-            <ul className={queue.list}>
-              {board.called.map((t) => (
+            <>
+              {actions.error ? (
+                <p role="alert" className={chrome.alert}>
+                  {actions.error}
+                </p>
+              ) : null}
+              {actions.notice ? (
+                <p role="status" aria-live="polite" className={chrome.notice}>
+                  {actions.notice}
+                </p>
+              ) : null}
+              {error ? (
+                <p role="alert" className={chrome.alert}>
+                  {error}
+                </p>
+              ) : null}
+
+              {next ? (
+                <section className={styles.next} aria-label="Next party">
+                  <div>
+                    <span className={styles.nextLabel}>Next up</span>
+                    <span className={styles.nextNumber}>{next.token_number}</span>
+                  </div>
+                  <div className={styles.nextWho}>
+                    <strong>{next.customer?.name ?? 'Walk-in'}</strong>
+                    <br />
+                    {next.party_size} {next.party_size === 1 ? 'guest' : 'guests'}
+                  </div>
+                  {mayCall ? (
+                    <button
+                      type="button"
+                      className={styles.nextAction}
+                      disabled={actions.busy}
+                      onClick={() => void actions.call(next)}
+                    >
+                      Call {next.token_number}
+                    </button>
+                  ) : null}
+                </section>
+              ) : (
+                <p className={styles.idle}>Nobody is waiting.</p>
+              )}
+
+              <p className={styles.totals} aria-label="Waiting totals">
+                <strong>{board.totals.parties}</strong> {board.totals.parties === 1 ? 'party' : 'parties'} waiting ·{' '}
+                <strong>{board.totals.adults}</strong> adults · <strong>{board.totals.kids}</strong> kids
+                {maySeat && tables.length > 0 ? (
+                  <>
+                    {' · '}
+                    <strong>{freeTables.length}</strong> of {tables.filter((t) => t.status === 'ACTIVE').length} tables free
+                  </>
+                ) : null}
+              </p>
+
+              {maySeat && freeTables.length === 0 && tables.length > 0 ? (
+                <p className={screens.hint}>Every table is occupied — seat parties without a table, or release one.</p>
+              ) : null}
+
+              {board.scheduled.length > 0
+                ? column('Scheduled', board.scheduled, '', (t) => (
+                    <QueueTokenCard
+                      key={t.id}
+                      token={t}
+                      busy={actions.busy}
+                      onCheckIn={mayRegister ? actions.checkIn : undefined}
+                      onCancel={mayCancel ? actions.cancel : undefined}
+                      loadContact={loadContact}
+                    />
+                  ))
+                : null}
+
+              {column('Called', board.called, 'Nobody has been called.', (t) => (
                 <QueueTokenCard
                   key={t.id}
                   token={t}
@@ -223,20 +275,8 @@ export default function PodiumPage() {
                   loadContact={loadContact}
                 />
               ))}
-            </ul>
-          )}
-        </div>
 
-        <div className={queue.column}>
-          <div className={queue.columnHead}>
-            <h2 className={queue.columnTitle}>Waiting</h2>
-            <span className={queue.count}>{board.waiting.length}</span>
-          </div>
-          {board.waiting.length === 0 ? (
-            <p className={queue.empty}>The waiting list is empty.</p>
-          ) : (
-            <ul className={queue.list}>
-              {board.waiting.map((t) => (
+              {column('Waiting', board.waiting, 'The waiting list is empty.', (t) => (
                 <QueueTokenCard
                   key={t.id}
                   token={t}
@@ -247,32 +287,29 @@ export default function PodiumPage() {
                   loadContact={loadContact}
                 />
               ))}
-            </ul>
+
+              {column('Seated', board.seated, 'Nobody has been seated yet.', (t) => (
+                <QueueTokenCard
+                  key={t.id}
+                  token={t}
+                  tables={freeTables}
+                  busy={actions.busy}
+                  onAssignTable={maySeat ? actions.assignTable : undefined}
+                  onReleaseTable={maySeat ? actions.releaseTable : undefined}
+                />
+              ))}
+
+              <QueueStatusBar
+                counts={board.counts}
+                serviceDate={board.service_date}
+                stream={stream}
+                updatedAt={updatedAt}
+                onRefresh={() => void refresh()}
+                busy={actions.busy}
+              />
+            </>
           )}
         </div>
-      </div>
-
-      <div className={queue.column} style={{ marginTop: 'var(--gap-lg)' }}>
-        <div className={queue.columnHead}>
-          <h2 className={queue.columnTitle}>Seated</h2>
-          <span className={queue.count}>{board.seated.length}</span>
-        </div>
-        {board.seated.length === 0 ? (
-          <p className={queue.empty}>Nobody has been seated yet.</p>
-        ) : (
-          <ul className={queue.list}>
-            {board.seated.map((t) => (
-              <QueueTokenCard
-                key={t.id}
-                token={t}
-                tables={freeTables}
-                busy={actions.busy}
-                onAssignTable={maySeat ? actions.assignTable : undefined}
-                onReleaseTable={maySeat ? actions.releaseTable : undefined}
-              />
-            ))}
-          </ul>
-        )}
       </div>
     </>
   );

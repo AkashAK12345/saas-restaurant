@@ -78,10 +78,16 @@
   /* type */
   --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  /* Screen titles on the queue surfaces, as in the product design. */
+  --font-serif: Georgia, "Times New Roman", "Noto Serif", serif;
   --text-base: 16px;
   --text-lg: 18px;
   --text-xl: 22px;
   --text-2xl: 28px;
+
+  /* queue screens: a readable column and room for the bottom tab bar */
+  --queue-content-max: 760px;
+  --queue-tabbar-height: 96px;
 
   /*
    * LIGHT ONLY, on purpose. The product's design is a light, warm ivory

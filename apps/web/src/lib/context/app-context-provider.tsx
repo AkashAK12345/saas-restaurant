@@ -6,6 +6,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react';
@@ -51,6 +52,12 @@ export interface AppContextState {
   companyPermissions: string[];
   /** Effective branch-scoped permissions for the selected branch. */
   branchPermissions: string[];
+  /**
+   * The job this user does here, by name — "Manager", "Chef" — for the one
+   * selected branch, or across every branch they work at when none is
+   * selected. A LABEL ONLY: nothing is ever granted by a role name.
+   */
+  roleNames: string[];
   selectCompany(companyId: string | null): void;
   selectBranch(branchId: string | null): void;
   reload(): Promise<void>;
@@ -116,6 +123,8 @@ export function AppContextProvider({ children }: { children: ReactNode }) {
   const [selectedBranchId, setSelectedBranchId] = useState<string | null>(() => readStored(userId, BRANCH_KEY));
   const [result, setResult] = useState<LoadResult | null>(null);
   const [reloadNonce, setReloadNonce] = useState(0);
+  /** The user whose company has already been auto-selected once. */
+  const autoSelected = useRef<string | null>(null);
 
   const key = requestKey(selectedCompanyId, selectedBranchId);
 
@@ -144,6 +153,16 @@ export function AppContextProvider({ children }: { children: ReactNode }) {
         if (selectedBranchId && !branchReachable) {
           setSelectedBranchId(null);
           writeStored(userId, BRANCH_KEY, null);
+        }
+        // SINGLE-COMPANY PRODUCT: one company is not a choice to make, so it is
+        // selected automatically and the pill is purely a branch picker. Once
+        // per user: the branch check above also DROPS a selection the server
+        // does not grant, and re-selecting on every response would spin.
+        if (!selectedCompanyId && ctx.companies?.length === 1 && autoSelected.current !== userId) {
+          autoSelected.current = userId;
+          const only = ctx.companies[0].id;
+          setSelectedCompanyId(only);
+          writeStored(userId, COMPANY_KEY, only);
         }
         setResult({ key, data: ctx, error: null });
       } catch (err) {
@@ -202,6 +221,9 @@ export function AppContextProvider({ children }: { children: ReactNode }) {
       selectedBranch:
         data?.company?.branches?.find((b) => b.id === data?.branch?.id) ?? null,
       companyPermissions: data?.company?.permissions ?? [],
+      roleNames: data?.branch
+        ? (data.branch.roles ?? [])
+        : [...new Set((data?.company?.branches ?? []).flatMap((b) => b.roles ?? []))].sort(),
       branchPermissions: data?.branch?.permissions ?? [],
       selectCompany,
       selectBranch,

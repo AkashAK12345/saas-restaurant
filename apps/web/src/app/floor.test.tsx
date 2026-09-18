@@ -3,7 +3,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import type { QueueBoard, QueueToken } from '@/lib/queue/types';
 
 /**
- * The waiter's floor view (/queue/tables) and the per-record history panel.
+ * The waiter's table management (/queue/tables) and the per-record history panel.
  */
 
 const refresh = vi.fn().mockResolvedValue(undefined);
@@ -33,6 +33,14 @@ vi.mock('@/lib/queue/api', () => ({
     get: (t, k: string) => (...a: unknown[]) => (t as Record<string, (...x: unknown[]) => unknown>)[k](...a),
   }),
 }));
+
+const createTable = vi.hoisted(() => vi.fn());
+vi.mock('@/lib/admin/api', () => ({ adminApi: { createTable: (...a: unknown[]) => createTable(...a) } }));
+
+const logout = vi.hoisted(() => vi.fn());
+vi.mock('@/lib/auth/auth-provider', () => ({ useAuth: () => ({ logout }) }));
+
+vi.mock('@/components/shell/branch-chip', () => ({ BranchChip: () => null }));
 
 const auditLogs = vi.hoisted(() => vi.fn());
 vi.mock('@/lib/settings/api', () => ({ settingsApi: { auditLogs: (...a: unknown[]) => auditLogs(...a) } }));
@@ -91,9 +99,11 @@ const table = (id: string, label: string, capacity: number, over: Record<string,
   ...over,
 });
 
-describe('Tables — the waiter floor view', () => {
+describe('Waiter — table management', () => {
   beforeEach(() => {
     for (const fn of Object.values(queueMock)) fn.mockReset();
+    createTable.mockReset();
+    logout.mockReset();
     refresh.mockReset().mockResolvedValue(undefined);
     branchPermissions = ['queue.view', 'queue.seat'];
     companyPermissions = [];
@@ -109,13 +119,16 @@ describe('Tables — the waiter floor view', () => {
     board = {
       branch_id: 'br-1',
       service_date: '2026-09-07',
+      next_token_number: 8,
       counts: { scheduled: 0, waiting: 0, called: 1, seated: 1, no_show: 0, cancelled: 0 },
       totals: { parties: 0, adults: 0, kids: 0 },
       next_waiting: null,
       scheduled: [],
-      waiting: [],
+      waiting: [token({ id: 'w-1', token_number: 11, status: 'WAITING' }), token({ id: 'w-2', token_number: 12, status: 'WAITING' })],
       called: [token({ id: 'c-1', token_number: 7, party_size: 6 })],
-      seated: [seated],
+      // Seated in a hurry, with no table yet: a different job from seating a
+      // called party, and shown in its own section.
+      seated: [seated, token({ id: 's-2', token_number: 9, status: 'SEATED', party_size: 2, seated_at: '2026-09-07T10:30:00.000Z' })],
     };
     queueMock.tableAvailability.mockResolvedValue([
       table('tbl-1', 'T1', 4, { occupied_by: { token_id: 's-1', token_number: 3, service_date: '2026-09-07' } }),
@@ -134,48 +147,133 @@ describe('Tables — the waiter floor view', () => {
     expect(queueMock.tableAvailability).not.toHaveBeenCalled();
   });
 
-  it('shows each table free, occupied or out of service', async () => {
+  it('is headed Table Management and signs the waiter out from the header', async () => {
     render(<QueueTablesPage />);
-    const floor = await screen.findByRole('list', { name: 'Floor' });
-    const t1 = within(floor).getByRole('listitem', { name: 'Table T1' });
-    expect(within(t1).getByText('Occupied')).toBeTruthy();
+    expect(screen.getByRole('heading', { level: 1, name: 'Table Management' })).toBeTruthy();
+    expect(screen.getByText('Waiter')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Sign out' }));
+    expect(logout).toHaveBeenCalled();
+    await screen.findByRole('list', { name: 'Available tables' });
+  });
+
+  it('separates available, occupied and out-of-service tables, with counts', async () => {
+    render(<QueueTablesPage />);
+    const available = await screen.findByRole('list', { name: 'Available tables' });
+    expect(within(available).getAllByRole('listitem').map((l) => l.getAttribute('aria-label'))).toEqual(['Table T2']);
+    expect(within(available).getByText('Free')).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Available Tables' }).parentElement!.textContent).toMatch(/1$/);
+
+    const occupied = screen.getByRole('list', { name: 'Occupied tables' });
+    const t1 = within(occupied).getByRole('listitem', { name: 'Table T1' });
     expect(within(t1).getByText(/Token 3 · 4 guests · seated/)).toBeTruthy();
-    expect(within(within(floor).getByRole('listitem', { name: 'Table T2' })).getByText('Free')).toBeTruthy();
-    expect(within(within(floor).getByRole('listitem', { name: 'Table T3' })).getByText(/earlier service date/)).toBeTruthy();
-    const t4 = within(floor).getByRole('listitem', { name: 'Table T4' });
+    expect(within(within(occupied).getByRole('listitem', { name: 'Table T3' })).getByText(/earlier service date/)).toBeTruthy();
+
+    const t4 = within(screen.getByRole('list', { name: 'Out of service tables' })).getByRole('listitem', { name: 'Table T4' });
     expect(within(t4).getByText('Out of service')).toBeTruthy();
     expect(within(t4).queryByRole('button')).toBeNull();
-    expect(screen.getByLabelText('Table totals').textContent).toMatch('1 of 3 tables free');
   });
 
   it('seats a called party at a free table, and warns when the party is larger than the table', async () => {
     render(<QueueTablesPage />);
-    const t2 = await screen.findByRole('listitem', { name: 'Table T2' });
-    fireEvent.change(within(t2).getByLabelText('Party for table T2'), { target: { value: 'c-1' } });
-    expect(within(t2).getByText(/party of 6 is more than this table’s 4 seats/)).toBeTruthy();
-    fireEvent.click(within(t2).getByRole('button', { name: 'Seat here' }));
+    const ready = await screen.findByRole('list', { name: 'Ready to Seat' });
+    const party = within(ready).getByRole('listitem', { name: 'Token 7' });
+    expect(within(party).getByRole('button', { name: 'Seat' }).hasAttribute('disabled')).toBe(true);
+
+    fireEvent.change(within(party).getByLabelText('Table for token 7'), { target: { value: 'tbl-2' } });
+    expect(within(party).getByText(/party of 6 is more than table T2’s 4 seats/)).toBeTruthy();
+    fireEvent.click(within(party).getByRole('button', { name: 'Seat' }));
     await waitFor(() => expect(queueMock.seat).toHaveBeenCalledWith(CTX, 'c-1', 'tbl-2'));
     await waitFor(() => expect(refresh).toHaveBeenCalled());
   });
 
+  it('names the two seating jobs apart, and says who is still waiting at the podium', async () => {
+    render(<QueueTablesPage />);
+    const ready = await screen.findByRole('list', { name: 'Ready to Seat' });
+    expect(within(ready).getAllByRole('listitem').map((l) => l.getAttribute('aria-label'))).toEqual(['Token 7']);
+    expect(within(ready).getByRole('button', { name: 'Seat' })).toBeTruthy();
+
+    // A party already seated is NOT waiting; it needs a table, not a seat.
+    const noTable = screen.getByRole('list', { name: 'Seated Without a Table' });
+    expect(within(noTable).getAllByRole('listitem').map((l) => l.getAttribute('aria-label'))).toEqual(['Token 9']);
+    expect(within(noTable).getByRole('button', { name: 'Assign table' })).toBeTruthy();
+
+    // The parties the podium has yet to call cannot be seated at all, so they
+    // are counted, not listed with a dead button.
+    expect(screen.getByText(/waiting to be\s+called at the podium/)).toBeTruthy();
+    expect(screen.queryByRole('list', { name: 'Customers waiting' })).toBeNull();
+  });
+
+
+  it('assigns a table to a party seated without one', async () => {
+    queueMock.assignTable.mockResolvedValue(token({ id: 's-2', token_number: 9, status: 'SEATED' }));
+    render(<QueueTablesPage />);
+    const noTable = await screen.findByRole('list', { name: 'Seated Without a Table' });
+    fireEvent.change(within(noTable).getByLabelText('Table for token 9'), { target: { value: 'tbl-2' } });
+    fireEvent.click(within(noTable).getByRole('button', { name: 'Assign table' }));
+    await waitFor(() => expect(queueMock.assignTable).toHaveBeenCalledWith(CTX, 's-2', 'tbl-2'));
+  });
+
+  it('only offers tables that are free', async () => {
+    render(<QueueTablesPage />);
+    const select = await screen.findByLabelText('Table for token 7');
+    expect(within(select).getAllByRole('option').map((o) => o.textContent)).toEqual(['Choose a table', 'Table T2 · 4 seats']);
+  });
+
   it('clears a table for today’s party and for one left from an earlier date', async () => {
     render(<QueueTablesPage />);
-    const t1 = await screen.findByRole('listitem', { name: 'Table T1' });
-    fireEvent.click(within(t1).getByRole('button', { name: 'Table cleared' }));
+    const occupied = await screen.findByRole('list', { name: 'Occupied tables' });
+    fireEvent.click(within(within(occupied).getByRole('listitem', { name: 'Table T1' })).getByRole('button', { name: 'Table cleared' }));
     await waitFor(() => expect(queueMock.releaseTable).toHaveBeenCalledWith(CTX, 's-1'));
 
-    const t3 = screen.getByRole('listitem', { name: 'Table T3' });
-    fireEvent.click(within(t3).getByRole('button', { name: 'Table cleared' }));
+    fireEvent.click(within(within(occupied).getByRole('listitem', { name: 'Table T3' })).getByRole('button', { name: 'Table cleared' }));
     await waitFor(() => expect(queueMock.releaseTable).toHaveBeenCalledWith(CTX, 'old-1'));
   });
 
   it('shows a refusal from the server instead of pretending the seat worked', async () => {
     queueMock.seat.mockRejectedValue(new Error('Table is already occupied'));
     render(<QueueTablesPage />);
-    const t2 = await screen.findByRole('listitem', { name: 'Table T2' });
-    fireEvent.change(within(t2).getByLabelText('Party for table T2'), { target: { value: 'c-1' } });
-    fireEvent.click(within(t2).getByRole('button', { name: 'Seat here' }));
+    fireEvent.change(await screen.findByLabelText('Table for token 7'), { target: { value: 'tbl-2' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Seat' }));
     expect((await screen.findByRole('alert')).textContent).toMatch('Table is already occupied');
+  });
+
+  it('adds a table with tables.create and reloads the floor', async () => {
+    branchPermissions = ['queue.view', 'queue.seat', 'tables.create'];
+    createTable.mockResolvedValue({ id: 'tbl-9', label: 'T9', capacity: 6 });
+    render(<QueueTablesPage />);
+    await waitFor(() => expect(queueMock.tableAvailability).toHaveBeenCalledTimes(1));
+
+    fireEvent.change(screen.getByLabelText('Table Number'), { target: { value: ' T9 ' } });
+    fireEvent.change(screen.getByLabelText('Seating Capacity'), { target: { value: '6' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }));
+
+    await waitFor(() => expect(createTable).toHaveBeenCalledWith('co-1', 'br-1', { label: 'T9', capacity: 6 }));
+    expect((await screen.findByText('Table T9 added.')).getAttribute('role')).toBe('status');
+    await waitFor(() => expect(queueMock.tableAvailability).toHaveBeenCalledTimes(2));
+    expect((screen.getByLabelText('Table Number') as HTMLInputElement).value).toBe('');
+  });
+
+  it('checks the new table before asking the server, and shows the server’s refusal', async () => {
+    branchPermissions = ['queue.view', 'queue.seat', 'tables.create'];
+    render(<QueueTablesPage />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Add' }));
+    expect((await screen.findByRole('alert')).textContent).toBe('Enter a table number.');
+
+    fireEvent.change(screen.getByLabelText('Table Number'), { target: { value: 'T9' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }));
+    expect((await screen.findByRole('alert')).textContent).toBe('Enter how many guests the table seats.');
+    expect(createTable).not.toHaveBeenCalled();
+
+    createTable.mockRejectedValue(new Error('A table with this label already exists'));
+    fireEvent.change(screen.getByLabelText('Seating Capacity'), { target: { value: '4' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }));
+    expect((await screen.findByRole('alert')).textContent).toBe('A table with this label already exists');
+  });
+
+  it('offers no Add New Table without tables.create', async () => {
+    render(<QueueTablesPage />);
+    await screen.findByRole('list', { name: 'Available tables' });
+    expect(screen.queryByRole('heading', { name: 'Add New Table' })).toBeNull();
   });
 });
 

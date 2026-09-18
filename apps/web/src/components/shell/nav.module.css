@@ -143,3 +143,26 @@
   background: var(--tile-bg);
   color: var(--tile-fg);
 }
+
+.link[data-accent='slate'] {
+  --tile-bg: #e8e5dd;
+  --tile-fg: #6f6a61;
+}
+
+/* Six targets have to fit a 360px screen without a sideways scroll. */
+.bottom .list {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  overflow: visible;
+}
+
+.bottom .link {
+  min-width: 0;
+  padding: 4px 2px;
+}
+
+.bottom .label {
+  max-width: 100%;
+  white-space: nowrap;
+}

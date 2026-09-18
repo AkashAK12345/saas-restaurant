@@ -10,7 +10,7 @@
 .root {
   min-height: 100dvh;
   display: grid;
-  grid-template-rows: var(--topbar-height) 1fr var(--bottombar-height);
+  grid-template-rows: auto 1fr var(--bottombar-height);
   grid-template-columns: 1fr;
   grid-template-areas:
     'top'
@@ -24,88 +24,69 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 0 var(--gap);
+  min-height: 64px;
+  padding: 8px var(--gap-lg);
   background: var(--color-surface);
   border-bottom: 1px solid var(--color-border);
   position: sticky;
   top: 0;
-  z-index: 10;
+  /* Above the bottom navigation: on a phone the branch sheet opens from this
+     bar along the bottom edge, and must not sit under the nav. */
+  z-index: 20;
   /* A grid item is content-width by default; without this the bar's own
      contents can push the whole app wider than the viewport. */
   min-width: 0;
 }
 
-.brand {
+.pageTitle {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+.topContext {
+  display: flex;
+  justify-content: flex-end;
+  flex: 1;
+  min-width: 0;
+}
+
+.iconButton {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   flex: none;
-  min-height: var(--tap-min);
-  padding-right: 4px;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.iconButton:hover {
+  background: var(--color-surface-muted);
+  text-decoration: none;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  min-height: 64px;
+  padding: 8px var(--gap-lg);
+  border-bottom: 1px solid var(--color-border);
   color: var(--color-brand);
 }
 
 .brand:hover {
   text-decoration: none;
   opacity: 0.85;
-}
-
-.topContext {
-  display: flex;
-  flex: 1;
-  min-width: 0;
-}
-
-/* Square icon-style buttons, matching the rounded chrome. */
-.drawerToggle,
-.logout {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: none;
-  min-width: var(--tap-min);
-  min-height: var(--tap-min);
-  padding: 0 12px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  background: var(--color-surface);
-  color: var(--color-text);
-  cursor: pointer;
-}
-
-.drawerToggle {
-  margin-left: auto;
-}
-
-.drawerToggle:hover,
-.logout:hover {
-  background: var(--color-surface-muted);
-}
-
-.drawer {
-  grid-area: main;
-  align-self: start;
-  padding: var(--gap);
-  background: var(--color-surface);
-  border-bottom: 1px solid var(--color-border);
-  border-radius: 0 0 var(--radius) var(--radius);
-  z-index: 5;
-}
-
-.user {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-
-.userName {
-  display: none;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--color-text-muted);
-  font-size: 0.875rem;
 }
 
 .sidenav {
@@ -120,7 +101,7 @@
   width: 100%;
   max-width: var(--content-max);
   margin: 0 auto;
-  padding: var(--gap-lg) var(--gap);
+  padding: var(--gap-lg);
   /* A grid item defaults to min-width:auto — its content's intrinsic width —
      so a page with something genuinely wide (a report table) would stretch
      this track and scroll the WHOLE app sideways on a tablet. Pinned to 0 so
@@ -141,6 +122,17 @@
   z-index: 10;
 }
 
+/* Queue screens: their own header and tab bar, full width. */
+.focused {
+  min-height: 100dvh;
+  min-width: 0;
+  background: var(--color-bg);
+}
+
+.focusedStatus {
+  padding: var(--gap) var(--gap-lg) 0;
+}
+
 .error {
   padding: var(--gap);
   margin-bottom: var(--gap);
@@ -154,17 +146,31 @@
   color: var(--color-text-muted);
 }
 
-/* Desktop / landscape tablet: side nav, context in the top bar, no drawer. */
+/* A phone: the branch name matters more than the page name, so the page name
+   gives up space first and the controls tighten. */
+@media (max-width: 480px) {
+  .topbar {
+    padding: 8px var(--gap);
+    gap: 6px;
+  }
+  .pageTitle {
+    flex-shrink: 3;
+    font-size: 1.05rem;
+  }
+  .iconButton {
+    width: 40px;
+    height: 40px;
+  }
+}
+
+/* Desktop / landscape tablet: side nav with the logo. */
 @media (min-width: 1024px) {
   .root {
-    grid-template-rows: var(--topbar-height) 1fr;
+    grid-template-rows: auto 1fr;
     grid-template-columns: var(--nav-width) 1fr;
     grid-template-areas:
-      'top top'
+      'side top'
       'side main';
-  }
-  .userName {
-    display: inline;
   }
   .sidenav {
     display: block;

@@ -151,6 +151,25 @@ export class UpdatePackageDto {
 
 // ── Bookings ────────────────────────────────────────────────────────────────
 
+/** The advance taken while the booking is made; recorded in the same transaction. */
+export class InitialPaymentDto {
+  /** 0 records that nothing was collected yet; above 0 confirms the booking. */
+  @IsInt()
+  @Min(0)
+  @Max(MAX_MINOR)
+  amount_minor!: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(60)
+  method?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  reference?: string;
+}
+
 export class CreateBookingDto {
   @IsUUID()
   customer_id!: string;
@@ -158,8 +177,9 @@ export class CreateBookingDto {
   @IsUUID()
   hall_id!: string;
 
+  @IsOptional()
   @IsUUID()
-  package_id!: string;
+  package_id?: string;
 
   /** Absolute instants. An offset or Z is required so the meaning is unambiguous. */
   @IsISO8601({ strict: true })
@@ -193,6 +213,12 @@ export class CreateBookingDto {
   @IsString()
   @MaxLength(2000)
   notes?: string;
+
+  /** Needs banquet.payment.create as well; the booking and its advance succeed or fail together. */
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => InitialPaymentDto)
+  initial_payment?: InitialPaymentDto;
 }
 
 /**
@@ -232,6 +258,15 @@ export class UpdateBookingDto {
   @IsOptional()
   @IsBoolean()
   apply_gst?: boolean;
+
+  /**
+   * Re-snapshots the package (name, price, items) exactly as creation does.
+   * null clears the package back to an unpriced booking. Refused once the
+   * kitchen has started an item from the current package.
+   */
+  @IsOptional()
+  @IsUUID()
+  package_id?: string | null;
 
   @IsOptional()
   @IsString()
@@ -388,8 +423,9 @@ export class AvailabilityQueryDto {
 // ── Payments ────────────────────────────────────────────────────────────────
 
 export class CreatePaymentDto {
+  /** 0 is allowed: an explicit record that nothing was collected yet, rather than no record at all. */
   @IsInt()
-  @Min(1)
+  @Min(0)
   amount_minor!: number;
 
   @Matches(/^[A-Z]{3}$/, { message: 'currency must be a 3-letter ISO 4217 code, e.g. INR' })
@@ -416,6 +452,27 @@ export class VerifyPaymentDto {
   @IsString()
   @MaxLength(500)
   note?: string;
+}
+
+/**
+ * Corrects an unverified payment already on record. Verified payments are
+ * refused — verification is a second person's confirmation that the amount
+ * shown was actually received, and a silent edit afterwards would defeat it.
+ */
+export class UpdatePaymentDto {
+  @IsInt()
+  @Min(0)
+  amount_minor!: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(60)
+  method?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  reference?: string;
 }
 
 // ── Event plan ──────────────────────────────────────────────────────────────
@@ -473,4 +530,34 @@ export class KdsBoardQueryDto {
   @IsOptional()
   @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'service_date must be YYYY-MM-DD' })
   service_date?: string;
+}
+
+export class FinanceQueryDto {
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'from must be YYYY-MM-DD' })
+  from!: string;
+
+  @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'to must be YYYY-MM-DD' })
+  to!: string;
+
+  @IsOptional()
+  @IsIn(['pending'])
+  payment?: 'pending';
+}
+
+export const MAX_BOOKING_PHOTOS = 5;
+export const MAX_PHOTO_SIZE_BYTES = 5 * 1024 * 1024;
+
+export class UploadBookingPhotoDto {
+  @IsString()
+  @IsNotEmpty()
+  data!: string;
+
+  @IsString()
+  @Matches(/^image\/(jpeg|png|webp|gif)$/, { message: 'mime_type must be image/jpeg, image/png, image/webp or image/gif' })
+  mime_type!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  file_name?: string;
 }

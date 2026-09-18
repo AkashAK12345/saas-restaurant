@@ -31,6 +31,7 @@ let branchPermissions: string[] = [];
 let selectedBranchId: string | null = 'br-1';
 let selectedCompanyId: string | null = 'co-1';
 let contextBranches: Array<{ id: string; name: string; timezone: string; status: string; has_roles: boolean }> = [];
+let roleNames: string[] = [];
 vi.mock('@/lib/context/app-context-provider', () => ({
   useAppContext: () => ({
     selectedCompanyId,
@@ -39,6 +40,7 @@ vi.mock('@/lib/context/app-context-provider', () => ({
     branches: contextBranches,
     companyPermissions: [],
     branchPermissions,
+    roleNames,
     loading: false,
   }),
 }));
@@ -139,6 +141,7 @@ beforeEach(() => {
   selectedCompanyId = 'co-1';
   selectedBranchId = 'br-1';
   contextBranches = [];
+  roleNames = ['Manager'];
   routeKey = 'queue.tokens';
   apiMock.list.mockImplementation(async () => ({
     data: [
@@ -516,8 +519,29 @@ describe('dashboard', () => {
     // No widgets, but not a dead end: the workspace launcher shows exactly the
     // modules this permission set can open, and nothing else.
     expect(screen.getByRole('heading', { name: /your workspace/i })).toBeTruthy();
-    expect(screen.getByRole('link', { name: /queue/i })).toBeTruthy();
+    // Queue opens a sheet of its screens rather than navigating straight away.
+    expect(screen.getByRole('button', { name: /queue/i }).getAttribute('aria-haspopup')).toBe('dialog');
     expect(screen.queryByRole('link', { name: /banquet/i })).toBeNull();
+  });
+
+
+  it('RF-28b. greets by the role held here, falling back to the name when there is none', () => {
+    roleNames = ['Manager'];
+    const { unmount } = render(<HomePage />);
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toMatch(
+      /^Good (Morning|Afternoon|Evening), Manager$/,
+    );
+    unmount();
+
+    // Two jobs at once are both named; no role at all falls back to the person.
+    roleNames = ['Chef', 'Manager'];
+    const both = render(<HomePage />);
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toMatch(/, Chef, Manager$/);
+    both.unmount();
+
+    roleNames = [];
+    render(<HomePage />);
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toMatch(/, Ana$/);
   });
 
   it('RF-29. asks for nothing until a branch is selected', () => {
@@ -593,7 +617,7 @@ describe('dashboard', () => {
     await screen.findByRole('heading', { name: 'Queue today' });
     fireEvent.click(screen.getByRole('button', { name: 'All branches' }));
 
-    await waitFor(() => expect(apiMock.dashboardAllBranches).toHaveBeenCalledWith({ companyId: 'co-1', branchId: 'br-1' }, undefined, undefined));
+    await waitFor(() => expect(apiMock.dashboardAllBranches).toHaveBeenCalledWith({ companyId: 'co-1' }, undefined, undefined));
     expect(await screen.findByText(/Totals across 2 branches: Alpha Main, Alpha Second/)).toBeTruthy();
     expect(screen.getByText('7')).toBeTruthy();
     expect(screen.getByText(/Not added across branches: Longest wait/)).toBeTruthy();

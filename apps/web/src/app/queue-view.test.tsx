@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import type { QueueBoard, QueueToken } from '@/lib/queue/types';
 
 const refresh = vi.fn().mockResolvedValue(undefined);
@@ -21,6 +21,9 @@ const cancel = vi.fn();
 vi.mock('@/lib/queue/api', () => ({
   queueApi: { cancel: (...a: unknown[]) => cancel(...a) },
 }));
+
+// The pill reads the full context; it has its own tests (app-shell.test).
+vi.mock('@/components/shell/branch-chip', () => ({ BranchChip: () => null }));
 
 let branchPermissions: string[] = [];
 let selectedBranchId: string | null = 'br-1';
@@ -69,7 +72,20 @@ const token = (over: Partial<QueueToken> = {}): QueueToken => ({
   ...over,
 });
 
-describe('Queue management view', () => {
+const emptyBoard = (): QueueBoard => ({
+  branch_id: 'br-1',
+  service_date: '2026-09-07',
+  next_token_number: 1,
+  counts: { scheduled: 0, waiting: 0, called: 0, seated: 0, no_show: 0, cancelled: 0 },
+  totals: { parties: 0, adults: 0, kids: 0 },
+  next_waiting: null,
+  scheduled: [],
+  waiting: [],
+  called: [],
+  seated: [],
+});
+
+describe('Admin Display — queue management', () => {
   beforeEach(() => {
     refresh.mockClear();
     cancel.mockReset().mockResolvedValue(token({ status: 'CANCELLED' }));
@@ -78,12 +94,11 @@ describe('Queue management view', () => {
     pathname = '/queue';
     boardError = null;
     board = {
-      branch_id: 'br-1',
-      service_date: '2026-09-07',
+      ...emptyBoard(),
+      next_token_number: 6,
       counts: { scheduled: 0, waiting: 1, called: 1, seated: 1, no_show: 2, cancelled: 3 },
-      totals: { parties: 1, adults: 2, kids: 0 },
+      totals: { parties: 3, adults: 7, kids: 2 },
       next_waiting: token({ id: 'w-1', token_number: 5 }),
-      scheduled: [],
       waiting: [token({ id: 'w-1', token_number: 5, customer: { id: 'c-1', name: 'Asha Rao' } })],
       called: [token({ id: 'c-9', token_number: 4, status: 'CALLED', called_at: '2026-09-07T10:05:00.000Z' })],
       seated: [
@@ -99,7 +114,20 @@ describe('Queue management view', () => {
     };
   });
 
-  it('shows the three lists and the day counts', () => {
+  it('is headed Queue Management, with a way back home', () => {
+    render(<QueuePage />);
+    expect(screen.getByRole('heading', { level: 1, name: 'Queue Management' })).toBeTruthy();
+    expect(screen.getByText('Admin Display')).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'Back to home' }).getAttribute('href')).toBe('/');
+  });
+
+  it('shows total waiting, adults and kids from the board', () => {
+    render(<QueuePage />);
+    const tiles = within(screen.getByRole('list', { name: 'Queue totals' })).getAllByRole('listitem');
+    expect(tiles.map((t) => t.textContent)).toEqual(['3Total Waiting', '7Total Adults', '2Total Kids']);
+  });
+
+  it('lists the live parties and the day counts', () => {
     render(<QueuePage />);
     expect(screen.getByRole('heading', { name: 'Waiting' })).toBeTruthy();
     expect(screen.getByRole('heading', { name: 'Called' })).toBeTruthy();
@@ -107,14 +135,21 @@ describe('Queue management view', () => {
     expect(screen.getByText('Asha Rao')).toBeTruthy();
     expect(screen.getByText('Table T1')).toBeTruthy();
     expect(screen.getByText('2026-09-07')).toBeTruthy();
+    expect(screen.queryByText('No customers yet')).toBeNull();
+  });
+
+  it('says the queue is empty when nobody is in it', () => {
+    board = emptyBoard();
+    render(<QueuePage />);
+    expect(screen.getByRole('heading', { name: 'No customers yet' })).toBeTruthy();
+    expect(screen.getByText('The queue is currently empty')).toBeTruthy();
+    expect(screen.queryByRole('heading', { name: 'Waiting' })).toBeNull();
   });
 
   it('shows advance bookings in their own section, only when there are any', () => {
     render(<QueuePage />);
     expect(screen.queryByRole('heading', { name: 'Scheduled' })).toBeNull();
-  });
 
-  it('lists a scheduled booking with its time', () => {
     board = {
       ...board!,
       counts: { ...board!.counts, scheduled: 1 },
@@ -123,10 +158,6 @@ describe('Queue management view', () => {
     render(<QueuePage />);
     expect(screen.getByRole('heading', { name: 'Scheduled' })).toBeTruthy();
     expect(screen.getByText(/Booked for/)).toBeTruthy();
-    // The count is split across <strong>1</strong> and " scheduled".
-    expect(
-      screen.getByText((_, el) => el?.tagName === 'SPAN' && /^1\s*scheduled$/.test(el.textContent ?? '')),
-    ).toBeTruthy();
   });
 
   it('labels a party with no customer as a walk-in', () => {
@@ -164,43 +195,62 @@ describe('Queue management view', () => {
   });
 });
 
-describe('Queue sub-navigation', () => {
+describe('Queue tab bar', () => {
+  const renderLayout = () =>
+    render(
+      <QueueLayout>
+        <p>child</p>
+      </QueueLayout>,
+    );
+  const tabs = () =>
+    within(screen.getByRole('navigation', { name: 'Queue sections' }))
+      .getAllByRole('link')
+      .map((l) => l.textContent);
+
   beforeEach(() => {
     selectedBranchId = 'br-1';
     pathname = '/queue';
     branchPermissions = ['queue.view', 'queue.register', 'queue.call'];
   });
 
-  it('asks for a branch before showing any queue surface', () => {
+  it('asks for a branch before showing any queue screen', () => {
     selectedBranchId = null;
-    render(
-      <QueueLayout>
-        <p>child</p>
-      </QueueLayout>,
-    );
+    renderLayout();
     expect(screen.getByText(/Select a branch/)).toBeTruthy();
     expect(screen.queryByText('child')).toBeNull();
   });
 
-  it('shows one link per permitted surface and marks the current one', () => {
-    render(
-      <QueueLayout>
-        <p>child</p>
-      </QueueLayout>,
-    );
-    const links = screen.getAllByRole('link').map((l) => l.textContent);
-    expect(links).toEqual(['Queue', 'Register', 'Podium']);
-    expect(screen.getByRole('link', { name: 'Queue' }).getAttribute('aria-current')).toBe('page');
+  it('shows Home and one tab per permitted screen, marking the current one', () => {
+    renderLayout();
+    expect(tabs()).toEqual(['Home', 'Display', 'Podium', 'Register', 'Customer']);
+    expect(screen.getByRole('link', { name: 'Home' }).getAttribute('href')).toBe('/');
+    expect(screen.getByRole('link', { name: 'Display' }).getAttribute('aria-current')).toBe('page');
+    expect(screen.getByRole('link', { name: 'Podium' }).getAttribute('aria-current')).toBeNull();
     expect(screen.getByText('child')).toBeTruthy();
   });
 
-  it('drops the surfaces the viewer has no permission for', () => {
+  it('marks a nested screen as current, not the Admin Display', () => {
+    pathname = '/queue/display';
+    renderLayout();
+    expect(screen.getByRole('link', { name: 'Customer' }).getAttribute('aria-current')).toBe('page');
+    expect(screen.getByRole('link', { name: 'Display' }).getAttribute('aria-current')).toBeNull();
+  });
+
+  it('drops the screens the viewer has no permission for', () => {
     branchPermissions = ['queue.view'];
-    render(
-      <QueueLayout>
-        <p>child</p>
-      </QueueLayout>,
-    );
-    expect(screen.getAllByRole('link').map((l) => l.textContent)).toEqual(['Queue']);
+    renderLayout();
+    expect(tabs()).toEqual(['Home', 'Display', 'Customer']);
+
+    branchPermissions = ['queue.seat'];
+    renderLayout();
+    expect(screen.getAllByRole('navigation', { name: 'Queue sections' }).length).toBe(2);
+    expect(screen.getAllByRole('link', { name: 'Waiter' })[0].getAttribute('href')).toBe('/queue/tables');
+  });
+
+  it('renders no tab bar for someone with no queue permission, leaving the page to show the refusal', () => {
+    branchPermissions = ['tables.view'];
+    renderLayout();
+    expect(screen.queryByRole('navigation', { name: 'Queue sections' })).toBeNull();
+    expect(screen.getByText('child')).toBeTruthy();
   });
 });

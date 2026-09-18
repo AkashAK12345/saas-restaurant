@@ -1,29 +1,27 @@
 'use client';
 
-import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, type ReactNode } from 'react';
 import { useAppContext } from '@/lib/context/app-context-provider';
-import { hasPermission } from '@/lib/auth/permissions';
+import { visibleBanquetSections } from '@/lib/banquet/sections';
+import { ScreenTabBar } from '@/components/app/screen-tab-bar';
 import styles from '@/components/banquet/banquet.module.css';
+import chrome from '@/components/app/screen-chrome.module.css';
 
 /**
- * Banquet area chrome. Links appear only where the branch permission exists —
- * the same courtesy the main navigation applies, and equally not authorization:
- * the API re-checks every call.
+ * Banquet area: a branch requirement, then the module's own frame — each
+ * screen renders its header, and this layout adds the bottom tab bar of the
+ * sections this viewer may open.
+ *
+ * Someone with no banquet permission at the branch gets the page inside the
+ * ordinary app shell instead, where it shows the API's refusal. The bar is a
+ * courtesy; the API enforces the real check on every call.
  */
-const TABS = [
-  { href: '/banquet', label: 'Bookings', permission: 'banquet.view' },
-  { href: '/banquet/calendar', label: 'Calendar', permission: 'banquet.view' },
-  { href: '/banquet/catalog', label: 'Halls & packages', permission: 'banquet.view' },
-  { href: '/banquet/kitchen', label: 'Kitchen', permission: 'banquet.kds.view' },
-] as const;
-
 export default function BanquetLayout({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const { selectedBranchId, branchPermissions, loading } = useAppContext();
-  const tabs = TABS.filter((t) => hasPermission(branchPermissions, t.permission));
+  const sections = visibleBanquetSections(branchPermissions);
 
   // The main navigation's Banquet entry and the home workspace card both open
   // /banquet — the bookings list. Someone allowed into the banquet area but
@@ -32,8 +30,8 @@ export default function BanquetLayout({ children }: { children: ReactNode }) {
   // section they may open instead. Navigation only: the API still refuses
   // bookings to them.
   const landing =
-    !loading && selectedBranchId && pathname === '/banquet' && tabs.length > 0 && !tabs.some((t) => t.href === '/banquet')
-      ? tabs[0]
+    !loading && selectedBranchId && pathname === '/banquet' && sections.length > 0 && !sections.some((s) => s.href === '/banquet')
+      ? sections[0]
       : null;
   useEffect(() => {
     if (landing) router.replace(landing.href);
@@ -59,29 +57,17 @@ export default function BanquetLayout({ children }: { children: ReactNode }) {
   if (landing) {
     return (
       <p role="status" aria-live="polite">
-        Opening {landing.label}…
+        Opening {landing.title}…
       </p>
     );
   }
 
+  if (sections.length === 0) return <section>{children}</section>;
+
   return (
-    <section>
-      <nav className={styles.subnav} aria-label="Banquet sections">
-        {tabs.map((t) => {
-          const active = pathname === t.href;
-          return (
-            <Link
-              key={t.href}
-              href={t.href}
-              className={`${styles.subnavLink} ${active ? styles.subnavActive : ''}`}
-              aria-current={active ? 'page' : undefined}
-            >
-              {t.label}
-            </Link>
-          );
-        })}
-      </nav>
-      {children}
-    </section>
+    <div className={chrome.frame}>
+      <div className={chrome.body}>{children}</div>
+      <ScreenTabBar items={sections} label="Banquet sections" />
+    </div>
   );
 }

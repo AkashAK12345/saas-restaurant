@@ -1227,6 +1227,7 @@ describe('Phase 7 Queue Management (e2e)', () => {
       expect(res.body).toMatchObject({
         branch_id: boardBranch.id,
         service_date: currentServiceDate('Asia/Kolkata'),
+        next_token_number: 1,
         counts: { waiting: 0, called: 0, seated: 0, no_show: 0, cancelled: 0 },
         next_waiting: null,
         waiting: [],
@@ -1246,6 +1247,10 @@ describe('Phase 7 Queue Management (e2e)', () => {
       let board = (await onBoard(request(http).get('/api/v1/queue-tokens/board'))).body;
       expect(board.counts.waiting).toBe(3);
       expect(board.next_waiting.token_number).toBe(t1.body.token_number);
+      // The preview is the counter's next value, and reading it does not consume it.
+      expect(board.next_token_number).toBe(t3.body.token_number + 1);
+      const again = (await onBoard(request(http).get('/api/v1/queue-tokens/board'))).body;
+      expect(again.next_token_number).toBe(t3.body.token_number + 1);
 
       await onBoard(request(http).post(`/api/v1/queue-tokens/${t1.body.id}/call`)).send();
       board = (await onBoard(request(http).get('/api/v1/queue-tokens/board'))).body;
@@ -1326,6 +1331,8 @@ describe('Phase 7 Queue Management (e2e)', () => {
       });
       expect(past.status).toBe(200);
       expect(past.body.counts).toEqual({ scheduled: 0, waiting: 0, called: 0, seated: 0, no_show: 0, cancelled: 0 });
+      // A day nobody registered on has no counter row: its next number is 1.
+      expect(past.body.next_token_number).toBe(1);
 
       const bad = await onBoard(request(http).get('/api/v1/queue-tokens/board')).query({
         service_date: '2026-02-30',

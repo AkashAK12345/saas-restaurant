@@ -2,7 +2,7 @@ import { PERMISSION_KEYS, type PermissionKey } from '@/lib/auth/permissions';
 import type { NavIconName } from './nav-icons';
 
 /** Which accent tile a destination wears. Wayfinding only, never meaning. */
-export type NavAccent = 'terracotta' | 'blue' | 'green' | 'amber' | 'purple';
+export type NavAccent = 'terracotta' | 'blue' | 'green' | 'amber' | 'purple' | 'slate';
 
 export interface NavItem {
   href: string;
@@ -17,6 +17,15 @@ export interface NavItem {
   permissions: readonly PermissionKey[];
   /** Branch-scoped pages need a selected branch to make sense. */
   requiresBranch?: boolean;
+  /**
+   * Shown in the phone's bottom bar. A thumb bar holds about six targets, so
+   * only the destinations a shift actually runs on are marked — everything
+   * else is reached from the workspace grid or Settings, and all of it stays
+   * in the desktop side navigation.
+   */
+  primary?: boolean;
+  /** Listed on the Settings hub rather than in the workspace grid. */
+  settings?: boolean;
 }
 
 /**
@@ -25,7 +34,7 @@ export interface NavItem {
  * placeholders for the foundation and render "coming soon" pages.
  */
 export const NAV_ITEMS: readonly NavItem[] = [
-  { href: '/', label: 'Home', icon: 'home', accent: 'terracotta', permissions: [] },
+  { href: '/', label: 'Dashboard', icon: 'dashboard', accent: 'blue', permissions: [], primary: true },
   {
     href: '/customers',
     label: 'Customers',
@@ -48,6 +57,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
     accent: 'green',
     permissions: [PERMISSION_KEYS.QUEUE_VIEW],
     requiresBranch: true,
+    primary: true,
   },
   {
     href: '/banquet',
@@ -56,22 +66,25 @@ export const NAV_ITEMS: readonly NavItem[] = [
     accent: 'amber',
     permissions: [PERMISSION_KEYS.BANQUET_VIEW, PERMISSION_KEYS.BANQUET_KDS_VIEW],
     requiresBranch: true,
+    primary: true,
   },
   {
     href: '/tasks',
     label: 'Tasks',
     icon: 'tasks',
-    accent: 'purple',
+    accent: 'terracotta',
     permissions: [PERMISSION_KEYS.TASKS_VIEW, PERMISSION_KEYS.TASKS_VIEW_OWN],
     requiresBranch: true,
+    primary: true,
   },
   {
     href: '/reports',
     label: 'Reports',
     icon: 'reports',
-    accent: 'blue',
+    accent: 'purple',
     permissions: [PERMISSION_KEYS.REPORTS_VIEW],
     requiresBranch: true,
+    primary: true,
   },
   {
     href: '/displays',
@@ -87,6 +100,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
     icon: 'users',
     accent: 'blue',
     permissions: [PERMISSION_KEYS.USERS_VIEW],
+    settings: true,
   },
   {
     href: '/settings/roles',
@@ -94,6 +108,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
     icon: 'roles',
     accent: 'green',
     permissions: [PERMISSION_KEYS.ROLES_VIEW],
+    settings: true,
   },
   {
     href: '/settings/audit',
@@ -101,6 +116,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
     icon: 'audit',
     accent: 'terracotta',
     permissions: [PERMISSION_KEYS.AUDIT_LOGS_VIEW],
+    settings: true,
   },
   {
     href: '/settings/branches',
@@ -108,7 +124,30 @@ export const NAV_ITEMS: readonly NavItem[] = [
     icon: 'tables',
     accent: 'amber',
     permissions: [PERMISSION_KEYS.BRANCHES_VIEW],
+    settings: true,
   },
-  // Signed-in devices is the caller's own account page, reached from the
-  // header beside "Sign out" (app-shell.tsx) rather than from workspace nav.
+  // The caller's own signed-in devices: their own account, so no permission
+  // gates it. It sits on the Settings hub beside the administrative pages.
+  {
+    href: '/settings/devices',
+    label: 'Devices',
+    icon: 'displays',
+    accent: 'slate',
+    permissions: [],
+    settings: true,
+  },
 ];
+
+/** The Settings hub itself — in the bottom bar and the side navigation. */
+export const SETTINGS_ITEM: NavItem = {
+  href: '/settings',
+  label: 'Settings',
+  icon: 'settings',
+  accent: 'slate',
+  permissions: [],
+  primary: true,
+};
+
+/** What the Settings hub lists: administrative pages, not operational ones. */
+export const settingsItems = (items: readonly NavItem[] = NAV_ITEMS): NavItem[] =>
+  items.filter((i) => i.settings);

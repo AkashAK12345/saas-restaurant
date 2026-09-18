@@ -83,7 +83,6 @@ export default function BanquetBookingsPage() {
   );
 
   const mayCreate = hasPermission(branchPermissions, 'banquet.booking.create');
-  const mayConfirm = hasPermission(branchPermissions, 'banquet.booking.confirm');
   const mayViewCustomers = hasPermission(companyPermissions, 'customers.view');
 
   const [bookings, setBookings] = useState<BanquetBooking[]>([]);
@@ -103,7 +102,7 @@ export default function BanquetBookingsPage() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   // Which submit is in flight, so each button can say what it is doing.
-  const [busy, setBusy] = useState<'draft' | 'confirm' | null>(null);
+  const [busy, setBusy] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
 
@@ -168,7 +167,7 @@ export default function BanquetBookingsPage() {
     setForm({ ...form, starts_at: `${date}T${slot.start_time}`, ends_at: `${endDate}T${slot.end_time}` });
   };
 
-  const submit = async (confirm: boolean) => {
+  const submit = async () => {
     if (!ctx) return;
     const startsAt = branchLocalToInstant(form.starts_at, tz);
     const endsAt = branchLocalToInstant(form.ends_at, tz);
@@ -176,10 +175,13 @@ export default function BanquetBookingsPage() {
       setError('Enter a valid start and end time.');
       return;
     }
-    setBusy(confirm ? 'confirm' : 'draft');
+    setBusy(true);
     setError(null);
     setNotice(null);
     try {
+      // This quick form collects no payment, so the booking it creates always
+      // stays a draft — recording a payment from the booking's own page is
+      // what confirms it and claims the hall.
       const created = await banquetApi.createBooking(ctx, {
         customer_id: form.customer_id,
         hall_id: form.hall_id,
@@ -191,32 +193,14 @@ export default function BanquetBookingsPage() {
         ...(form.apply_gst ? {} : { apply_gst: false }),
         ...(form.notes.trim() ? { notes: form.notes.trim() } : {}),
       });
-      // The booking exists from here on, whatever happens to the confirmation.
       setShowForm(false);
       setForm(EMPTY_FORM);
-
-      let confirmError: string | null = null;
-      if (!confirm) {
-        setNotice(`Draft booking created for ${created.guest_count} guests.`);
-      } else {
-        try {
-          await banquetApi.confirmBooking(ctx, created.id);
-          setNotice(`Booking confirmed for ${created.guest_count} guests — the hall is now held.`);
-        } catch (e) {
-          // Typically the hall is already taken for that time. The draft is
-          // kept, so nothing typed is lost; it can be changed and confirmed
-          // from its own page.
-          const reason = e instanceof Error ? e.message : 'the confirmation failed';
-          confirmError = `The booking was saved as a draft but could not be confirmed: ${reason}`;
-        }
-      }
+      setNotice(`Draft booking created for ${created.guest_count} guests.`);
       await refresh();
-      // After the refresh, which clears the error once the list loads.
-      if (confirmError) setError(confirmError);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not create the booking');
     } finally {
-      setBusy(null);
+      setBusy(false);
     }
   };
 
@@ -333,7 +317,7 @@ export default function BanquetBookingsPage() {
           className={styles.form}
           onSubmit={(e) => {
             e.preventDefault();
-            void submit(false);
+            void submit();
           }}
         >
           <div className={`${styles.grid} ${styles.grid3}`}>
@@ -512,29 +496,18 @@ export default function BanquetBookingsPage() {
           </div>
 
           <p className={styles.hint}>
-            Times are in the branch&rsquo;s timezone ({tz}).{' '}
-            {mayConfirm
-              ? 'A draft does not hold the hall. Create & confirm also holds the hall, if it is free at that time.'
-              : 'A new booking is a draft. It does not hold the hall until you confirm it.'}
+            Times are in the branch&rsquo;s timezone ({tz}). A new booking is a draft and does not
+            hold the hall; recording a payment for it — even from the booking&rsquo;s own page later
+            — is what confirms it and holds the hall.
           </p>
           <div className={styles.actions}>
             <button
               type="submit"
               className={`${styles.action} ${styles.primary}`}
-              disabled={busy !== null || !formComplete}
+              disabled={busy || !formComplete}
             >
-              {busy === 'draft' ? 'Creating…' : 'Create draft'}
+              {busy ? 'Creating…' : 'Create draft'}
             </button>
-            {mayConfirm ? (
-              <button
-                type="button"
-                className={`${styles.action} ${styles.primary}`}
-                disabled={busy !== null || !formComplete}
-                onClick={() => void submit(true)}
-              >
-                {busy === 'confirm' ? 'Confirming…' : 'Create & confirm'}
-              </button>
-            ) : null}
           </div>
         </form>
       ) : null}

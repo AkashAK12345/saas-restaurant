@@ -678,6 +678,7 @@ model BanquetBooking {
   adjustments BanquetBookingAdjustment[]
   event_plan  BanquetEventPlan?
   plate_requests BanquetPlateRequest[]
+  photos      BanquetBookingPhoto[]
 
   @@index([branch_id, starts_at])
   @@index([branch_id, status])
@@ -793,10 +794,17 @@ model BanquetPayment {
   kind          BanquetPaymentKind?
   actor_user_id String?  @db.Uuid
   created_at    DateTime @default(now()) @db.Timestamptz(3)
+  // Corrects a mistaken payment without ever UPDATEing the row the database
+  // trigger protects: this row reverses that one (unique, so a payment can be
+  // corrected only once) and the service records a fresh, right payment next
+  // to it in the same transaction. Both cancel out of paid_minor.
+  reverses_id   String?  @unique @db.Uuid
 
   booking      BanquetBooking              @relation(fields: [booking_id], references: [id], onDelete: Restrict)
   actor        User?                       @relation(fields: [actor_user_id], references: [id], onDelete: Restrict)
   verification BanquetPaymentVerification?
+  reverses     BanquetPayment?             @relation("PaymentCorrection", fields: [reverses_id], references: [id], onDelete: Restrict)
+  correction   BanquetPayment?             @relation("PaymentCorrection")
 
   @@index([booking_id, paid_at])
   // Phase 10: the banquet payments report scans one branch over a date
@@ -852,6 +860,21 @@ model BanquetPaymentVerification {
   verified_by User           @relation(fields: [verified_by_user_id], references: [id], onDelete: Restrict)
 
   @@map("banquet_payment_verifications")
+}
+
+model BanquetBookingPhoto {
+  id         String   @id @default(uuid()) @db.Uuid
+  booking_id String   @db.Uuid
+  data       Bytes
+  mime_type  String   @db.VarChar(64)
+  file_name  String?  @db.VarChar(255)
+  position   Int      @default(0)
+  created_at DateTime @default(now()) @db.Timestamptz(3)
+
+  booking BanquetBooking @relation(fields: [booking_id], references: [id], onDelete: Cascade)
+
+  @@index([booking_id])
+  @@map("banquet_booking_photos")
 }
 
 // -----------------------------------------------------------------------------

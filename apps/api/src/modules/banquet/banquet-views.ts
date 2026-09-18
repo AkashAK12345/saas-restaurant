@@ -91,6 +91,12 @@ export interface BanquetPaymentView {
   kind: BanquetPaymentKind | null;
   actor_user_id: string | null;
   verification: BanquetPaymentVerificationView | null;
+  /** Set on a correcting row: the payment it reverses. */
+  reverses_id: string | null;
+  /** Set on a corrected row: the row that reverses it. */
+  reversed_by_id: string | null;
+  /** Priced into paid_minor: neither a reversal nor reversed. */
+  active: boolean;
   created_at: Date;
 }
 
@@ -161,6 +167,15 @@ export interface BanquetBookingView {
   updated_at: Date;
 }
 
+export interface BanquetBookingPhotoView {
+  id: string;
+  booking_id: string;
+  mime_type: string;
+  file_name: string | null;
+  position: number;
+  created_at: Date;
+}
+
 export interface BanquetBookingDetailView extends BanquetBookingView {
   items: BanquetBookingItemView[];
   payments: BanquetPaymentView[];
@@ -225,6 +240,42 @@ export interface StaffKdsBoardView {
   service_date: string;
   bookings: StaffKdsBookingView[];
   counts: { events: number; pending: number; in_progress: number; ready: number };
+}
+
+// ── Finance ─────────────────────────────────────────────────────────────────
+
+export interface FinanceBookingRow {
+  id: string;
+  customer_name: string;
+  hall_name: string;
+  starts_at: Date;
+  guest_count: number;
+  extra_pax: number;
+  status: BanquetBookingStatus;
+  total_amount_minor: number;
+  paid_minor: number;
+  balance_minor: number;
+  /** Total minus paid, signed: negative when more was received than the total. */
+  remaining_minor: number;
+  payment_status: BanquetPaymentStatusName;
+  currency: string;
+}
+
+export interface BanquetFinanceView {
+  from: string;
+  to: string;
+  currency: string;
+  total_bookings: number;
+  confirmed_bookings: number;
+  completed_bookings: number;
+  cancelled_bookings: number;
+  draft_bookings: number;
+  total_revenue_minor: number;
+  total_paid_minor: number;
+  total_outstanding_minor: number;
+  total_advance_minor: number;
+  billable_days: number;
+  bookings: FinanceBookingRow[];
 }
 
 // ── Availability ─────────────────────────────────────────────────────────────

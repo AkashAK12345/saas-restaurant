@@ -189,9 +189,15 @@ export class QueueTokensService {
   async board(branchId: string, serviceDate?: string): Promise<QueueBoard> {
     const { date, rows } = await this.boardRows(branchId, serviceDate);
     const waiting = this.waitingInOrder(rows);
+    // Read, never written: the counter row only exists once a token was issued.
+    const counter = await this.prisma.queueCounter.findUnique({
+      where: { branch_id_service_date: { branch_id: branchId, service_date: serviceDateToDb(date) } },
+      select: { next_number: true },
+    });
     return {
       branch_id: branchId,
       service_date: date,
+      next_token_number: counter?.next_number ?? 1,
       counts: this.countByStatus(rows),
       totals: this.waitingTotals(waiting),
       // First-come, first-served, with skipped parties behind the rest.

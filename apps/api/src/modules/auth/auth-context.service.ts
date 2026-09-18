@@ -60,9 +60,9 @@ export class AuthContextService {
         name: string;
         status: string;
         permissions: string[];
-        branches: Array<{ id: string; name: string; status: string; timezone: string; has_roles: boolean }>;
+        branches: Array<{ id: string; name: string; status: string; timezone: string; has_roles: boolean; roles: string[] }>;
       },
-      branch: null as null | { id: string; name: string; status: string; timezone: string; permissions: string[] },
+      branch: null as null | { id: string; name: string; status: string; timezone: string; permissions: string[]; roles: string[] },
     };
 
     if (!companyId) return base;
@@ -80,18 +80,26 @@ export class AuthContextService {
         select: { id: true, name: true, status: true, timezone: true },
         orderBy: { name: 'asc' },
       }),
+      // The ROLE NAMES, not just which branches have one: the shell greets a
+      // user by the job they hold here ("Manager"), and a name is not a
+      // permission — every request is still authorized from the database.
       this.prisma.userBranchRole.findMany({
         where: { user_id: userId, branch: { company_id: companyId } },
-        select: { branch_id: true },
-        distinct: ['branch_id'],
+        select: { branch_id: true, role: { select: { name: true } } },
       }),
     ]);
-    const roleBranchIds = new Set(roleBranchRows.map((r) => r.branch_id));
+    const rolesByBranch = new Map<string, Set<string>>();
+    for (const row of roleBranchRows) {
+      const names = rolesByBranch.get(row.branch_id) ?? new Set<string>();
+      names.add(row.role.name);
+      rolesByBranch.set(row.branch_id, names);
+    }
+    const rolesAt = (branchId: string) => [...(rolesByBranch.get(branchId) ?? [])].sort();
 
     base.company = {
       ...selected,
       permissions: [...companyPermissions].sort(),
-      branches: branches.map((b) => ({ ...b, has_roles: roleBranchIds.has(b.id) })),
+      branches: branches.map((b) => ({ ...b, has_roles: rolesByBranch.has(b.id), roles: rolesAt(b.id) })),
     };
 
     if (!branchId) return base;
@@ -104,7 +112,7 @@ export class AuthContextService {
       userId,
       branchId,
     );
-    base.branch = { ...branch, permissions: [...branchPermissions].sort() };
+    base.branch = { ...branch, permissions: [...branchPermissions].sort(), roles: rolesAt(branch.id) };
 
     return base;
   }

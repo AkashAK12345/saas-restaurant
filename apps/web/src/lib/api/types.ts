@@ -46,6 +46,8 @@ export interface ContextBranch {
   status: BranchStatus;
   timezone: string;
   has_roles: boolean;
+  /** Names of the roles this user holds here — a label, never a permission. */
+  roles: string[];
 }
 
 export interface ContextSelectedCompany extends ContextCompanySummary {
@@ -59,6 +61,7 @@ export interface ContextSelectedBranch {
   status: BranchStatus;
   timezone: string;
   permissions: string[];
+  roles: string[];
 }
 
 /** GET /auth/context */

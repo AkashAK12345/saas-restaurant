@@ -1,19 +1,29 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAppContext } from '@/lib/context/app-context-provider';
+import { AppIcon } from '@/components/app/icons';
 import styles from './branch-chip.module.css';
 
 /**
- * The company/branch selector, as a chip.
+ * The branch selector, as a pill.
  *
- * It replaces a pair of bare <select>s with the control the design calls for:
- * initials, the branch name, a chevron, and a sheet listing what this user can
- * actually reach. The LIST IS THE SERVER'S — `branches` comes from
- * /auth/context, which returns only the branches this user has a role at, so
- * the chip can never offer somewhere they would then be refused.
+ * A building mark, the current choice, a chevron, and a panel listing what
+ * this user can actually reach: "All Branches" first, then the branches, with
+ * a tick on the current one and a search box once the list grows.
  *
- * Selecting a branch is still just context: every request re-proves access.
+ * SINGLE-COMPANY PRODUCT: there is no company switcher. The context provider
+ * selects the company the server returns, and this pill only chooses among
+ * its branches.
+ *
+ * THE LIST IS THE SERVER'S — `branches` comes from /auth/context, which
+ * returns only the branches this user holds a role at, so the pill can never
+ * offer somewhere they would then be refused. Selecting one is still just
+ * context: every request re-proves access.
+ *
+ * "All Branches" means no branch is selected. The dashboard then shows the
+ * company total, summed branch by branch by the server; the branch-scoped
+ * screens ask for a branch, because a queue token or a booking belongs to one.
  */
 function initials(name: string): string {
   const words = name.trim().split(/\s+/).filter(Boolean);
@@ -22,9 +32,33 @@ function initials(name: string): string {
   return (words[0][0] + words[words.length - 1][0]).toUpperCase();
 }
 
-export function BranchChip() {
+const ALL_BRANCHES = 'All Branches';
+/** Below this many branches a search box is more clutter than help. */
+const SEARCH_FROM = 4;
+
+function Tick() {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width="20"
+      height="20"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2.2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="m5 12.5 4.5 4.5L19 7" />
+    </svg>
+  );
+}
+
+export function BranchChip({ align = 'end' }: { align?: 'start' | 'end' }) {
   const ctx = useAppContext();
   const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
   const wrapRef = useRef<HTMLDivElement>(null);
 
   // A dropdown that ignores a click elsewhere is a dropdown that gets stuck
@@ -44,14 +78,19 @@ export function BranchChip() {
       document.removeEventListener('keydown', onKeyDown);
     };
   }, [open]);
-
-  const company = ctx.companies.find((c) => c.id === ctx.selectedCompanyId) ?? null;
   const branch = ctx.selectedBranch;
-  const selection = branch?.name ?? company?.name ?? null;
-  const label = selection ?? 'Select a branch';
-  // Initials of a placeholder would read as a real place ("SB"), so nothing is
-  // selected shows a neutral mark instead.
-  const mark = selection ? initials(selection) : '··';
+  const label = branch?.name ?? (ctx.branches.length > 0 ? ALL_BRANCHES : 'Select a branch');
+
+  const matches = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return q ? ctx.branches.filter((b) => b.name.toLowerCase().includes(q)) : ctx.branches;
+  }, [ctx.branches, query]);
+
+  const choose = (branchId: string | null) => {
+    ctx.selectBranch(branchId);
+    setQuery('');
+    setOpen(false);
+  };
 
   return (
     <div className={styles.wrap} ref={wrapRef}>
@@ -63,69 +102,114 @@ export function BranchChip() {
         onClick={() => setOpen((o) => !o)}
         disabled={ctx.loading}
       >
-        <span className={styles.avatar} aria-hidden="true">
-          {mark}
+        <span className={styles.mark} aria-hidden="true">
+          <AppIcon name="building" size={20} />
         </span>
         <span className={styles.name}>{label}</span>
         <span className={styles.chevron} aria-hidden="true">
-          ▾
+          <AppIcon name={open ? 'chevronUp' : 'chevronDown'} size={18} />
         </span>
       </button>
 
       {open ? (
-        <div className={styles.sheet} role="dialog" aria-label="Choose company and branch">
-          <div className={styles.group}>
-            <label className={styles.groupLabel} htmlFor="chip-company">
-              Company
-            </label>
-            <select
-              id="chip-company"
-              className={styles.select}
-              value={ctx.selectedCompanyId ?? ''}
-              onChange={(event) => ctx.selectCompany(event.target.value || null)}
-            >
-              <option value="">Select company…</option>
-              {ctx.companies.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
-          </div>
+        <div
+          className={`${styles.sheet} ${align === 'start' ? styles.sheetStart : styles.sheetEnd}`}
+          role="dialog"
+          aria-label="Choose branch"
+        >
 
-          <div className={styles.group}>
-            <span className={styles.groupLabel}>Branch</span>
-            {ctx.branches.length === 0 ? (
-              <p className={styles.empty}>No branches available here.</p>
-            ) : (
-              <ul className={styles.list}>
-                {ctx.branches.map((b) => {
-                  const active = b.id === ctx.selectedBranchId;
-                  return (
-                    <li key={b.id}>
-                      <button
-                        type="button"
-                        className={`${styles.option} ${active ? styles.optionActive : ''}`}
-                        aria-current={active ? 'true' : undefined}
-                        onClick={() => {
-                          ctx.selectBranch(b.id);
-                          setOpen(false);
-                        }}
-                      >
-                        <span className={styles.optionAvatar} aria-hidden="true">
-                          {initials(b.name)}
+          {/* SINGLE-COMPANY PRODUCT: no company switcher. This shows only for
+              data where a user belongs to several companies and none is chosen,
+              so the pill can never become a dead end. */}
+          {ctx.companies.length > 1 && !ctx.selectedCompanyId ? (
+            <div className={styles.group}>
+              <label className={styles.groupLabel} htmlFor="chip-company">
+                Company
+              </label>
+              <select
+                id="chip-company"
+                className={styles.select}
+                value={ctx.selectedCompanyId ?? ''}
+                onChange={(event) => ctx.selectCompany(event.target.value || null)}
+              >
+                <option value="">Select company…</option>
+                {ctx.companies.map((co) => (
+                  <option key={co.id} value={co.id}>
+                    {co.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : null}
+
+          {ctx.branches.length >= SEARCH_FROM ? (
+            <div className={styles.searchRow}>
+              <span className={styles.searchIcon} aria-hidden="true">
+                <AppIcon name="search" size={18} />
+              </span>
+              <input
+                type="search"
+                className={styles.search}
+                placeholder="Search…"
+                aria-label="Search branches"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+              />
+            </div>
+          ) : null}
+
+          {ctx.branches.length === 0 ? (
+            <p className={styles.empty}>No branches available here.</p>
+          ) : (
+            <ul className={styles.list}>
+              <li>
+                <button
+                  type="button"
+                  className={`${styles.option} ${!ctx.selectedBranchId ? styles.optionActive : ''}`}
+                  aria-current={!ctx.selectedBranchId ? 'true' : undefined}
+                  onClick={() => choose(null)}
+                >
+                  <span className={styles.optionText}>
+                    <span className={styles.optionName}>{ALL_BRANCHES}</span>
+                  </span>
+                  {!ctx.selectedBranchId ? (
+                    <span className={styles.tick}>
+                      <Tick />
+                    </span>
+                  ) : null}
+                </button>
+              </li>
+              {matches.map((b) => {
+                const active = b.id === ctx.selectedBranchId;
+                return (
+                  <li key={b.id}>
+                    <button
+                      type="button"
+                      className={`${styles.option} ${active ? styles.optionActive : ''}`}
+                      aria-current={active ? 'true' : undefined}
+                      onClick={() => choose(b.id)}
+                    >
+                      <span className={styles.optionAvatar} aria-hidden="true">
+                        {initials(b.name)}
+                      </span>
+                      <span className={styles.optionText}>
+                        <span className={styles.optionName}>{b.name}</span>
+                        <span className={styles.optionZone}>{b.timezone}</span>
+                      </span>
+                      {active ? (
+                        <span className={styles.tick}>
+                          <Tick />
                         </span>
-                        <span className={styles.optionText}>
-                          <span className={styles.optionName}>{b.name}</span>
-                          <span className={styles.optionZone}>{b.timezone}</span>
-                        </span>
-                      </button>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </div>
+                      ) : null}
+                    </button>
+                  </li>
+                );
+              })}
+              {matches.length === 0 ? (
+                <li className={styles.empty}>No branch matches that search.</li>
+              ) : null}
+            </ul>
+          )}
         </div>
       ) : null}
     </div>

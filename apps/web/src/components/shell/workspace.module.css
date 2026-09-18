@@ -1,8 +1,10 @@
 /*
  * The dashboard's module launcher.
  *
- * Cards are large deliberately: this is the first thing a member of staff
- * touches on a podium tablet, often in a hurry and often one-handed.
+ * Two columns from the narrowest phone up: cards are large deliberately, since
+ * this is the first thing a member of staff touches on a podium tablet, often
+ * in a hurry and often one-handed. Each card ends in an "Open ›" line in the
+ * module's own accent, so the whole card reads as a destination.
  */
 
 .heading {
@@ -16,7 +18,7 @@
 
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--gap);
   margin: 0;
   padding: 0;
@@ -28,13 +30,22 @@
   flex-direction: column;
   align-items: flex-start;
   gap: 4px;
+  width: 100%;
   height: 100%;
-  padding: var(--gap);
+  min-width: 0;
+  padding: var(--gap-lg);
   border: 1px solid var(--color-border);
-  border-radius: var(--radius);
+  border-radius: 20px;
   background: var(--color-surface);
   color: var(--color-text);
   text-decoration: none;
+  box-shadow: 0 1px 2px rgba(60, 45, 30, 0.04);
+}
+
+.cardButton {
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
 }
 
 .card:hover {
@@ -46,10 +57,10 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 44px;
-  height: 44px;
-  margin-bottom: 6px;
-  border-radius: var(--radius-sm);
+  width: 52px;
+  height: 52px;
+  margin-bottom: 10px;
+  border-radius: 14px;
   background: var(--tile-bg, var(--color-surface-muted));
   color: var(--tile-fg, var(--color-text-muted));
 }
@@ -63,6 +74,19 @@
   color: var(--color-text-muted);
   font-size: 0.8125rem;
   line-height: 1.35;
+}
+
+/* The affordance, in the module's accent: "Open ›". */
+.open {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  margin-top: 14px;
+  color: var(--tile-fg, var(--color-primary));
+  font-size: 0.9375rem;
+  font-weight: 500;
 }
 
 /* Same accent mapping as the navigation, so a module looks identical here. */
@@ -85,4 +109,14 @@
 .card[data-accent='purple'] {
   --tile-bg: var(--accent-purple-bg);
   --tile-fg: var(--accent-purple-fg);
+}
+.card[data-accent='slate'] {
+  --tile-bg: #e8e5dd;
+  --tile-fg: #6f6a61;
+}
+
+@media (min-width: 900px) {
+  .grid {
+    grid-template-columns: repeat(auto-fill, minmax(13rem, 1fr));
+  }
 }

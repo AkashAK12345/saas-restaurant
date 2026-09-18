@@ -73,6 +73,7 @@ const payment = (over: Record<string, unknown> = {}) => ({
   kind: 'ADVANCE',
   actor_user_id: USER,
   verification: null,
+  reverses_id: null,
   created_at: new Date('2026-09-07T11:00:00.000Z'),
   ...over,
 });
@@ -123,6 +124,8 @@ describe('BanquetBookingsService', () => {
       banquetBooking: {
         create: vi.fn().mockResolvedValue(makeBooking()),
         findFirst: vi.fn().mockResolvedValue(makeBooking()),
+        // The same-customer overlap check; no clash unless a test says so.
+        findMany: vi.fn().mockResolvedValue([]),
         findUniqueOrThrow: vi.fn().mockResolvedValue(makeBooking()),
         updateMany: vi.fn().mockResolvedValue({ count: 1 }),
         update: vi.fn().mockResolvedValue(makeBooking()),
@@ -173,6 +176,74 @@ describe('BanquetBookingsService', () => {
   // ── creation & snapshots ────────────────────────────────────────────────
 
   describe('create', () => {
+    describe('with an advance', () => {
+      it('records an advance above zero in the same transaction and confirms the booking', async () => {
+        tx.banquetBooking.findUniqueOrThrow.mockResolvedValue(
+          makeBooking({ status: BanquetBookingStatus.CONFIRMED }),
+        );
+        const view = await service.create(ctx, {
+          ...createDto,
+          initial_payment: { amount_minor: 500_000, method: 'Cash' },
+        });
+
+        expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+        expect(tx.banquetPayment.create.mock.calls[0][0].data).toMatchObject({
+          booking_id: BOOKING,
+          amount_minor: 500_000,
+          currency: 'INR',
+          method: 'Cash',
+        });
+        const data = tx.banquetBooking.update.mock.calls[0][0].data;
+        expect(data.status).toBe(BanquetBookingStatus.CONFIRMED);
+        expect(data.paid_minor).toBe(500_000);
+        expect(broker.publish.mock.calls[0][1]).toBe(BANQUET_EVENT_TYPES.BOOKING_CONFIRMED);
+        expect(view.status).toBe(BanquetBookingStatus.CONFIRMED);
+      });
+
+      it('keeps a booking with a zero advance as a DRAFT and publishes nothing', async () => {
+        await service.create(ctx, { ...createDto, initial_payment: { amount_minor: 0 } });
+        expect(tx.banquetPayment.create).toHaveBeenCalled();
+        expect(tx.banquetBooking.update.mock.calls[0][0].data).toEqual({ paid_minor: 0 });
+        expect(broker.publish).not.toHaveBeenCalled();
+      });
+
+      it('takes an advance before a menu is chosen and confirms the booking', async () => {
+        const unpriced = makeBooking({ package_id: null, price_per_guest_minor: 0, total_amount_minor: 0 });
+        tx.banquetBooking.create.mockResolvedValue(unpriced);
+        tx.banquetBooking.findUniqueOrThrow.mockResolvedValue({
+          ...unpriced,
+          status: BanquetBookingStatus.CONFIRMED,
+          payments: [payment({ amount_minor: 500_000 })],
+        });
+        const view = await service.create(ctx, {
+          ...createDto,
+          package_id: undefined,
+          initial_payment: { amount_minor: 500_000 },
+        });
+
+        expect(tx.banquetPayment.create.mock.calls[0][0].data).toMatchObject({ amount_minor: 500_000, kind: 'ADVANCE' });
+        expect(tx.banquetBooking.update.mock.calls[0][0].data.status).toBe(BanquetBookingStatus.CONFIRMED);
+        expect(view.payment_status).toBe('PARTIAL');
+        expect(view.balance).toMatchObject({ paid_minor: 500_000, balance_minor: 0, fully_paid: false });
+      });
+
+      it('refuses an advance larger than the booking total', async () => {
+        const err = await service
+          .create(ctx, { ...createDto, initial_payment: { amount_minor: 10_000_001 } })
+          .catch((e: unknown) => e);
+        expect(err).toBeInstanceOf(ConflictException);
+        expect((err as Error).message).toMatch(/more than the booking total/);
+      });
+
+      it('needs banquet.payment.create before anything is written', async () => {
+        authorization.hasBranchPermission.mockResolvedValue(false);
+        await expect(
+          service.create(ctx, { ...createDto, initial_payment: { amount_minor: 500_000 } }),
+        ).rejects.toBeInstanceOf(ForbiddenException);
+        expect(prisma.$transaction).not.toHaveBeenCalled();
+      });
+    });
+
     it('snapshots the hall name and the branch GST rate; no-GST mode on request', async () => {
       tx.branch.findUnique.mockResolvedValue({ banquet_gst_rate_bps: 500 });
       await service.create(ctx, { ...createDto, extra_pax: 10 });
@@ -337,8 +408,9 @@ describe('BanquetBookingsService', () => {
     });
 
     it.each([BanquetBookingStatus.COMPLETED, BanquetBookingStatus.CANCELLED])(
-      'refuses to edit a %s booking',
+      'refuses to edit a %s booking without the edit_locked override',
       async (status) => {
+        authorization.hasBranchPermission.mockResolvedValue(false);
         tx.banquetBooking.findFirst.mockResolvedValue(makeBooking({ status }));
         await expect(service.update(ctx, BOOKING, { guest_count: 90 })).rejects.toBeInstanceOf(
           ConflictException,
@@ -445,12 +517,202 @@ describe('BanquetBookingsService', () => {
     it('applies to pricing lines too', async () => {
       tx.banquetBooking.findFirst.mockResolvedValue(past());
       authorization.hasBranchPermission.mockImplementation(
-        async (_u: string, _c: string, _b: string, key: string) => key !== 'banquet.booking.edit_past',
+        async (_u: string, _c: string, _b: string, key: string) =>
+          key !== 'banquet.booking.edit_past' && key !== 'banquet.booking.edit_locked',
       );
       await expect(
         service.addAdjustment(ctx, BOOKING, { kind: 'EXTRA_CHARGE', description: 'DJ', amount_minor: 100 }),
       ).rejects.toBeInstanceOf(ForbiddenException);
       expect(tx.banquetBookingAdjustment.create).not.toHaveBeenCalled();
+    });
+  });
+
+  // ── delete ───────────────────────────────────────────────────────────────
+
+  describe('delete', () => {
+    beforeEach(() => {
+      tx.$executeRawUnsafe = vi.fn().mockResolvedValue(0);
+      tx.banquetBooking.delete = vi.fn().mockResolvedValue({});
+      for (const model of [
+        'banquetPaymentVerification',
+        'banquetPayment',
+        'banquetBookingAdjustment',
+        'banquetPlateRequest',
+        'banquetEventPlan',
+        'banquetBookingPhoto',
+        'banquetBookingItem',
+      ]) {
+        tx[model] = { ...(tx[model] ?? {}), deleteMany: vi.fn().mockResolvedValue({ count: 0 }) };
+      }
+    });
+
+    it('deletes a draft with its payments, after snapshotting them into the audit log', async () => {
+      tx.banquetBooking.findFirst.mockResolvedValue(makeBooking({ payments: [payment({ amount_minor: 0 })] }));
+      await service.remove(ctx, BOOKING);
+
+      const record = audit.create.mock.calls[0][0];
+      expect(record.eventType).toBe('DELETE');
+      expect(record.payload.payments).toHaveLength(1);
+      // The append-only guards are opened for this transaction only, and before any delete.
+      expect(tx.$executeRawUnsafe).toHaveBeenCalledWith(`SET LOCAL samco.purging_booking = 'on'`);
+      expect(tx.banquetPayment.deleteMany).toHaveBeenCalled();
+      expect(tx.banquetBooking.delete).toHaveBeenCalledWith({ where: { id: BOOKING } });
+      expect(broker.publish).not.toHaveBeenCalled();
+    });
+
+    it('deletes a confirmed booking only with the edit_locked override, and tells the kitchen', async () => {
+      tx.banquetBooking.findFirst.mockResolvedValue(makeBooking({ status: BanquetBookingStatus.CONFIRMED }));
+      authorization.hasBranchPermission.mockResolvedValue(false);
+      await expect(service.remove(ctx, BOOKING)).rejects.toBeInstanceOf(ForbiddenException);
+      expect(tx.banquetBooking.delete).not.toHaveBeenCalled();
+
+      authorization.hasBranchPermission.mockResolvedValue(true);
+      await service.remove(ctx, BOOKING);
+      expect(tx.banquetBooking.delete).toHaveBeenCalled();
+      expect(broker.publish.mock.calls[0][1]).toBe(BANQUET_EVENT_TYPES.BOOKING_CANCELLED);
+    });
+
+    it('deletes a completed booking only with the edit_locked override, without touching the kitchen board', async () => {
+      tx.banquetBooking.findFirst.mockResolvedValue(makeBooking({ status: BanquetBookingStatus.COMPLETED }));
+      authorization.hasBranchPermission.mockResolvedValue(false);
+      await expect(service.remove(ctx, BOOKING)).rejects.toBeInstanceOf(ForbiddenException);
+      expect(tx.banquetBooking.delete).not.toHaveBeenCalled();
+
+      authorization.hasBranchPermission.mockResolvedValue(true);
+      await service.remove(ctx, BOOKING);
+      expect(tx.banquetBooking.delete).toHaveBeenCalled();
+      // Already off the live board — a completed event's delete isn't published.
+      expect(broker.publish).not.toHaveBeenCalled();
+    });
+
+    it('never deletes a cancelled booking, override or not', async () => {
+      tx.banquetBooking.findFirst.mockResolvedValue(makeBooking({ status: BanquetBookingStatus.CANCELLED }));
+      authorization.hasBranchPermission.mockResolvedValue(true);
+      await expect(service.remove(ctx, BOOKING)).rejects.toBeInstanceOf(ConflictException);
+      expect(tx.$executeRawUnsafe).not.toHaveBeenCalled();
+    });
+  });
+
+  // ── finance overview ─────────────────────────────────────────────────────
+
+  describe('finance', () => {
+    const row = (over: Record<string, unknown>) => ({
+      ...makeBooking(),
+      customer: { id: CUSTOMER, name: 'Meera Iyer' },
+      payments: [] as Array<Record<string, unknown>>,
+      ...over,
+    });
+    beforeEach(() => {
+      prisma.branch = { findUnique: vi.fn().mockResolvedValue({ timezone: 'Asia/Kolkata' }) };
+    });
+
+    it('reads the range in the branch\'s own days, newest event first', async () => {
+      await service.financeSummary(BRANCH, { from: '2026-09-01', to: '2026-09-30' });
+      const args = prisma.banquetBooking.findMany.mock.calls[0][0];
+      // Midnight IST on 1 Sep is 18:30 UTC on 31 Aug; the end is exclusive midnight after the 30th.
+      expect(args.where.starts_at).toEqual({
+        gte: new Date('2026-08-31T18:30:00.000Z'),
+        lt: new Date('2026-09-30T18:30:00.000Z'),
+      });
+      expect(args.orderBy[0]).toEqual({ starts_at: 'desc' });
+    });
+
+    it('lists what the totals count: signed remaining, no cancelled rows, pending filter keeps totals', async () => {
+      prisma.banquetBooking.findMany.mockResolvedValue([
+        row({ id: 'due', total_amount_minor: 1_000_000, payments: [payment({ id: 'a', amount_minor: 400_000 })] }),
+        row({ id: 'over', package_id: null, total_amount_minor: 0, payments: [payment({ id: 'b', amount_minor: 500_000 })] }),
+        row({ id: 'gone', status: BanquetBookingStatus.CANCELLED, total_amount_minor: 900_000 }),
+      ]);
+
+      const all = await service.financeSummary(BRANCH, { from: '2026-09-01', to: '2026-09-30' });
+      expect(all.bookings.map((b) => [b.id, b.remaining_minor])).toEqual([
+        ['due', 600_000],
+        ['over', -500_000],
+      ]);
+      expect(all.total_revenue_minor).toBe(1_000_000);
+      expect(all.total_paid_minor).toBe(900_000);
+      expect(all.total_outstanding_minor).toBe(600_000);
+
+      const pending = await service.financeSummary(BRANCH, { from: '2026-09-01', to: '2026-09-30', payment: 'pending' });
+      expect(pending.bookings.map((b) => b.id)).toEqual(['due']);
+      expect(pending.total_revenue_minor).toBe(1_000_000);
+    });
+
+    it.each([
+      [{ from: '2026-09-31', to: '2026-10-01' }, /real calendar dates/],
+      [{ from: '2026-09-30', to: '2026-09-01' }, /not be before/],
+      [{ from: '2025-01-01', to: '2026-09-01' }, /at most 366 days/],
+    ])('refuses a bad range %o', async (range, message) => {
+      await expect(service.financeSummary(BRANCH, range)).rejects.toThrow(message);
+      expect(prisma.banquetBooking.findMany).not.toHaveBeenCalled();
+    });
+  });
+
+  // ── one customer, one place at a time ─────────────────────────────────────
+
+  describe('customer overlap', () => {
+    it('refuses a second booking for the same customer at an overlapping time', async () => {
+      tx.banquetBooking.findMany.mockResolvedValue([{ hall_name: 'D Hall' }]);
+      const err = await service.create(ctx, createDto).catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(ConflictException);
+      expect((err as Error).message).toMatch(/already has a booking in D Hall/);
+      expect(tx.banquetBooking.findMany.mock.calls[0][0].where).toMatchObject({
+        customer_id: CUSTOMER,
+        starts_at: { lt: new Date(ENDS) },
+        ends_at: { gt: new Date(STARTS) },
+      });
+    });
+
+    it('checks a move against the customer\'s other bookings, never against itself', async () => {
+      await service.update(ctx, BOOKING, { starts_at: '2036-11-21T12:00:00.000Z', ends_at: '2036-11-21T18:00:00.000Z' });
+      expect(tx.banquetBooking.findMany.mock.calls[0][0].where.id).toEqual({ not: BOOKING });
+    });
+  });
+
+  // ── edit_locked override ─────────────────────────────────────────────────
+
+  describe('edit_locked override', () => {
+    it('allows editing a COMPLETED booking to someone holding banquet.booking.edit_locked', async () => {
+      const completed = makeBooking({ status: BanquetBookingStatus.COMPLETED });
+      tx.banquetBooking.findFirst.mockResolvedValue(completed);
+      tx.banquetBooking.findUniqueOrThrow.mockResolvedValue({ ...completed, guest_count: 90 });
+      await service.update(ctx, BOOKING, { guest_count: 90 });
+      expect(authorization.hasBranchPermission).toHaveBeenCalledWith(
+        USER,
+        COMPANY,
+        BRANCH,
+        'banquet.booking.edit_locked',
+      );
+      const [{ where }] = tx.banquetBooking.updateMany.mock.calls[0];
+      expect(where).toEqual({ id: BOOKING, status: BanquetBookingStatus.COMPLETED });
+    });
+
+    it('never allows editing a CANCELLED booking, even with the override', async () => {
+      tx.banquetBooking.findFirst.mockResolvedValue(makeBooking({ status: BanquetBookingStatus.CANCELLED }));
+      await expect(service.update(ctx, BOOKING, { guest_count: 90 })).rejects.toBeInstanceOf(
+        ConflictException,
+      );
+      expect(tx.banquetBooking.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('also lets the override re-price a COMPLETED booking', async () => {
+      tx.banquetBooking.findFirst.mockResolvedValue(makeBooking({ status: BanquetBookingStatus.COMPLETED }));
+      await service.addAdjustment(ctx, BOOKING, { kind: 'EXTRA_CHARGE', description: 'DJ', amount_minor: 100 });
+      expect(tx.banquetBookingAdjustment.create).toHaveBeenCalled();
+    });
+
+    it('bypasses the started-event control on its own, without banquet.booking.edit_past', async () => {
+      const startedButLive = makeBooking({
+        status: BanquetBookingStatus.CONFIRMED,
+        starts_at: new Date('2020-01-01T10:00:00.000Z'),
+        ends_at: new Date('2020-01-01T16:00:00.000Z'),
+      });
+      tx.banquetBooking.findFirst.mockResolvedValue(startedButLive);
+      authorization.hasBranchPermission.mockImplementation(
+        async (_u: string, _c: string, _b: string, key: string) => key !== 'banquet.booking.edit_past',
+      );
+      await service.update(ctx, BOOKING, { guest_count: 90 });
+      expect(tx.banquetBooking.updateMany).toHaveBeenCalled();
     });
   });
 
@@ -497,7 +759,10 @@ describe('BanquetBookingsService', () => {
       ).rejects.toBeInstanceOf(ConflictException);
     });
 
-    it('refuses to re-price a completed or cancelled booking', async () => {
+    it('refuses to re-price a completed or cancelled booking without the edit_locked override', async () => {
+      authorization.hasBranchPermission.mockImplementation(
+        async (_u: string, _c: string, _b: string, key: string) => key !== 'banquet.booking.edit_locked',
+      );
       tx.banquetBooking.findFirst.mockResolvedValue(makeBooking({ status: BanquetBookingStatus.COMPLETED }));
       await expect(
         service.addAdjustment(ctx, BOOKING, { kind: 'EXTRA_CHARGE', description: 'x', amount_minor: 1 }),
@@ -588,20 +853,43 @@ describe('BanquetBookingsService', () => {
     });
 
     it('marks the booking fully paid when the balance reaches zero', async () => {
-      tx.banquetPayment.findMany.mockResolvedValue([{ amount_minor: 7_500_000 }]);
+      tx.banquetPayment.findMany.mockResolvedValue([{ id: 'p-existing', amount_minor: 7_500_000, reverses_id: null }]);
       const result = await service.createPayment(ctx, BOOKING, dto);
       expect(result.balance.balance_minor).toBe(0);
       expect(result.balance.fully_paid).toBe(true);
     });
 
     it('rejects overpayment rather than allowing a negative balance', async () => {
-      tx.banquetPayment.findMany.mockResolvedValue([{ amount_minor: 9_000_000 }]);
+      tx.banquetPayment.findMany.mockResolvedValue([{ id: 'p-existing', amount_minor: 9_000_000, reverses_id: null }]);
       const err = await service
         .createPayment(ctx, BOOKING, { amount_minor: 2_000_000, currency: 'INR' })
         .catch((e: unknown) => e);
       expect(err).toBeInstanceOf(ConflictException);
       expect((err as Error).message).toMatch(/exceeds the outstanding balance of 1000000/);
       expect(tx.banquetPayment.create).not.toHaveBeenCalled();
+    });
+
+    it('accepts a payment on a booking with no menu yet, whatever its current total', async () => {
+      tx.banquetBooking.findFirst.mockResolvedValue(
+        makeBooking({ package_id: null, price_per_guest_minor: 0, total_amount_minor: 0 }),
+      );
+      tx.banquetPayment.findMany.mockResolvedValue([{ id: 'p-existing', amount_minor: 100_000, reverses_id: null }]);
+      const result = await service.createPayment(ctx, BOOKING, dto);
+      expect(tx.banquetPayment.create.mock.calls[0][0].data.kind).toBe('INTERIM');
+      expect(result.balance).toMatchObject({ paid_minor: 2_600_000, balance_minor: 0, fully_paid: false });
+    });
+
+    it('lets a no-menu booking with money on it be edited without the total covering the payment', async () => {
+      tx.banquetBooking.findFirst.mockResolvedValue(
+        makeBooking({
+          package_id: null,
+          price_per_guest_minor: 0,
+          total_amount_minor: 0,
+          payments: [payment({ amount_minor: 500_000 })],
+        }),
+      );
+      await service.update(ctx, BOOKING, { guest_count: 90 });
+      expect(tx.banquetBooking.updateMany).toHaveBeenCalled();
     });
 
     it('rejects a currency that does not match the booking snapshot', async () => {
@@ -636,25 +924,91 @@ describe('BanquetBookingsService', () => {
       expect(blob).toContain('has_reference');
     });
 
-    it('exposes no way to amend or remove a recorded payment', () => {
+    it('exposes no direct amend or remove of a recorded payment — only create, read, verify, and a reversal-based correction', () => {
       // Append-only is enforced by database triggers; this asserts the service
-      // offers no route to them either — create, read, and a separate
-      // verification record.
+      // offers no route around them. updatePayment is not an UPDATE of the
+      // row — see its own tests — it reverses and records a fresh payment.
       const api = Object.getOwnPropertyNames(Object.getPrototypeOf(service));
       const paymentApi = api.filter((m) => /payment/i.test(m) && !m.startsWith('to'));
-      expect(paymentApi.sort()).toEqual(['createPayment', 'listPayments', 'verifyPayment']);
-      expect(api.some((m) => /^(update|delete|void|refund|amend).*payment/i.test(m))).toBe(false);
+      expect(paymentApi.sort()).toEqual(['createPayment', 'listPayments', 'updatePayment', 'verifyPayment']);
+      expect(api.some((m) => /^(delete|void|refund|amend).*payment/i.test(m))).toBe(false);
     });
 
     it('decides the settlement stage itself and refreshes the stored paid amount', async () => {
+      // Already CONFIRMED here so this payment is not also the one that
+      // auto-confirms the booking — see the "auto-confirm on payment" tests
+      // below for that behaviour.
+      tx.banquetBooking.findFirst.mockResolvedValue(makeBooking({ status: BanquetBookingStatus.CONFIRMED }));
       await service.createPayment(ctx, BOOKING, dto);
       expect(tx.banquetPayment.create.mock.calls[0][0].data.kind).toBe('ADVANCE');
       expect(tx.banquetBooking.update.mock.calls[0][0].data).toEqual({ paid_minor: 2_500_000 });
 
       tx.banquetPayment.create.mockClear();
-      tx.banquetPayment.findMany.mockResolvedValue([{ amount_minor: 7_500_000 }]);
+      tx.banquetPayment.findMany.mockResolvedValue([{ id: 'p-existing', amount_minor: 7_500_000, reverses_id: null }]);
       await service.createPayment(ctx, BOOKING, dto);
       expect(tx.banquetPayment.create.mock.calls[0][0].data.kind).toBe('FINAL');
+    });
+  });
+
+  // ── payment-driven confirmation ──────────────────────────────────────────
+
+  describe('auto-confirm on payment', () => {
+    const dto = { amount_minor: 2_500_000, currency: 'INR' };
+
+    it('confirms a DRAFT booking the moment a payment above zero is recorded, and publishes it', async () => {
+      tx.banquetBooking.findFirst.mockResolvedValue(makeBooking({ status: BanquetBookingStatus.DRAFT }));
+      tx.banquetBooking.findUniqueOrThrow.mockResolvedValue(
+        makeBooking({ status: BanquetBookingStatus.CONFIRMED }),
+      );
+      await service.createPayment(ctx, BOOKING, dto);
+
+      const data = tx.banquetBooking.update.mock.calls[0][0].data;
+      expect(data.status).toBe(BanquetBookingStatus.CONFIRMED);
+      expect(data.confirmed_at).toBeInstanceOf(Date);
+      expect(data.paid_minor).toBe(2_500_000);
+
+      expect(audit.create).toHaveBeenCalledWith(
+        expect.objectContaining({ payload: expect.objectContaining({ action: 'auto_confirm_on_payment' }) }),
+        tx,
+      );
+      expect(broker.publish).toHaveBeenCalledWith(
+        expect.objectContaining({ channel: RealtimeChannel.BANQUET_KDS }),
+        BANQUET_EVENT_TYPES.BOOKING_CONFIRMED,
+        expect.objectContaining({ status: BanquetBookingStatus.CONFIRMED }),
+      );
+    });
+
+    it('leaves an already-CONFIRMED booking\'s status alone and publishes nothing', async () => {
+      tx.banquetBooking.findFirst.mockResolvedValue(makeBooking({ status: BanquetBookingStatus.CONFIRMED }));
+      await service.createPayment(ctx, BOOKING, dto);
+
+      expect(tx.banquetBooking.update.mock.calls[0][0].data).toEqual({ paid_minor: 2_500_000 });
+      expect(broker.publish).not.toHaveBeenCalled();
+    });
+
+    it('a correction that raises a draft booking\'s paid amount above zero also confirms it', async () => {
+      const stale = payment({ id: 'p-zero', amount_minor: 0 });
+      tx.banquetBooking.findFirst.mockResolvedValue(
+        makeBooking({ status: BanquetBookingStatus.DRAFT, payments: [stale] }),
+      );
+      tx.banquetPayment.create.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({
+        id: 'p-corrected',
+        verification: null,
+        ...data,
+      }));
+      tx.banquetBooking.findUniqueOrThrow.mockResolvedValue(
+        makeBooking({ status: BanquetBookingStatus.CONFIRMED }),
+      );
+
+      await service.updatePayment(ctx, BOOKING, 'p-zero', { amount_minor: 500_000 });
+
+      const data = tx.banquetBooking.update.mock.calls[0][0].data;
+      expect(data.status).toBe(BanquetBookingStatus.CONFIRMED);
+      expect(broker.publish).toHaveBeenCalledWith(
+        expect.anything(),
+        BANQUET_EVENT_TYPES.BOOKING_CONFIRMED,
+        expect.anything(),
+      );
     });
   });
 
