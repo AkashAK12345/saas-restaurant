@@ -1615,6 +1615,9 @@ describe('Phase 9 Tasks & Routines (e2e)', () => {
       const banquet = library.body.find((r: any) => r.key === 'banquet-opening');
       expect(banquet.installed).toBe(false);
       expect(library.body.map((r: any) => r.name)).not.toContain('BM Checklist');
+      // A checklist with its own deadline says so; the rest leave it to the day's end.
+      expect(library.body.find((r: any) => r.key === 'opening-checklist').due_time).toBe('11:45');
+      expect(banquet.due_time).toBeNull();
 
       const refused = await as(
         request(http).post('/api/v1/checklists/library/banquet-opening'),

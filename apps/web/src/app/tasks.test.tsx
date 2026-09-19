@@ -599,6 +599,24 @@ describe('Task Quick Access detail', () => {
     expect(apiMock.materialize).not.toHaveBeenCalled();
   });
 
+  it('gives the daily routine the checklist\'s own deadline when it has one', async () => {
+    quickAccessKey = 'opening-checklist';
+    branchPermissions = ['tasks.routine.manage'];
+    apiMock.referenceLibrary.mockResolvedValue([
+      refChecklist({ key: 'opening-checklist', name: 'Branch Head Opening Checklist', installed: true, due_time: '11:45' }),
+    ]);
+    apiMock.listChecklists.mockResolvedValue(page([template({ id: 'cl-open', name: 'Branch Head Opening Checklist' })]));
+    apiMock.listRoutines.mockResolvedValue(page([]));
+    apiMock.createRoutine.mockResolvedValue(
+      routine({ id: 'rt-open', name: 'Branch Head Opening Checklist', checklist_template_id: 'cl-open' }),
+    );
+    apiMock.list.mockResolvedValue(page([task({ id: 'tk-open', routine_id: 'rt-open', routine_occurrence_date: today })]));
+
+    render(<TaskQuickAccessPage />);
+    await waitFor(() => expect(router.replace).toHaveBeenCalledWith('/tasks/tk-open'));
+    expect(apiMock.createRoutine.mock.calls[0][1]).toMatchObject({ time_of_day: '00:00', due_time: '11:45' });
+  });
+
   it('skips straight to today\'s task when the checklist and routine already exist', async () => {
     apiMock.referenceLibrary.mockResolvedValue([refChecklist({ installed: true })]);
     apiMock.listChecklists.mockResolvedValue(page([template({ id: 'cl-eod', name: 'EOD Report' })]));

@@ -31,6 +31,11 @@ export interface ReferenceChecklist {
   key: string;
   name: string;
   description: string;
+  /**
+   * Branch-local "HH:MM" the daily task is due by when its routine is set up
+   * from the Quick Access tile. Omitted = end of day (23:59).
+   */
+  due_time?: string;
   items: ReferenceChecklistItem[];
 }
 
@@ -183,17 +188,39 @@ export const REFERENCE_CHECKLISTS: readonly ReferenceChecklist[] = [
   },
   {
     key: 'opening-checklist',
-    name: 'Branch Head / Admin Opening Checklist',
-    description: 'Pre-opening round of the premises.',
+    name: 'Branch Head Opening Checklist',
+    description: 'Pre-opening round of the premises. Should ideally be filled before 11:45 AM.',
+    due_time: '11:45',
     items: [
-      req('Parking'),
-      req('Public area'),
-      req('Reception', 'RATING'),
-      req('Lift'),
-      req('Gas bank'),
-      req('Kitchen'),
-      req('Food display counter'),
-      opt('Remarks'),
+      { ...req('Parking area pictures', 'PHOTO', 'Parking & Security'), max_photos: 5 },
+      { ...opt('Public area pictures', 'PHOTO', 'Parking & Security'), max_photos: 5 },
+      opt('Security present as per roster?', 'TEXT', 'Parking & Security'),
+      opt('Valet drivers present as per roster?', 'TEXT', 'Parking & Security'),
+      opt('Security & valet staff grooming standard?', 'TEXT', 'Parking & Security'),
+
+      { ...req('Food Display Counter', 'PHOTO', 'Reception & Front Area'), max_photos: 1 },
+      { ...opt('Reception area pictures', 'PHOTO', 'Reception & Front Area'), max_photos: 5 },
+      opt('Cashiers proper grooming?', 'TEXT', 'Reception & Front Area'),
+      opt('Cashiers present on time?', 'TEXT', 'Reception & Front Area'),
+      { ...req('Lift working & clean', 'PHOTO', 'Reception & Front Area'), max_photos: 1 },
+
+      opt('Have you received meat, vegetables, dairy products and other supplies?', 'TEXT', 'Kitchen & Supplies'),
+      opt('Central kitchen items arrived (Briyani, Masala, Gravies)?', 'TEXT', 'Kitchen & Supplies'),
+      opt('All departments ready for service (Chinese, Tandoor, Indian)?', 'TEXT', 'Kitchen & Supplies'),
+      { ...req('Kitchen area pictures', 'PHOTO', 'Kitchen & Supplies'), max_photos: 10 },
+      { ...req('Gas Bank', 'PHOTO', 'Kitchen & Supplies'), max_photos: 1 },
+
+      opt('Restaurant ready for service?', 'TEXT', 'Restaurant Readiness'),
+      opt('Manager present on time?', 'TEXT', 'Restaurant Readiness'),
+      opt('Back area clean & tidy?', 'TEXT', 'Restaurant Readiness'),
+
+      opt('Banquet bookings details for today?', 'TEXT', 'Operations & Compliance'),
+      opt('CCTV cameras working?', 'TEXT', 'Operations & Compliance'),
+      opt('Generators working & fuel status?', 'TEXT', 'Operations & Compliance'),
+      opt('Monthly calendar activity followed?', 'TEXT', 'Operations & Compliance'),
+      opt('Staff using biometrics?', 'TEXT', 'Operations & Compliance'),
+
+      opt('Any additional remarks or observations', 'TEXT', 'Remarks'),
     ],
   },
   {

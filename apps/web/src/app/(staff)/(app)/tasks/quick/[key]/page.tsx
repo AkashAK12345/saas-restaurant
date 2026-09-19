@@ -114,10 +114,12 @@ export default function TaskQuickAccessPage() {
               name: entry.name,
               description: entry.description,
               frequency: 'DAILY',
-              // Available from the start of the branch's day; due by its end —
-              // this is an on-demand daily report, not a fixed-time routine.
+              // Available from the start of the branch's day; due by the
+              // checklist's own deadline (e.g. opening by 11:45), or by the
+              // end of the day — this is an on-demand daily report, not a
+              // fixed-time routine.
               time_of_day: '00:00',
-              due_time: '23:59',
+              due_time: entry.due_time ?? '23:59',
               checklist_template_id: templateId,
             });
           } catch (e) {

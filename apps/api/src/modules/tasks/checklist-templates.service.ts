@@ -172,6 +172,7 @@ export class ChecklistTemplatesService {
       key: r.key,
       name: r.name,
       description: r.description,
+      due_time: r.due_time ?? null,
       items: r.items.map((i) => ({ ...i, kind: i.kind as ChecklistItemKind })),
       installed: names.has(r.name),
     }));

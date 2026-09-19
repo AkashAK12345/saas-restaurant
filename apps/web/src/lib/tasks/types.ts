@@ -65,6 +65,8 @@ export interface ReferenceChecklist {
   key: string;
   name: string;
   description: string;
+  /** Suggested branch-local "HH:MM" deadline for its daily routine, if any. */
+  due_time: string | null;
   items: Array<{ label: string; kind: ChecklistItemKind; is_required: boolean; section?: string; max_photos?: number }>;
   installed: boolean;
 }

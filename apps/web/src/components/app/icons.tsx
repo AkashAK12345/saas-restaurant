@@ -72,7 +72,8 @@ export type AppIconName =
   | 'party'
   | 'chat'
   | 'archive'
-  | 'image';
+  | 'image'
+  | 'store';
 
 const FILLED: Partial<Record<AppIconName, ReactNode>> = {
   people: (
@@ -445,6 +446,13 @@ const STROKED: Record<AppIconName, ReactNode> = {
       <rect x="3.5" y="4.5" width="17" height="15" rx="2" />
       <circle cx="9" cy="9.5" r="1.6" />
       <path d="m4 17 5-4.5 3.5 3 3-2.5 4.5 4" />
+    </>
+  ),
+  store: (
+    <>
+      <path d="M4 9.5 5.5 4h13L20 9.5" />
+      <path d="M4 9.5a2.7 2.7 0 0 0 5.3 0 2.7 2.7 0 0 0 5.4 0 2.7 2.7 0 0 0 5.3 0z" />
+      <path d="M5.5 12.5V20h13v-7.5M10 20v-4.5h4V20" />
     </>
   ),
 };
