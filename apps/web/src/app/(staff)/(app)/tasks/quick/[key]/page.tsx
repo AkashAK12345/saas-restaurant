@@ -28,18 +28,18 @@ type Phase =
 /**
  * A Quick Access tile's destination.
  *
- * For the nine shortcuts with a backend reference checklist (EOD Report,
- * Operational Checklist, Branch Head Opening, Banquet Opening, Kitchen
- * Balance/Wastage/Stock Request, Biryani Sales, Corporate Branch Visit): this
- * page finds — or, for someone who may manage checklists and routines,
- * quietly sets up — a daily routine behind the tile, then opens today's task
- * directly, with the ordinary checklist-filling screen already built for
- * /tasks/[id].
+ * For the ten shortcuts with a backend reference checklist (EOD Report,
+ * Operational Checklist, Kitchen Checklist, Branch Head Opening, Banquet
+ * Opening, Kitchen Balance/Wastage/Stock Request, Biryani Sales, Corporate
+ * Branch Visit): this page finds — or, for someone who may manage checklists
+ * and routines, quietly sets up — a daily routine behind the tile, then opens
+ * today's task directly, with the ordinary checklist-filling screen already
+ * built for /tasks/[id].
  *
- * The other three (Kitchen Checklist, Branch Manager Checklist, Activity
- * Calendar) have no backend definition yet — the source names their purpose
- * but not their items, or they aren't a checklist at all — so they still
- * open to a plain "being built" placeholder.
+ * The other two (Branch Manager Checklist, Activity Calendar) have no backend
+ * definition yet — the source names the first's purpose but not its items,
+ * and the second isn't a checklist at all — so they still open to a plain
+ * "being built" placeholder.
  */
 export default function TaskQuickAccessPage() {
   const params = useParams<{ key: string }>();

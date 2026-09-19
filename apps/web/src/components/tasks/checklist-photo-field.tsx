@@ -6,12 +6,13 @@ import type { ChecklistItem, ChecklistItemPhoto } from '@/lib/tasks/types';
 import { AppIcon } from '@/components/app/icons';
 import styles from './tasks.module.css';
 
-const MAX_PHOTOS = 5;
+const DEFAULT_MAX_PHOTOS = 5;
 const ACCEPT = 'image/jpeg,image/png,image/webp,image/gif';
 
 /**
- * One PHOTO checklist item: a row of thumbnails plus an add tile, up to
- * MAX_PHOTOS. Each photo uploads immediately on pick — unlike a new banquet
+ * One PHOTO checklist item: a row of thumbnails plus an add tile, up to the
+ * item's own max_photos (5 when unset). Each photo uploads immediately on
+ * pick — unlike a new banquet
  * booking's deferred upload, the task and item already exist here — so this
  * has no Save button of its own; `onChange` tells the parent to refresh the
  * task (a photo flips the item's is_done, which the parent's progress and
@@ -34,6 +35,7 @@ export function ChecklistPhotoField({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const maxPhotos = item.max_photos ?? DEFAULT_MAX_PHOTOS;
 
   useEffect(() => {
     let cancelled = false;
@@ -51,7 +53,7 @@ export function ChecklistPhotoField({
   }, [ctx, taskId, item.id]);
 
   const upload = async (files: FileList) => {
-    const room = MAX_PHOTOS - photos.length;
+    const room = maxPhotos - photos.length;
     const toAdd = Array.from(files).slice(0, room);
     if (toAdd.length === 0) return;
     setBusy(true);
@@ -95,7 +97,7 @@ export function ChecklistPhotoField({
         {item.is_required ? <span className={styles.required}> (required)</span> : null}
         <span className={styles.photoCount}>
           {' '}
-          ({photos.length}/{MAX_PHOTOS})
+          ({photos.length}/{maxPhotos})
         </span>
       </span>
       {error ? (
@@ -107,7 +109,7 @@ export function ChecklistPhotoField({
         {photos.map((p) => (
           <PhotoThumb key={p.id} ctx={ctx} taskId={taskId} item={item} photo={p} onRemove={() => void remove(p.id)} disabled={disabled || busy} />
         ))}
-        {photos.length < MAX_PHOTOS ? (
+        {photos.length < maxPhotos ? (
           <button
             type="button"
             className={styles.photoAdd}

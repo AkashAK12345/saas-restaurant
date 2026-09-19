@@ -85,6 +85,7 @@ export class ChecklistTemplatesService {
                 kind: item.kind ?? ChecklistItemKind.CHECK,
                 is_required: item.is_required ?? true,
                 section: item.section ?? null,
+                max_photos: this.maxPhotos(item),
               })),
             },
           },
@@ -134,6 +135,7 @@ export class ChecklistTemplatesService {
                 kind: item.kind ?? ChecklistItemKind.CHECK,
                 is_required: item.is_required ?? true,
                 section: item.section ?? null,
+                max_photos: this.maxPhotos(item),
               },
             });
           }
@@ -191,9 +193,15 @@ export class ChecklistTemplatesService {
         kind: i.kind as ChecklistItemKind,
         is_required: i.is_required,
         section: i.section,
+        max_photos: i.max_photos,
       })),
     });
     return view;
+  }
+
+  /** A photo limit only means something on a PHOTO item. */
+  private maxPhotos(item: { kind?: ChecklistItemKind; max_photos?: number }): number | null {
+    return item.kind === ChecklistItemKind.PHOTO ? (item.max_photos ?? null) : null;
   }
 
   private audit(
@@ -231,6 +239,7 @@ export class ChecklistTemplatesService {
         kind: i.kind,
         is_required: i.is_required,
         section: i.section,
+        max_photos: i.max_photos,
       })),
       created_at: template.created_at,
       updated_at: template.updated_at,

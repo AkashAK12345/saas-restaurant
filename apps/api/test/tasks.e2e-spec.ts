@@ -1614,7 +1614,7 @@ describe('Phase 9 Tasks & Routines (e2e)', () => {
       expect(library.status).toBe(200);
       const banquet = library.body.find((r: any) => r.key === 'banquet-opening');
       expect(banquet.installed).toBe(false);
-      expect(library.body.map((r: any) => r.name)).not.toContain('Kitchen Checklist');
+      expect(library.body.map((r: any) => r.name)).not.toContain('BM Checklist');
 
       const refused = await as(
         request(http).post('/api/v1/checklists/library/banquet-opening'),
@@ -1869,6 +1869,38 @@ describe('Phase 9 Tasks & Routines (e2e)', () => {
         expect((await upload(task.id, photoItem.id, onePixelPng)).status).toBe(201);
       }
       expect((await upload(task.id, photoItem.id, onePixelPng)).status).toBe(409);
+    });
+
+    it('PH-5. a photo item can take more (or fewer) than the default five', async () => {
+      const template = (
+        await as(request(http).post('/api/v1/checklists'), tokenManagerA, companyA.id).send({
+          name: `Photo limits ${Math.random().toString(36).slice(2, 7)}`,
+          items: [
+            { label: 'Ten photos', kind: 'PHOTO', max_photos: 10 },
+            { label: 'One photo', kind: 'PHOTO', max_photos: 1 },
+            // A limit means nothing on a non-photo item, so it is dropped.
+            { label: 'A note', kind: 'TEXT', max_photos: 3 },
+          ],
+        })
+      ).body;
+      expect(template.items.map((i: any) => i.max_photos)).toEqual([10, 1, null]);
+
+      const task = (await createTask({ checklist_template_id: template.id })).body;
+      const [ten, one] = task.checklist;
+      expect([ten.max_photos, one.max_photos]).toEqual([10, 1]);
+
+      for (let i = 0; i < 6; i++) {
+        expect((await upload(task.id, ten.id, onePixelPng)).status).toBe(201);
+      }
+      expect((await upload(task.id, one.id, onePixelPng)).status).toBe(201);
+      expect((await upload(task.id, one.id, onePixelPng)).status).toBe(409);
+
+      // Above the cap is refused when the checklist is defined.
+      const tooMany = await as(request(http).post('/api/v1/checklists'), tokenManagerA, companyA.id).send({
+        name: `Too many photos ${Math.random().toString(36).slice(2, 7)}`,
+        items: [{ label: 'Eleven', kind: 'PHOTO', max_photos: 11 }],
+      });
+      expect(tooMany.status).toBe(400);
     });
 
     it('PH-4. photos ride on tasks.update — a viewer may see them but not add or remove one', async () => {

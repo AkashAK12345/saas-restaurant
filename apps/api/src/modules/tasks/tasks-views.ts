@@ -34,6 +34,8 @@ export interface ChecklistItemView {
   value: string | null;
   /** Group label; items sharing one render together. Null renders flat. */
   section: string | null;
+  /** PHOTO items: how many photos it takes; null = the default. */
+  max_photos: number | null;
   done_at: Date | null;
   done_by: string | null;
 }
@@ -124,13 +126,20 @@ export interface ChecklistTemplateItemView {
   kind: ChecklistItemKind;
   is_required: boolean;
   section: string | null;
+  max_photos: number | null;
 }
 
 export interface ReferenceChecklistView {
   key: string;
   name: string;
   description: string;
-  items: Array<{ label: string; kind: ChecklistItemKind; is_required: boolean; section?: string }>;
+  items: Array<{
+    label: string;
+    kind: ChecklistItemKind;
+    is_required: boolean;
+    section?: string;
+    max_photos?: number;
+  }>;
   /** A template with this name already exists in the company. */
   installed: boolean;
 }

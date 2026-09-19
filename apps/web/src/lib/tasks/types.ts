@@ -34,6 +34,8 @@ export interface ChecklistItem {
   value: string | null;
   /** Group label ("Today's Summary", "EB", ...); null renders flat. */
   section: string | null;
+  /** PHOTO items: how many photos it takes; null = the default (5). */
+  max_photos: number | null;
   done_at: string | null;
   done_by: string | null;
 }
@@ -63,7 +65,7 @@ export interface ReferenceChecklist {
   key: string;
   name: string;
   description: string;
-  items: Array<{ label: string; kind: ChecklistItemKind; is_required: boolean; section?: string }>;
+  items: Array<{ label: string; kind: ChecklistItemKind; is_required: boolean; section?: string; max_photos?: number }>;
   installed: boolean;
 }
 
@@ -131,6 +133,7 @@ export interface ChecklistTemplateItem {
   kind: ChecklistItemKind;
   is_required: boolean;
   section: string | null;
+  max_photos: number | null;
 }
 
 export interface ChecklistTemplate {

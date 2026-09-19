@@ -33,6 +33,11 @@ const SECTION_META: Record<string, { icon: AppIconName; tone: Tone }> = {
   'Staff & Service': { icon: 'people', tone: 'green' },
   Banquets: { icon: 'party', tone: 'red' },
   Remarks: { icon: 'chat', tone: 'blue' },
+  // Kitchen Checklist
+  'Supplies & Readiness': { icon: 'archive', tone: 'blue' },
+  'Cleanliness & Storage': { icon: 'broom', tone: 'green' },
+  'Compliance & Audits': { icon: 'clipboardCheck', tone: 'red' },
+  Images: { icon: 'image', tone: 'amber' },
 };
 
 export function sectionMeta(section: string): { icon: AppIconName; iconClass: string; accentClass: string } {

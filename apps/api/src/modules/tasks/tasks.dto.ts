@@ -45,6 +45,12 @@ export const queryBoolean = ({ value }: { value: unknown }): unknown =>
 
 // ── Checklist templates (company-scoped) ────────────────────────────────────
 
+/** Photos a PHOTO item takes when it sets no max_photos of its own. */
+export const MAX_ITEM_PHOTOS = 5;
+/** The most any one PHOTO item may be configured to take. */
+export const MAX_ITEM_PHOTOS_CAP = 10;
+export const MAX_PHOTO_SIZE_BYTES = 5 * 1024 * 1024;
+
 export class ChecklistItemDto {
   @IsString()
   @IsNotEmpty()
@@ -65,6 +71,13 @@ export class ChecklistItemDto {
   @IsString()
   @MaxLength(80)
   section?: string;
+
+  /** PHOTO items only: how many photos it takes. Ignored for other kinds. */
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(MAX_ITEM_PHOTOS_CAP)
+  max_photos?: number;
 }
 
 export class CreateChecklistTemplateDto {
@@ -194,9 +207,6 @@ export class ToggleChecklistItemDto {
   @MaxLength(1000)
   value?: string;
 }
-
-export const MAX_ITEM_PHOTOS = 5;
-export const MAX_PHOTO_SIZE_BYTES = 5 * 1024 * 1024;
 
 /** A photo attached to a PHOTO-kind checklist item. Same shape as banquet's UploadBookingPhotoDto. */
 export class UploadChecklistItemPhotoDto {

@@ -551,8 +551,9 @@ export class TasksService {
   //
   // A PHOTO item's "answer" is its attached photos rather than a scalar value
   // (see checklist-values.ts), stored the same way as BanquetBookingPhoto —
-  // bytes in Postgres, capped at MAX_ITEM_PHOTOS / MAX_PHOTO_SIZE_BYTES —
-  // since SAMCO has no object storage. is_done tracks "has at least one".
+  // bytes in Postgres, capped at the item's max_photos (MAX_ITEM_PHOTOS when
+  // unset) and MAX_PHOTO_SIZE_BYTES each — since SAMCO has no object storage.
+  // is_done tracks "has at least one".
 
   async listItemPhotos(ctx: TaskActorContext, taskId: string, itemId: string): Promise<ChecklistItemPhotoView[]> {
     await this.findItem(ctx, taskId, itemId);
@@ -606,9 +607,10 @@ export class TasksService {
         throw new BadRequestException('Only a photo item accepts photos');
       }
 
+      const limit = item.max_photos ?? MAX_ITEM_PHOTOS;
       const count = await tx.taskChecklistItemPhoto.count({ where: { checklist_item_id: item.id } });
-      if (count >= MAX_ITEM_PHOTOS) {
-        throw new ConflictException(`An item can have at most ${MAX_ITEM_PHOTOS} photos`);
+      if (count >= limit) {
+        throw new ConflictException(`This item takes at most ${limit} photos`);
       }
 
       const created = await tx.taskChecklistItemPhoto.create({
@@ -791,7 +793,14 @@ export class TasksService {
     companyId: string,
     templateId: string,
   ): Promise<
-    Array<{ label: string; position: number; kind: ChecklistItemKind; is_required: boolean; section: string | null }>
+    Array<{
+      label: string;
+      position: number;
+      kind: ChecklistItemKind;
+      is_required: boolean;
+      section: string | null;
+      max_photos: number | null;
+    }>
   > {
     const template = await tx.checklistTemplate.findFirst({
       where: { id: templateId, company_id: companyId },
@@ -807,6 +816,7 @@ export class TasksService {
       kind: i.kind,
       is_required: i.is_required,
       section: i.section,
+      max_photos: i.max_photos,
     }));
   }
 
@@ -1000,6 +1010,7 @@ export class TasksService {
           is_done: i.is_done,
           value: i.value,
           section: i.section,
+          max_photos: i.max_photos,
           done_at: i.done_at,
           done_by: i.done_by,
         }),

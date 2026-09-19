@@ -146,8 +146,8 @@ const detail = (over: Partial<TaskDetail> = {}): TaskDetail => ({
 const withChecklist = (): TaskDetail =>
   detail({
     checklist: [
-      { id: 'i-1', label: 'Unlock the doors', position: 0, kind: 'CHECK', is_required: true, is_done: false, value: null, section: null, done_at: null, done_by: null },
-      { id: 'i-2', label: 'Water the plants', position: 1, kind: 'CHECK', is_required: false, is_done: false, value: null, section: null, done_at: null, done_by: null },
+      { id: 'i-1', label: 'Unlock the doors', position: 0, kind: 'CHECK', is_required: true, is_done: false, value: null, section: null, max_photos: null, done_at: null, done_by: null },
+      { id: 'i-2', label: 'Water the plants', position: 1, kind: 'CHECK', is_required: false, is_done: false, value: null, section: null, max_photos: null, done_at: null, done_by: null },
     ],
     checklist_progress: {
       total: 2,
@@ -187,8 +187,8 @@ const template = (over: Partial<ChecklistTemplate> = {}): ChecklistTemplate => (
   description: null,
   status: 'ACTIVE',
   items: [
-    { id: 'ci-1', label: 'Unlock the doors', position: 0, kind: 'CHECK', is_required: true, section: null },
-    { id: 'ci-2', label: 'Water the plants', position: 1, kind: 'CHECK', is_required: false, section: null },
+    { id: 'ci-1', label: 'Unlock the doors', position: 0, kind: 'CHECK', is_required: true, section: null, max_photos: null },
+    { id: 'ci-2', label: 'Water the plants', position: 1, kind: 'CHECK', is_required: false, section: null, max_photos: null },
   ],
   created_at: '2027-01-01T09:00:00.000Z',
   updated_at: '2027-01-01T09:00:00.000Z',
@@ -565,7 +565,7 @@ describe('Task Quick Access detail', () => {
   });
 
   it('falls back to "being built" for a shortcut with no backend definition', async () => {
-    quickAccessKey = 'kitchen-checklist';
+    quickAccessKey = 'branch-manager-checklist';
     apiMock.referenceLibrary.mockResolvedValue([refChecklist()]); // eod-report only
     render(<TaskQuickAccessPage />);
     expect(await screen.findByText(/being built next/)).toBeTruthy();
@@ -744,8 +744,8 @@ describe('Task detail and checklist', () => {
   it('asks for an answer on a typed item and sends it; clears it again', async () => {
     const typed = detail({
       checklist: [
-        { id: 'n-1', label: 'Meter reading', position: 0, kind: 'NUMBER', is_required: true, is_done: false, value: null, section: null, done_at: null, done_by: null },
-        { id: 'r-1', label: 'Reception', position: 1, kind: 'RATING', is_required: true, is_done: true, value: '4', section: null, done_at: '2027-01-01T10:00:00.000Z', done_by: 'u-1' },
+        { id: 'n-1', label: 'Meter reading', position: 0, kind: 'NUMBER', is_required: true, is_done: false, value: null, section: null, max_photos: null, done_at: null, done_by: null },
+        { id: 'r-1', label: 'Reception', position: 1, kind: 'RATING', is_required: true, is_done: true, value: '4', section: null, max_photos: null, done_at: '2027-01-01T10:00:00.000Z', done_by: 'u-1' },
       ],
       checklist_progress: { total: 2, done: 1, required_total: 2, required_done: 1, ready_to_complete: false },
     });
@@ -780,6 +780,7 @@ describe('Task detail and checklist', () => {
       is_required: false,
       is_done: false,
       value: null,
+      max_photos: null,
       done_at: null,
       done_by: null,
       ...over,

@@ -932,6 +932,9 @@ model ChecklistTemplateItem {
   /// items are still ordered by `position` and a section's items must be
   /// contiguous in that order.
   section     String?  @db.VarChar(80)
+  /// PHOTO items only: how many photos the item takes. Null = the default
+  /// (MAX_ITEM_PHOTOS in tasks.dto.ts). Always null for other kinds.
+  max_photos  Int?
   created_at  DateTime @default(now()) @db.Timestamptz(3)
   updated_at  DateTime @updatedAt @db.Timestamptz(3)
 
@@ -1070,6 +1073,8 @@ model TaskChecklistItem {
   value       String?
   /// Copied from ChecklistTemplateItem.section at snapshot time — see there.
   section     String?  @db.VarChar(80)
+  /// Copied from ChecklistTemplateItem.max_photos at snapshot time.
+  max_photos  Int?
   done_at     DateTime? @db.Timestamptz(3)
   done_by     String?   @db.Uuid
   created_at  DateTime  @default(now()) @db.Timestamptz(3)
@@ -1084,9 +1089,9 @@ model TaskChecklistItem {
 }
 
 // A photo attached to a PHOTO-kind checklist item. Mirrors BanquetBookingPhoto
-// exactly (bytes in Postgres — SAMCO has no object storage): capped at
-// MAX_ITEM_PHOTOS per item and MAX_PHOTO_SIZE_BYTES each, enforced in
-// TasksService, not here.
+// exactly (bytes in Postgres — SAMCO has no object storage): capped at the
+// item's max_photos (MAX_ITEM_PHOTOS when unset) and MAX_PHOTO_SIZE_BYTES
+// each, enforced in TasksService, not here.
 model TaskChecklistItemPhoto {
   id                String   @id @default(uuid()) @db.Uuid
   checklist_item_id String   @db.Uuid

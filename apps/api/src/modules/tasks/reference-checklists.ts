@@ -9,8 +9,8 @@ import type { ChecklistItemKindName } from './checklist-values.js';
  *   Items are taken from what the source document names for each routine.
  *   Where it names only a purpose ("Kitchen hygiene and operations") and no
  *   items, no definition is offered: inventing a company's hygiene standard
- *   would be fabrication. Those two (Kitchen Checklist, BM Checklist) are
- *   built by the operator with the same editor.
+ *   would be fabrication. That one (BM Checklist) is built by the operator
+ *   with the same editor.
  *   Stock-ledger routines (balance, wastage, indent) capture the figures as
  *   answers only; they do not post to an inventory, which is a future module.
  *
@@ -23,6 +23,8 @@ export interface ReferenceChecklistItem {
   is_required: boolean;
   /** Group label; items sharing one render together. Omitted renders flat. */
   section?: string;
+  /** PHOTO items: how many photos it takes. Omitted = the default (5). */
+  max_photos?: number;
 }
 
 export interface ReferenceChecklist {
@@ -148,6 +150,38 @@ export const REFERENCE_CHECKLISTS: readonly ReferenceChecklist[] = [
     ],
   },
   {
+    key: 'kitchen-checklist',
+    name: 'Kitchen Checklist',
+    description: 'Daily kitchen round: supplies and readiness, cleanliness and storage, compliance, and photos.',
+    items: [
+      opt('Have you received the meat, vegetables, dairy products and other supplies on time?', 'TEXT', 'Supplies & Readiness'),
+      opt('Has all the central kitchen items reached as per your indent?', 'TEXT', 'Supplies & Readiness'),
+      opt('Does all the kitchen equipment (Burners, refrigerators, exhaust) work properly?', 'TEXT', 'Supplies & Readiness'),
+      opt('Are all the departments ready for service (Chinese, Tandoor, Indian, etc.)?', 'TEXT', 'Supplies & Readiness'),
+      opt('Are we ready with the special menu of the day?', 'TEXT', 'Supplies & Readiness'),
+      opt('Not available items of the day?', 'TEXT', 'Supplies & Readiness'),
+
+      opt('Are the refrigerators, chillers & deep freezers clean and at the right temperature?', 'TEXT', 'Cleanliness & Storage'),
+      opt('Are storage areas, shelves, and racks cleaned and organized?', 'TEXT', 'Cleanliness & Storage'),
+      opt("Have you got all the groceries for today's party orders?", 'TEXT', 'Cleanliness & Storage'),
+
+      opt('Was the activity for the day followed as per the monthly activity calendar?', 'TEXT', 'Compliance & Audits'),
+      opt('Is deep cleaning of the kitchen, including floors, walls and exhaust, done as scheduled?', 'TEXT', 'Compliance & Audits'),
+      opt('Has the kitchen been cleaned & hygiene maintained after service?', 'TEXT', 'Compliance & Audits'),
+      opt('When was the last hygiene audit conducted? (mention the date)', 'TEXT', 'Compliance & Audits'),
+      opt('Are all the staff properly groomed and wearing uniforms, caps and gloves?', 'TEXT', 'Compliance & Audits'),
+      opt('Are raw and cooked foods stored separately to avoid cross-contamination?', 'TEXT', 'Compliance & Audits'),
+      opt('Is the FIFO process being followed for short-expiry items?', 'TEXT', 'Compliance & Audits'),
+      opt('When was the last pest control Service done in the kitchen?', 'TEXT', 'Compliance & Audits'),
+
+      { ...opt('Pictures of the kitchen area (pot wash, plate wash, vegetable storage area)', 'PHOTO', 'Images'), max_photos: 10 },
+      { ...opt('Pictures of the kitchen area inside the fridge', 'PHOTO', 'Images'), max_photos: 10 },
+      { ...req('Pictures of the kitchen staff with head caps', 'PHOTO', 'Images'), max_photos: 5 },
+      { ...req('Upload couple of food label photos', 'PHOTO', 'Images'), max_photos: 10 },
+      { ...req('Pictures of the Food Packing area', 'PHOTO', 'Images'), max_photos: 10 },
+    ],
+  },
+  {
     key: 'opening-checklist',
     name: 'Branch Head / Admin Opening Checklist',
     description: 'Pre-opening round of the premises.',
@@ -220,6 +254,5 @@ export const REFERENCE_CHECKLISTS: readonly ReferenceChecklist[] = [
 
 /** The reference routines deliberately NOT offered, and why. */
 export const REFERENCE_NOT_OFFERED: ReadonlyArray<{ name: string; reason: string }> = [
-  { name: 'Kitchen Checklist', reason: 'The source names its purpose but not its items.' },
   { name: 'BM Checklist', reason: 'The source names its purpose but not its items.' },
 ];
