@@ -560,7 +560,30 @@ export default function TaskDetailPage() {
                               </span>
                             ) : null}
                           </label>
-                          {item.kind === 'RATING' ? (
+                          {item.kind === 'YES_NO' ? (
+                            <div className={styles.yesNoRow} role="radiogroup" aria-labelledby={`fd-${item.id}-label`}>
+                              {(['YES', 'NO'] as const).map((answer) => {
+                                const selected = draftValue(item) === answer;
+                                return (
+                                  <button
+                                    key={answer}
+                                    type="button"
+                                    role="radio"
+                                    aria-checked={selected}
+                                    aria-label={`${item.label}: ${answer === 'YES' ? 'Yes' : 'No'}`}
+                                    className={`${styles.yesNoBtn} ${
+                                      selected ? (answer === 'YES' ? styles.yesNoYes : styles.yesNoNo) : ''
+                                    }`}
+                                    disabled={fieldDisabled}
+                                    onClick={() => setDraftValue(item.id, selected ? '' : answer)}
+                                  >
+                                    <AppIcon name={answer === 'YES' ? 'check' : 'close'} size={20} />
+                                    {answer === 'YES' ? 'Yes' : 'No'}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          ) : item.kind === 'RATING' ? (
                             <div className={styles.ratingRow} role="radiogroup" aria-labelledby={`fd-${item.id}-label`}>
                               {['1', '2', '3', '4', '5'].map((n) => {
                                 const selected = draftValue(item) === n;

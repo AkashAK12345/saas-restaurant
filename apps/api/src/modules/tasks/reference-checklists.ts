@@ -226,18 +226,24 @@ export const REFERENCE_CHECKLISTS: readonly ReferenceChecklist[] = [
   {
     key: 'banquet-opening',
     name: 'Banquet Opening Checklist',
-    description: 'Hall readiness before an event.',
+    description: "Hall readiness for the day's events. Please complete this checklist after your duty starts.",
     items: [
-      req('Hall cleanliness'),
-      req('Air conditioners'),
-      req('Lights'),
-      req('Restrooms'),
-      req('Store'),
-      req('Linen'),
-      req('Equipment'),
-      req('TV / music'),
-      req('Generators'),
-      opt('Remarks'),
+      opt('Number of parties (L/D), Pax guarantee & Hall name', 'TEXT', "Today's Bookings"),
+
+      opt('Q1. Is the hall clean and tidy?', 'YES_NO', 'Hall Cleanliness'),
+      opt('Q2. Are the toilets neat and clean?', 'YES_NO', 'Hall Cleanliness'),
+      opt('Q3. Are chair covers, table cloths & frills clean?', 'YES_NO', 'Hall Cleanliness'),
+
+      opt('Q4. Are all Banquet Hall ACs working?', 'YES_NO', 'Climate & Lighting'),
+      opt('Q5. Are all Banquet Hall Room ACs working?', 'YES_NO', 'Climate & Lighting'),
+      opt('Q6. Are all Banquet Hall lights working?', 'YES_NO', 'Climate & Lighting'),
+
+      opt('Q7. Are all TVs in the Banquet Halls working?', 'YES_NO', 'AV Equipment'),
+      opt('Q8. Are all Speakers in the Banquet Halls working?', 'YES_NO', 'AV Equipment'),
+      opt('Q9. Are all Amplifiers in the Banquet Halls working?', 'YES_NO', 'AV Equipment'),
+      opt('Q10. Are all Projectors in the Banquet Halls working?', 'YES_NO', 'AV Equipment'),
+
+      opt('Any additional remarks (optional)', 'TEXT', 'Remarks'),
     ],
   },
   {

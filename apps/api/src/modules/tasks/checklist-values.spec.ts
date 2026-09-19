@@ -47,6 +47,14 @@ describe('checklist answers', () => {
     expect(() => normalizeChecklistValue('TEXT', null)).toThrow(BadRequestException);
   });
 
+  it('takes Yes or No on a yes/no item, in any case, stored upper-case', () => {
+    expect(normalizeChecklistValue('YES_NO', 'yes')).toBe('YES');
+    expect(normalizeChecklistValue('YES_NO', ' No ')).toBe('NO');
+    for (const bad of ['', 'maybe', 'Y', 'true']) {
+      expect(() => normalizeChecklistValue('YES_NO', bad)).toThrow(BadRequestException);
+    }
+  });
+
   it('refuses any value on a photo item too — its state comes from the item-photo endpoints', () => {
     expect(() => normalizeChecklistValue('PHOTO', 'anything')).toThrow(BadRequestException);
     expect(() => normalizeChecklistValue('PHOTO', undefined)).toThrow(BadRequestException);

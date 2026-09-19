@@ -907,9 +907,11 @@ model ChecklistTemplate {
 }
 
 // What an item asks for. CHECK is a tick; the others need an answer, and the
-// answer is what marks the item done. PHOTO is done once it has at least one
-// attached photo (see TaskChecklistItemPhoto) — its state is managed through
-// the item-photo endpoints, never through the scalar-answer PATCH.
+// answer is what marks the item done. YES_NO is an explicit "YES" or "NO"
+// answer — unlike CHECK, "No" is recorded rather than indistinguishable from
+// unanswered. PHOTO is done once it has at least one attached photo (see
+// TaskChecklistItemPhoto) — its state is managed through the item-photo
+// endpoints, never through the scalar-answer PATCH.
 enum ChecklistItemKind {
   CHECK
   NUMBER
@@ -917,6 +919,7 @@ enum ChecklistItemKind {
   RATING
   DATE
   PHOTO
+  YES_NO
 }
 
 model ChecklistTemplateItem {

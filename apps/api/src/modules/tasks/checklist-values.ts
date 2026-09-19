@@ -1,6 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
 
-export type ChecklistItemKindName = 'CHECK' | 'NUMBER' | 'TEXT' | 'RATING' | 'DATE' | 'PHOTO';
+export type ChecklistItemKindName = 'CHECK' | 'NUMBER' | 'TEXT' | 'RATING' | 'DATE' | 'PHOTO' | 'YES_NO';
 
 export const RATING_MIN = 1;
 export const RATING_MAX = 5;
@@ -16,6 +16,7 @@ export const TEXT_MAX = 1000;
  *   RATING  a whole number 1–5
  *   DATE    a real calendar date, YYYY-MM-DD
  *   TEXT    1–1000 characters after trimming
+ *   YES_NO  "YES" or "NO" (any case), stored upper-case
  *   CHECK   takes no value at all
  *   PHOTO   takes no value at all — its state comes from the item-photo
  *           endpoints (see TaskChecklistItemPhoto), never this PATCH
@@ -58,6 +59,11 @@ export function normalizeChecklistValue(kind: ChecklistItemKindName, raw: unknow
       if (value.length === 0) throw new BadRequestException('This item needs an answer');
       if (value.length > TEXT_MAX) throw new BadRequestException(`Keep the answer under ${TEXT_MAX} characters`);
       return value;
+    }
+    case 'YES_NO': {
+      const answer = value.toUpperCase();
+      if (answer !== 'YES' && answer !== 'NO') throw new BadRequestException('Answer Yes or No');
+      return answer;
     }
   }
 }

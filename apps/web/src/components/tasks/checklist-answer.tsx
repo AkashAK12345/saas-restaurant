@@ -9,6 +9,7 @@ const HINT: Record<Exclude<ChecklistItem['kind'], 'CHECK'>, string> = {
   TEXT: 'Your answer',
   RATING: 'Rate 1 (poor) to 5 (excellent)',
   DATE: 'A date',
+  YES_NO: 'Yes or No',
   // Unreachable in practice: PHOTO items render <ChecklistPhotoField> instead
   // of this component. Present only so this map stays exhaustive.
   PHOTO: 'A photo',
@@ -40,7 +41,8 @@ export function ChecklistAnswer({
   const shapeOk =
     trimmed !== '' &&
     (kind !== 'NUMBER' || /^-?\d{1,12}(\.\d{1,3})?$/.test(trimmed)) &&
-    (kind !== 'RATING' || /^[1-5]$/.test(trimmed));
+    (kind !== 'RATING' || /^[1-5]$/.test(trimmed)) &&
+    (kind !== 'YES_NO' || trimmed === 'YES' || trimmed === 'NO');
   const unchanged = item.is_done && trimmed === (item.value ?? '');
 
   return (
@@ -59,9 +61,20 @@ export function ChecklistAnswer({
             *
           </span>
         ) : null}
-        {item.is_done ? <span className={styles.answered}> · answered {item.value}</span> : null}
+        {item.is_done ? (
+          <span className={styles.answered}>
+            {' '}
+            · answered {kind === 'YES_NO' ? (item.value === 'YES' ? 'Yes' : 'No') : item.value}
+          </span>
+        ) : null}
       </label>
-      {kind === 'RATING' ? (
+      {kind === 'YES_NO' ? (
+        <select id={id} className={styles.select} value={draft} disabled={disabled} onChange={(e) => setDraft(e.target.value)}>
+          <option value="">Yes or No…</option>
+          <option value="YES">Yes</option>
+          <option value="NO">No</option>
+        </select>
+      ) : kind === 'RATING' ? (
         <select id={id} className={styles.select} value={draft} disabled={disabled} onChange={(e) => setDraft(e.target.value)}>
           <option value="">Rate…</option>
           {[1, 2, 3, 4, 5].map((n) => (

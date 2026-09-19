@@ -809,8 +809,9 @@ describe('Task detail and checklist', () => {
         item({ id: 's-1', label: 'Was security present at the entrance?', position: 0, kind: 'CHECK', section: 'Security' }),
         item({ id: 's-2', label: 'Overall Rating for security (scale 1-5)', position: 1, kind: 'RATING', section: 'Security' }),
         item({ id: 's-3', label: 'Remarks', position: 2, kind: 'TEXT', section: 'Remarks' }),
+        item({ id: 's-4', label: 'Are all Banquet Hall ACs working?', position: 3, kind: 'YES_NO', section: 'Remarks' }),
       ] as TaskDetail['checklist'],
-      checklist_progress: { total: 3, done: 0, required_total: 0, required_done: 0, ready_to_complete: true },
+      checklist_progress: { total: 4, done: 0, required_total: 0, required_done: 0, ready_to_complete: true },
     });
     apiMock.get.mockResolvedValue(sectioned);
     apiMock.setChecklistItem.mockResolvedValue(sectioned);
@@ -830,6 +831,9 @@ describe('Task detail and checklist', () => {
     fireEvent.click(four());
     expect(four().getAttribute('aria-checked')).toBe('true');
     fireEvent.change(screen.getByLabelText('Remarks'), { target: { value: 'All fine' } });
+    const no = screen.getByRole('radio', { name: 'Are all Banquet Hall ACs working?: No' });
+    fireEvent.click(no);
+    expect(no.getAttribute('aria-checked')).toBe('true');
     // Nothing is sent until Submit.
     expect(apiMock.setChecklistItem).not.toHaveBeenCalled();
 
@@ -837,6 +841,7 @@ describe('Task detail and checklist', () => {
     await waitFor(() => expect(apiMock.complete).toHaveBeenCalledWith(ctx, 'tk-1'));
     expect(apiMock.setChecklistItem).toHaveBeenCalledWith(ctx, 'tk-1', 's-2', true, '4');
     expect(apiMock.setChecklistItem).toHaveBeenCalledWith(ctx, 'tk-1', 's-3', true, 'All fine');
+    expect(apiMock.setChecklistItem).toHaveBeenCalledWith(ctx, 'tk-1', 's-4', true, 'NO');
   });
 
   it('blocks completion until the server says the required items are done', async () => {

@@ -1609,6 +1609,25 @@ describe('Phase 9 Tasks & Routines (e2e)', () => {
       expect(blob).not.toContain('Ravi');
     });
 
+    it('TY-8. a yes/no item records "No" as an answer, not as unanswered', async () => {
+      const yesNo = (
+        await as(request(http).post('/api/v1/checklists'), tokenManagerA, companyA.id).send({
+          name: `Yes/no ${Math.random().toString(36).slice(2, 7)}`,
+          items: [{ label: 'Are the ACs working?', kind: 'YES_NO' }],
+        })
+      ).body;
+      const task = (await createTask({ checklist_template_id: yesNo.id })).body;
+      const [ac] = task.checklist;
+      expect(ac).toMatchObject({ kind: 'YES_NO', is_done: false, value: null });
+
+      expect((await answer(task.id, ac.id, { is_done: true, value: 'maybe' })).status).toBe(400);
+      const no = await answer(task.id, ac.id, { is_done: true, value: 'no' });
+      expect(no.status).toBe(200);
+      expect(no.body.checklist[0]).toMatchObject({ is_done: true, value: 'NO' });
+      // "No" still satisfies a required item — it is an answer.
+      expect((await asManager(request(http).post(`/api/v1/tasks/${task.id}/complete`)).send()).status).toBe(200);
+    });
+
     it('TY-5. the reference library installs an editable company template, once, behind checklist.manage', async () => {
       const library = await as(request(http).get('/api/v1/checklists/library'), tokenManagerA, companyA.id);
       expect(library.status).toBe(200);
@@ -1633,7 +1652,7 @@ describe('Phase 9 Tasks & Routines (e2e)', () => {
       ).send();
       expect(installed.status).toBe(201);
       expect(installed.body.name).toBe('Banquet Opening Checklist');
-      expect(installed.body.items.map((i: any) => i.label)).toContain('Generators');
+      expect(installed.body.items.map((i: any) => i.label)).toContain('Q1. Is the hall clean and tidy?');
 
       const again = await as(
         request(http).post('/api/v1/checklists/library/banquet-opening'),

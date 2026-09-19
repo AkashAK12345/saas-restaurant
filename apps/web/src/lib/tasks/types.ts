@@ -20,8 +20,12 @@ export interface StaffRef {
   name: string;
 }
 
-/** CHECK is a tick; the others are done when answered. PHOTO is done once it has ≥1 attached photo. */
-export type ChecklistItemKind = 'CHECK' | 'NUMBER' | 'TEXT' | 'RATING' | 'DATE' | 'PHOTO';
+/**
+ * CHECK is a tick; the others are done when answered. YES_NO is answered
+ * "YES" or "NO" (a recorded "No", unlike an unticked CHECK). PHOTO is done
+ * once it has ≥1 attached photo.
+ */
+export type ChecklistItemKind = 'CHECK' | 'NUMBER' | 'TEXT' | 'RATING' | 'DATE' | 'PHOTO' | 'YES_NO';
 
 export interface ChecklistItem {
   id: string;

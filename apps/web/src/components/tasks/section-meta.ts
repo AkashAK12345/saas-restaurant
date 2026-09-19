@@ -44,6 +44,11 @@ const SECTION_META: Record<string, { icon: AppIconName; tone: Tone }> = {
   'Kitchen & Supplies': { icon: 'fridge', tone: 'red' },
   'Restaurant Readiness': { icon: 'fork', tone: 'green' },
   'Operations & Compliance': { icon: 'checklist', tone: 'blue' },
+  // Banquet Opening Checklist
+  "Today's Bookings": { icon: 'calendar', tone: 'blue' },
+  'Hall Cleanliness': { icon: 'broom', tone: 'red' },
+  'Climate & Lighting': { icon: 'snowflake', tone: 'green' },
+  'AV Equipment': { icon: 'monitor', tone: 'amber' },
 };
 
 export function sectionMeta(section: string): { icon: AppIconName; iconClass: string; accentClass: string } {

@@ -73,7 +73,9 @@ export type AppIconName =
   | 'chat'
   | 'archive'
   | 'image'
-  | 'store';
+  | 'store'
+  | 'check'
+  | 'snowflake';
 
 const FILLED: Partial<Record<AppIconName, ReactNode>> = {
   people: (
@@ -453,6 +455,13 @@ const STROKED: Record<AppIconName, ReactNode> = {
       <path d="M4 9.5 5.5 4h13L20 9.5" />
       <path d="M4 9.5a2.7 2.7 0 0 0 5.3 0 2.7 2.7 0 0 0 5.4 0 2.7 2.7 0 0 0 5.3 0z" />
       <path d="M5.5 12.5V20h13v-7.5M10 20v-4.5h4V20" />
+    </>
+  ),
+  check: <path d="m5 12.5 4.5 4.5L19 7.5" />,
+  snowflake: (
+    <>
+      <path d="M12 2.5v19M3.8 7.25l16.4 9.5M3.8 16.75l16.4-9.5" />
+      <path d="m9.5 4 2.5 2 2.5-2M9.5 20l2.5-2 2.5 2" />
     </>
   ),
 };
