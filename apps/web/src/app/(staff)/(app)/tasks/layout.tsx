@@ -12,10 +12,14 @@ import styles from '@/components/tasks/tasks.module.css';
  * courtesy the main navigation applies, and equally not authorization.
  */
 const TABS: ReadonlyArray<{ href: string; label: string; permissions: readonly string[] }> = [
+  // The landing page: Quick Access shortcuts to the branch's daily reports
+  // and checklists. Same visibility as the board — everyone who has a board
+  // has a home page to reach it from.
+  { href: '/tasks', label: 'Dashboard', permissions: ['tasks.view', 'tasks.view_own'] },
   // Someone who may see only their own tasks still has a board — the server
   // narrows it to their tasks. Routines and checklists are branch-wide
   // definitions, so they stay behind tasks.view.
-  { href: '/tasks', label: 'Board', permissions: ['tasks.view', 'tasks.view_own'] },
+  { href: '/tasks/board', label: 'Board', permissions: ['tasks.view', 'tasks.view_own'] },
   { href: '/tasks/routines', label: 'Routines', permissions: ['tasks.view'] },
   { href: '/tasks/checklists', label: 'Checklists', permissions: ['tasks.view'] },
   { href: '/tasks/reports', label: 'Completion', permissions: ['tasks.reports.view'] },

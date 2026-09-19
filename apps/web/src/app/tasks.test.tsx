@@ -56,6 +56,10 @@ vi.mock('@/lib/context/app-context-provider', () => ({
   useAppContext: () => ({
     selectedCompanyId: 'co-1',
     selectedBranchId,
+    selectedBranch: selectedBranchId
+      ? { id: selectedBranchId, name: 'Alpha Main', status: 'ACTIVE', timezone: 'Asia/Kolkata', has_roles: true }
+      : null,
+    branches: [],
     companyPermissions,
     branchPermissions,
     loading: false,
@@ -63,13 +67,26 @@ vi.mock('@/lib/context/app-context-provider', () => ({
 }));
 
 let pathname = '/tasks';
+let quickAccessKey = 'eod-report';
 vi.mock('next/navigation', () => ({
   usePathname: () => pathname,
-  useParams: () => ({ id: 'tk-1' }),
+  useParams: () => ({ id: 'tk-1', key: quickAccessKey }),
   useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
 }));
 
-import TasksPage from './(staff)/(app)/tasks/page';
+let authUser: { id: string; email: string; first_name: string | null; last_name: string | null } | null = {
+  id: 'u-me',
+  email: 'metheakash12@example.com',
+  first_name: null,
+  last_name: null,
+};
+vi.mock('@/lib/auth/auth-provider', () => ({
+  useAuth: () => ({ user: authUser }),
+}));
+
+import TaskDashboardPage from './(staff)/(app)/tasks/page';
+import TaskQuickAccessPage from './(staff)/(app)/tasks/quick/[key]/page';
+import TaskBoardPage from './(staff)/(app)/tasks/board/page';
 import TasksLayout from './(staff)/(app)/tasks/layout';
 import TaskDetailPage from './(staff)/(app)/tasks/[id]/page';
 import RoutinesPage from './(staff)/(app)/tasks/routines/page';
@@ -214,7 +231,7 @@ const STAFF = [
 
 // ── dashboard ────────────────────────────────────────────────────────────────
 
-describe('Task dashboard', () => {
+describe('Task board', () => {
   beforeEach(() => {
     FakeEventSource.reset();
     vi.stubGlobal('EventSource', FakeEventSource);
@@ -229,12 +246,12 @@ describe('Task dashboard', () => {
     branchPermissions = [...ALL];
     companyPermissions = [];
     selectedBranchId = 'br-1';
-    pathname = '/tasks';
+    pathname = '/tasks/board';
   });
   afterEach(() => vi.unstubAllGlobals());
 
   it('lists tasks and shows their state', async () => {
-    render(<TasksPage />);
+    render(<TaskBoardPage />);
     const card = (await screen.findByText('Clean the grease trap')).closest('li')!;
     expect(within(card).getByText('Pending')).toBeTruthy();
     expect(within(card).getByText(/Unassigned/)).toBeTruthy();
@@ -243,13 +260,13 @@ describe('Task dashboard', () => {
   // A refused or failed load must not be dressed up as an empty board.
   it('shows why the board failed to load, and never claims there is nothing', async () => {
     apiMock.list.mockRejectedValue(new Error('Forbidden'));
-    render(<TasksPage />);
+    render(<TaskBoardPage />);
     expect((await screen.findByRole('alert')).textContent).toMatch('Forbidden');
     expect(screen.queryByText(/Nothing here/)).toBeNull();
   });
 
   it('filters SERVER-side, not in the browser', async () => {
-    render(<TasksPage />);
+    render(<TaskBoardPage />);
     await screen.findByText('Clean the grease trap');
     apiMock.list.mockClear();
 
@@ -267,7 +284,7 @@ describe('Task dashboard', () => {
   });
 
   it('starts a task and then reconciles with the server', async () => {
-    render(<TasksPage />);
+    render(<TaskBoardPage />);
     await screen.findByText('Clean the grease trap');
     apiMock.list.mockClear();
 
@@ -278,7 +295,7 @@ describe('Task dashboard', () => {
 
   it('shows a failure and still refetches — no false success', async () => {
     apiMock.complete.mockRejectedValue(new Error('Cannot move a task from COMPLETED to COMPLETED'));
-    render(<TasksPage />);
+    render(<TaskBoardPage />);
     await screen.findByText('Clean the grease trap');
     apiMock.list.mockClear();
 
@@ -301,7 +318,7 @@ describe('Task dashboard', () => {
         }),
       ]),
     );
-    render(<TasksPage />);
+    render(<TaskBoardPage />);
     await screen.findByText('Clean the grease trap');
     expect((screen.getByRole('button', { name: 'Complete' }) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getByText(/1 required left/)).toBeTruthy();
@@ -311,13 +328,13 @@ describe('Task dashboard', () => {
     apiMock.list.mockResolvedValue(
       page([task({ due_at: '2020-01-01T00:00:00.000Z', overdue: true })]),
     );
-    render(<TasksPage />);
+    render(<TaskBoardPage />);
     const card = (await screen.findByText('Clean the grease trap')).closest('li')!;
     expect(within(card).getByText(/Overdue/)).toBeTruthy();
   });
 
   it('creates a task', async () => {
-    render(<TasksPage />);
+    render(<TaskBoardPage />);
     await screen.findByText('Clean the grease trap');
     fireEvent.click(screen.getByRole('button', { name: 'New task' }));
     fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Mop the floor' } });
@@ -328,7 +345,7 @@ describe('Task dashboard', () => {
   });
 
   it('refetches when a task event arrives, and puts only the ticket in the URL', async () => {
-    render(<TasksPage />);
+    render(<TaskBoardPage />);
     await screen.findByText('Clean the grease trap');
     await waitFor(() => expect(FakeEventSource.last()).toBeDefined());
 
@@ -342,7 +359,7 @@ describe('Task dashboard', () => {
 
   it('hides every action the viewer lacks permission for', async () => {
     branchPermissions = ['tasks.view'];
-    render(<TasksPage />);
+    render(<TaskBoardPage />);
     await screen.findByText('Clean the grease trap');
     expect(screen.queryByRole('button', { name: 'Start' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Complete' })).toBeNull();
@@ -352,12 +369,12 @@ describe('Task dashboard', () => {
 
   it('shows an empty state rather than a blank screen', async () => {
     apiMock.list.mockResolvedValue(page([]));
-    render(<TasksPage />);
+    render(<TaskBoardPage />);
     expect(await screen.findByText(/Nothing here/)).toBeTruthy();
   });
 
   it('reports the realtime connection honestly', async () => {
-    render(<TasksPage />);
+    render(<TaskBoardPage />);
     await screen.findByText('Clean the grease trap');
     expect(screen.getAllByRole('status').some((n) => /Reconnecting|Live/.test(n.textContent ?? ''))).toBe(true);
   });
@@ -367,7 +384,7 @@ describe('Task dashboard', () => {
   // "Reconnecting…" forever.
   it('a viewer of their own tasks gets a board without dialling the refused stream', async () => {
     branchPermissions = ['tasks.view_own', 'tasks.start'];
-    render(<TasksPage />);
+    render(<TaskBoardPage />);
     await screen.findByText('Clean the grease trap');
     await waitFor(() => expect(screen.getByText('Updates when refreshed')).toBeTruthy());
     expect(apiMock.streamTicket).not.toHaveBeenCalled();
@@ -376,7 +393,7 @@ describe('Task dashboard', () => {
   });
 
   it('creates a task with notes and an assignee chosen from the branch’s staff', async () => {
-    render(<TasksPage />);
+    render(<TaskBoardPage />);
     await screen.findByText('Clean the grease trap');
     fireEvent.click(screen.getByRole('button', { name: 'New task' }));
     await screen.findByRole('option', { name: 'Wes Worker' });
@@ -395,7 +412,7 @@ describe('Task dashboard', () => {
 
   it('offers no assignee picker without tasks.assign', async () => {
     branchPermissions = ['tasks.view', 'tasks.create'];
-    render(<TasksPage />);
+    render(<TaskBoardPage />);
     await screen.findByText('Clean the grease trap');
     fireEvent.click(screen.getByRole('button', { name: 'New task' }));
     expect(screen.queryByLabelText('Assign to (optional)')).toBeNull();
@@ -413,7 +430,7 @@ describe('Task dashboard', () => {
         }),
       ]),
     );
-    render(<TasksPage />);
+    render(<TaskBoardPage />);
     const card = (await screen.findByText('Clean the grease trap')).closest('li')!;
     expect(within(card).getByText(/Mina Manager → Assigned to Wes Worker/)).toBeTruthy();
     expect(within(card).getByText(/reassigned 2 times/)).toBeTruthy();
@@ -447,22 +464,23 @@ describe('Task sub-navigation', () => {
       </TasksLayout>,
     );
     expect(screen.getAllByRole('link').map((l) => l.textContent)).toEqual([
+      'Dashboard',
       'Board',
       'Routines',
       'Checklists',
       'Completion',
     ]);
-    expect(screen.getByRole('link', { name: 'Board' }).getAttribute('aria-current')).toBe('page');
+    expect(screen.getByRole('link', { name: 'Dashboard' }).getAttribute('aria-current')).toBe('page');
   });
 
-  it('a viewer of their own tasks sees only the board', () => {
+  it('a viewer of their own tasks sees the dashboard and the board', () => {
     branchPermissions = ['tasks.view_own'];
     render(
       <TasksLayout>
         <p>child</p>
       </TasksLayout>,
     );
-    expect(screen.getAllByRole('link').map((l) => l.textContent)).toEqual(['Board']);
+    expect(screen.getAllByRole('link').map((l) => l.textContent)).toEqual(['Dashboard', 'Board']);
   });
 
   it('drops Completion without tasks.reports.view', () => {
@@ -473,10 +491,67 @@ describe('Task sub-navigation', () => {
       </TasksLayout>,
     );
     expect(screen.getAllByRole('link').map((l) => l.textContent)).toEqual([
+      'Dashboard',
       'Board',
       'Routines',
       'Checklists',
     ]);
+  });
+});
+
+// ── task dashboard (quick access) ──────────────────────────────────────────────
+
+describe('Task Quick Access dashboard', () => {
+  beforeEach(() => {
+    selectedBranchId = 'br-1';
+    pathname = '/tasks';
+    authUser = { id: 'u-me', email: 'metheakash12@example.com', first_name: null, last_name: null };
+  });
+
+  it('greets the signed-in user by the local part of their email when no name is on file', () => {
+    render(<TaskDashboardPage />);
+    expect(screen.getByText(/Welcome, metheakash12/)).toBeTruthy();
+  });
+
+  it('greets by name when one is on file', () => {
+    authUser = { id: 'u-me', email: 'metheakash12@example.com', first_name: 'Akash', last_name: 'K' };
+    render(<TaskDashboardPage />);
+    expect(screen.getByText(/Welcome, Akash K/)).toBeTruthy();
+  });
+
+  it('lists every Quick Access shortcut, each opening its own page', () => {
+    render(<TaskDashboardPage />);
+    expect(screen.getByText('EOD Report')).toBeTruthy();
+    expect(screen.getByText('Submit daily End-of-Day report')).toBeTruthy();
+    expect(screen.getByText('Activity Calendar')).toBeTruthy();
+    expect(screen.getByText('View monthly activity calendar')).toBeTruthy();
+
+    const eodLink = screen.getByText('EOD Report').closest('a');
+    expect(eodLink?.getAttribute('href')).toBe('/tasks/quick/eod-report');
+    // 12 named shortcuts today: EOD, Operational, Kitchen, Opening, Banquet
+    // Opening, Branch Manager, Kitchen Balance, Biryani Sales, Kitchen Stock
+    // Request, Kitchen Wastage, Corporate Branch Visit, Activity Calendar.
+    expect(screen.getAllByRole('listitem')).toHaveLength(12);
+  });
+});
+
+describe('Task Quick Access detail', () => {
+  beforeEach(() => {
+    selectedBranchId = 'br-1';
+  });
+
+  it('opens the tile it was reached from, not yet wired to its real flow', () => {
+    quickAccessKey = 'eod-report';
+    render(<TaskQuickAccessPage />);
+    expect(screen.getAllByText('EOD Report').length).toBeGreaterThan(0);
+    expect(screen.getByText(/being built next/)).toBeTruthy();
+    expect(screen.getByText('← Back to Task Dashboard').getAttribute('href')).toBe('/tasks');
+  });
+
+  it('says plainly when the key in the address does not match a shortcut', () => {
+    quickAccessKey = 'not-a-real-key';
+    render(<TaskQuickAccessPage />);
+    expect(screen.getByText('No such shortcut')).toBeTruthy();
   });
 });
 

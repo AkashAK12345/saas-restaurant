@@ -52,7 +52,17 @@ export type AppIconName =
   | 'funnel'
   | 'sliders'
   | 'pencil'
-  | 'close';
+  | 'close'
+  | 'clipboard'
+  | 'checklist'
+  | 'fridge'
+  | 'sun'
+  | 'calendarCheck'
+  | 'clipboardCheck'
+  | 'box'
+  | 'cart'
+  | 'trash'
+  | 'briefcase';
 
 const FILLED: Partial<Record<AppIconName, ReactNode>> = {
   people: (
@@ -300,6 +310,73 @@ const STROKED: Record<AppIconName, ReactNode> = {
     </>
   ),
   close: <path d="M6 6l12 12M18 6 6 18" />,
+  clipboard: (
+    <>
+      <rect x="5" y="4.5" width="14" height="17" rx="2" />
+      <path d="M9 4.5V3.5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v1" />
+      <path d="M8.5 11h7M8.5 14.5h7M8.5 18h4.5" />
+    </>
+  ),
+  checklist: (
+    <>
+      <path d="M4.5 5.8h.01M4.5 12h.01M4.5 18.2h.01" strokeWidth="2.6" />
+      <path d="M9 5.8h10.5M9 12h10.5M9 18.2h10.5" />
+    </>
+  ),
+  fridge: (
+    <>
+      <rect x="5.5" y="2.5" width="13" height="19" rx="2" />
+      <path d="M5.5 10h13" />
+      <path d="M8 5.2v2.3M8 12.7V15" strokeWidth="2.2" />
+    </>
+  ),
+  sun: (
+    <>
+      <circle cx="12" cy="12" r="4.3" />
+      <path d="M12 2.5v2.6M12 18.9v2.6M4.7 4.7l1.8 1.8M17.5 17.5l1.8 1.8M2.5 12h2.6M18.9 12h2.6M4.7 19.3l1.8-1.8M17.5 6.5l1.8-1.8" />
+    </>
+  ),
+  calendarCheck: (
+    <>
+      <rect x="3.5" y="5" width="17" height="15.5" rx="2" />
+      <path d="M8 3v4M16 3v4M3.5 10h17" />
+      <path d="m9 15 2 2 4-4.2" />
+    </>
+  ),
+  clipboardCheck: (
+    <>
+      <rect x="5" y="4.5" width="14" height="17" rx="2" />
+      <path d="M9 4.5V3.5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v1" />
+      <path d="m9 13.5 2 2 4-4.3" />
+    </>
+  ),
+  box: (
+    <>
+      <path d="M4 8.5 12 4l8 4.5-8 4.5-8-4.5Z" />
+      <path d="M4 8.5V16l8 4.5V13M20 8.5V16l-8 4.5" />
+    </>
+  ),
+  cart: (
+    <>
+      <path d="M3 4h2.2l1 3M6.2 7l1.9 8.2a1.6 1.6 0 0 0 1.6 1.3h6.9a1.6 1.6 0 0 0 1.6-1.2L20 8.5H6.2Z" />
+      <circle cx="10" cy="20" r="1.4" />
+      <circle cx="17" cy="20" r="1.4" />
+    </>
+  ),
+  trash: (
+    <>
+      <path d="M4.5 6.5h15M9.5 6.5V4.3a1 1 0 0 1 1-1h3a1 1 0 0 1 1 1v2.2" />
+      <path d="M6.5 6.5 7.4 20a1.6 1.6 0 0 0 1.6 1.5h6a1.6 1.6 0 0 0 1.6-1.5l.9-13.5" />
+      <path d="M10.2 10.5v7M13.8 10.5v7" />
+    </>
+  ),
+  briefcase: (
+    <>
+      <rect x="3" y="7.5" width="18" height="12" rx="2" />
+      <path d="M8.5 7.5V6a2 2 0 0 1 2-2h3a2 2 0 0 1 2 2v1.5" />
+      <path d="M3 12.5h18M10.7 12v1.6h2.6V12" />
+    </>
+  ),
 };
 
 export function AppIcon({ name, size = 24 }: { name: AppIconName; size?: number }) {
