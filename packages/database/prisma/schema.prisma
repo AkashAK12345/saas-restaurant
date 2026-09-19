@@ -907,14 +907,16 @@ model ChecklistTemplate {
 }
 
 // What an item asks for. CHECK is a tick; the others need an answer, and the
-// answer is what marks the item done. Photo evidence is not an item kind: it
-// needs object storage SAMCO does not have yet (see the conformance report).
+// answer is what marks the item done. PHOTO is done once it has at least one
+// attached photo (see TaskChecklistItemPhoto) — its state is managed through
+// the item-photo endpoints, never through the scalar-answer PATCH.
 enum ChecklistItemKind {
   CHECK
   NUMBER
   TEXT
   RATING
   DATE
+  PHOTO
 }
 
 model ChecklistTemplateItem {
@@ -924,6 +926,12 @@ model ChecklistTemplateItem {
   position    Int
   kind        ChecklistItemKind @default(CHECK)
   is_required Boolean           @default(true)
+  /// Optional group label ("Today's Summary", "EB", ...). Items sharing a
+  /// section are rendered together; null items render flat, exactly as every
+  /// checklist does today. Purely a display grouping — no ordering of its own,
+  /// items are still ordered by `position` and a section's items must be
+  /// contiguous in that order.
+  section     String?  @db.VarChar(80)
   created_at  DateTime @default(now()) @db.Timestamptz(3)
   updated_at  DateTime @updatedAt @db.Timestamptz(3)
 
@@ -1056,19 +1064,42 @@ model TaskChecklistItem {
   kind        ChecklistItemKind @default(CHECK)
   is_required Boolean           @default(true)
   is_done     Boolean           @default(false)
-  /// The answer for a non-CHECK item, in canonical text form ("12.5",
-  /// "2026-09-15", "4"). Null while unanswered and always null for CHECK.
+  /// The answer for a non-CHECK, non-PHOTO item, in canonical text form
+  /// ("12.5", "2026-09-15", "4"). Null while unanswered, always null for
+  /// CHECK and PHOTO (a PHOTO item's "answer" is its attached photos).
   value       String?
+  /// Copied from ChecklistTemplateItem.section at snapshot time — see there.
+  section     String?  @db.VarChar(80)
   done_at     DateTime? @db.Timestamptz(3)
   done_by     String?   @db.Uuid
   created_at  DateTime  @default(now()) @db.Timestamptz(3)
   updated_at  DateTime  @updatedAt @db.Timestamptz(3)
 
-  task   Task  @relation(fields: [task_id], references: [id], onDelete: Restrict)
-  doneBy User? @relation("ChecklistItemDoneBy", fields: [done_by], references: [id], onDelete: Restrict)
+  task   Task                     @relation(fields: [task_id], references: [id], onDelete: Restrict)
+  doneBy User?                    @relation("ChecklistItemDoneBy", fields: [done_by], references: [id], onDelete: Restrict)
+  photos TaskChecklistItemPhoto[]
 
   @@index([task_id])
   @@map("task_checklist_items")
+}
+
+// A photo attached to a PHOTO-kind checklist item. Mirrors BanquetBookingPhoto
+// exactly (bytes in Postgres — SAMCO has no object storage): capped at
+// MAX_ITEM_PHOTOS per item and MAX_PHOTO_SIZE_BYTES each, enforced in
+// TasksService, not here.
+model TaskChecklistItemPhoto {
+  id                String   @id @default(uuid()) @db.Uuid
+  checklist_item_id String   @db.Uuid
+  data              Bytes
+  mime_type         String   @db.VarChar(64)
+  file_name         String?  @db.VarChar(255)
+  position          Int      @default(0)
+  created_at        DateTime @default(now()) @db.Timestamptz(3)
+
+  item TaskChecklistItem @relation(fields: [checklist_item_id], references: [id], onDelete: Cascade)
+
+  @@index([checklist_item_id])
+  @@map("task_checklist_item_photos")
 }
 
 // A note left on a task by a member of staff. APPEND-ONLY: there is no edit

@@ -9,9 +9,8 @@ import type { ChecklistItemKindName } from './checklist-values.js';
  *   Items are taken from what the source document names for each routine.
  *   Where it names only a purpose ("Kitchen hygiene and operations") and no
  *   items, no definition is offered: inventing a company's hygiene standard
- *   would be fabrication. Those three (Kitchen Checklist, BM Checklist,
- *   Operational Checklist) are built by the operator with the same editor.
- *   Photo evidence is omitted everywhere — SAMCO has no object storage yet.
+ *   would be fabrication. Those two (Kitchen Checklist, BM Checklist) are
+ *   built by the operator with the same editor.
  *   Stock-ledger routines (balance, wastage, indent) capture the figures as
  *   answers only; they do not post to an inventory, which is a future module.
  *
@@ -22,6 +21,8 @@ export interface ReferenceChecklistItem {
   label: string;
   kind: ChecklistItemKindName;
   is_required: boolean;
+  /** Group label; items sharing one render together. Omitted renders flat. */
+  section?: string;
 }
 
 export interface ReferenceChecklist {
@@ -31,29 +32,119 @@ export interface ReferenceChecklist {
   items: ReferenceChecklistItem[];
 }
 
-const req = (label: string, kind: ChecklistItemKindName = 'CHECK'): ReferenceChecklistItem => ({
+const req = (
+  label: string,
+  kind: ChecklistItemKindName = 'CHECK',
+  section?: string,
+): ReferenceChecklistItem => ({
   label,
   kind,
   is_required: true,
+  ...(section ? { section } : {}),
 });
-const opt = (label: string, kind: ChecklistItemKindName = 'TEXT'): ReferenceChecklistItem => ({
+const opt = (
+  label: string,
+  kind: ChecklistItemKindName = 'TEXT',
+  section?: string,
+): ReferenceChecklistItem => ({
   label,
   kind,
   is_required: false,
+  ...(section ? { section } : {}),
 });
 
 export const REFERENCE_CHECKLISTS: readonly ReferenceChecklist[] = [
   {
     key: 'eod-report',
     name: 'EOD Report',
-    description: 'Day close: sales, petty cash, electricity meter readings, food complaints and a closing note.',
+    description: "Day close: today's summary, electricity board reading and tomorrow's operational info.",
     items: [
-      req('Morning sales', 'NUMBER'),
-      req('Evening sales', 'NUMBER'),
-      req('Petty cash balance', 'NUMBER'),
-      req('Electricity meter reading', 'NUMBER'),
-      opt('Food complaints'),
-      opt('Closing note'),
+      opt('Review for the day', 'TEXT', "Today's Summary"),
+      opt('Food Complaint', 'TEXT', "Today's Summary"),
+      opt('Food Complaint Images', 'PHOTO', "Today's Summary"),
+      opt('Service Complaints', 'TEXT', "Today's Summary"),
+      opt('Activity Calendar task', 'TEXT', "Today's Summary"),
+      opt('Remarks', 'TEXT', "Today's Summary"),
+      opt('Report Photos', 'PHOTO', "Today's Summary"),
+      opt('EB Reading', 'NUMBER', 'EB'),
+      req('EB Photos', 'PHOTO', 'EB'),
+      opt('EB Comments', 'TEXT', 'EB'),
+      opt('Banquets Function', 'TEXT', "Tomorrow's Operational Info"),
+      opt('Banquets Staff requirement', 'TEXT', "Tomorrow's Operational Info"),
+      opt('Restaurant staff Needed', 'TEXT', "Tomorrow's Operational Info"),
+      opt('Table Reservation', 'TEXT', "Tomorrow's Operational Info"),
+      opt('Weekly off/leave/BM/Asst Manager', 'TEXT', "Tomorrow's Operational Info"),
+      req('Your name', 'TEXT', 'Submitted By'),
+    ],
+  },
+  {
+    key: 'operational-checklist',
+    name: 'Operational Checklist',
+    description: 'Daily audit of security, parking, reception, restrooms, service and banquets.',
+    items: [
+      opt('Was security present at the entrance?', 'CHECK', 'Security'),
+      opt('Grooming of the security?', 'TEXT', 'Security'),
+      opt('Was the guest greeted by the security?', 'CHECK', 'Security'),
+      opt('Does the security have basic knowledge of operations?', 'CHECK', 'Security'),
+      opt('Overall Rating for security (scale 1-5)', 'RATING', 'Security'),
+
+      opt('Is the parking area kept clean and in good condition?', 'TEXT', 'Parking / Driver'),
+      opt('In the parking area, were the vehicles parked properly?', 'TEXT', 'Parking / Driver'),
+      opt('Valet drivers available to assist the guest vehicles?', 'TEXT', 'Parking / Driver'),
+      opt('Grooming of the driver?', 'TEXT', 'Parking / Driver'),
+      opt('Picture of the parking area', 'PHOTO', 'Parking / Driver'),
+      opt('Overall Rating for driver (scale 1-5)', 'RATING', 'Parking / Driver'),
+
+      opt('Is the reception area clean, tidy, and efficiently organized?', 'TEXT', 'Reception'),
+      opt('Did the guest receive a warm welcome upon arrival?', 'TEXT', 'Reception'),
+      opt('Are take-away and delivery orders handled promptly and correctly?', 'TEXT', 'Reception'),
+      opt('Did the cashier & GRE maintain neat and professional grooming?', 'TEXT', 'Reception'),
+      opt('Are guest phone calls attended professionally and promptly?', 'TEXT', 'Reception'),
+      opt('Is a proper farewell extended to guests as they leave?', 'TEXT', 'Reception'),
+      opt('Was the music on / TV playing the Samco playlist?', 'TEXT', 'Reception'),
+      opt('Was the reception area ready to welcome guests?', 'TEXT', 'Reception'),
+      opt('Picture of the reception', 'PHOTO', 'Reception'),
+
+      opt('Name of Branch Manager / Asst Manager', 'TEXT', 'Lift & Manager Info'),
+      opt('Was the lift clean and ready for the guest?', 'TEXT', 'Lift & Manager Info'),
+      opt('Photo of the lift', 'PHOTO', 'Lift & Manager Info'),
+
+      opt('Restaurant restrooms is clean and the consumables are refilled?', 'TEXT', 'Restrooms & Restaurant Readiness'),
+      opt('In restroom taps, toilet flushes, and hand dryers are working properly?', 'TEXT', 'Restrooms & Restaurant Readiness'),
+      opt('Is the overall freshness of the toilet maintained?', 'TEXT', 'Restrooms & Restaurant Readiness'),
+      opt('Was the restaurant ready for service?', 'TEXT', 'Restrooms & Restaurant Readiness'),
+      opt('Were the dust bins cleaned and fresh covers placed?', 'TEXT', 'Restrooms & Restaurant Readiness'),
+      opt('Lights and air conditioning were functioning properly?', 'TEXT', 'Restrooms & Restaurant Readiness'),
+      opt('Was the back area of the restaurant clean and organized?', 'TEXT', 'Restrooms & Restaurant Readiness'),
+      opt('Rate the overall Readiness of the Restaurant', 'RATING', 'Restrooms & Restaurant Readiness'),
+
+      opt('Did all staff report on time according to the roster?', 'TEXT', 'Staff & Service'),
+      opt('Were the guests received at the entrance?', 'TEXT', 'Staff & Service'),
+      opt('Did staff accompany guests to their assigned tables?', 'TEXT', 'Staff & Service'),
+      opt('Were orders taken in a timely manner by the staff?', 'TEXT', 'Staff & Service'),
+      opt('Does the staff have the menu knowledge?', 'TEXT', 'Staff & Service'),
+      opt('Is the food delivered in a timely manner?', 'TEXT', 'Staff & Service'),
+      opt('Did the captain or manager interact with the guests?', 'TEXT', 'Staff & Service'),
+      opt('Were the bills brought to tables promptly on request?', 'TEXT', 'Staff & Service'),
+      opt('Did the staff ask the guest for reviews politely?', 'TEXT', 'Staff & Service'),
+      opt('Did the staff thank the guest and give a proper farewell?', 'TEXT', 'Staff & Service'),
+      opt('Does the branch manager interact with guests?', 'TEXT', 'Staff & Service'),
+      opt('Does the branch manager regularly inspect the floor?', 'TEXT', 'Staff & Service'),
+      opt('Was the activity calendar available and being followed?', 'TEXT', 'Staff & Service'),
+      opt('Picture of the restaurant', 'PHOTO', 'Staff & Service'),
+      opt('Picture of the restroom area', 'PHOTO', 'Staff & Service'),
+      opt('Rate the overall operation of the restaurant', 'RATING', 'Staff & Service'),
+
+      opt('Is the banquets hall clean and tidy to show guests?', 'TEXT', 'Banquets'),
+      opt('Rooms inside banquet hall cleaned and ready?', 'TEXT', 'Banquets'),
+      opt('Are all equipment (Mike, TV, Speakers) working properly?', 'TEXT', 'Banquets'),
+      opt('Is the banquets restrooms clean? (if no, mention the issue)', 'TEXT', 'Banquets'),
+      opt('Are table cloths, frills clean and chairs set properly?', 'TEXT', 'Banquets'),
+      opt('Is the banquets store room organized properly?', 'TEXT', 'Banquets'),
+      opt('Was the back area of the banquets clean and organized?', 'TEXT', 'Banquets'),
+      opt('Picture of the banquets', 'PHOTO', 'Banquets'),
+
+      opt('Remarks', 'TEXT', 'Remarks'),
     ],
   },
   {
@@ -131,5 +222,4 @@ export const REFERENCE_CHECKLISTS: readonly ReferenceChecklist[] = [
 export const REFERENCE_NOT_OFFERED: ReadonlyArray<{ name: string; reason: string }> = [
   { name: 'Kitchen Checklist', reason: 'The source names its purpose but not its items.' },
   { name: 'BM Checklist', reason: 'The source names its purpose but not its items.' },
-  { name: 'Operational Checklist', reason: 'The source names its purpose but not its items.' },
 ];

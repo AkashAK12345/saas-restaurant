@@ -8,10 +8,14 @@ import { hasPermission } from '@/lib/auth/permissions';
 import { tasksApi } from '@/lib/tasks/api';
 import { when } from '@/components/tasks/task-card';
 import { ChecklistAnswer } from '@/components/tasks/checklist-answer';
+import { ChecklistPhotoField } from '@/components/tasks/checklist-photo-field';
+import { sectionMeta } from '@/components/tasks/section-meta';
+import { AppIcon } from '@/components/app/icons';
 import { RecordHistory } from '@/components/audit/record-history';
 import {
   PRIORITY_LABEL,
   TASK_STATUS_LABEL,
+  type ChecklistItem,
   type StaffRef,
   type TaskComment,
   type TaskDetail,
@@ -78,6 +82,16 @@ export default function TaskDetailPage() {
   const [assigneeId, setAssigneeId] = useState('');
   const [editing, setEditing] = useState(false);
   const [edit, setEdit] = useState({ title: '', description: '', priority: 'NORMAL' as TaskPriority, due: '' });
+
+  // A sectioned checklist (e.g. EOD Report) is filled as one form rather than
+  // per-item Save/Clear: local drafts, keyed by item id, falling back to the
+  // server's own value for anything the operator hasn't touched yet — so a
+  // refresh triggered by an unrelated action (ticking a box, a photo upload)
+  // never clobbers an in-progress answer elsewhere on the same form.
+  const [sectionDraft, setSectionDraft] = useState<Record<string, string>>({});
+  const draftValue = (item: ChecklistItem) => sectionDraft[item.id] ?? item.value ?? '';
+  const setDraftValue = (itemId: string, value: string) =>
+    setSectionDraft((d) => ({ ...d, [itemId]: value }));
 
   const refresh = useCallback(async () => {
     if (!ctx) return;
@@ -157,6 +171,40 @@ export default function TaskDetailPage() {
   const t = task;
   const open = t.status === 'PENDING' || t.status === 'IN_PROGRESS';
   const progress = t.checklist_progress;
+  const fieldDisabled = busy || !open || !may.update;
+
+  // Consecutive items sharing a `section` group together; items with no
+  // section (every checklist before this feature) form one null-keyed group,
+  // which renders exactly as the flat list always has. `sectioned` is true
+  // the moment ANY item carries a section — that's what switches the whole
+  // checklist from per-item Save/Clear to one form with a single submit.
+  const checklistGroups: Array<{ section: string | null; items: ChecklistItem[] }> = [];
+  for (const item of t.checklist) {
+    const last = checklistGroups[checklistGroups.length - 1];
+    if (last && last.section === item.section) last.items.push(item);
+    else checklistGroups.push({ section: item.section, items: [item] });
+  }
+  const sectioned = t.checklist.some((i) => i.section !== null);
+
+  /** Save every changed typed answer, then complete the task if permitted. */
+  const submitSectioned = async () => {
+    const changed = t.checklist.filter(
+      (item) =>
+        item.kind !== 'CHECK' &&
+        item.kind !== 'PHOTO' &&
+        item.id in sectionDraft &&
+        sectionDraft[item.id].trim() !== (item.value ?? ''),
+    );
+    await Promise.all(
+      changed.map((item) => {
+        const value = sectionDraft[item.id].trim();
+        return tasksApi.setChecklistItem(ctx!, t.id, item.id, value !== '', value !== '' ? value : undefined);
+      }),
+    );
+    if (may.complete) {
+      await tasksApi.complete(ctx!, t.id);
+    }
+  };
 
   const startEditing = () => {
     setEdit({
@@ -381,7 +429,7 @@ export default function TaskDetailPage() {
         </div>
       </section>
 
-      {t.checklist.length > 0 ? (
+      {t.checklist.length > 0 && !sectioned ? (
         <section className={styles.panel}>
           <h2 className={styles.panelTitle}>Checklist</h2>
           <p className={styles.hint}>
@@ -400,7 +448,7 @@ export default function TaskDetailPage() {
                     type="checkbox"
                     className={styles.checkbox}
                     checked={item.is_done}
-                    disabled={busy || !open || !may.update}
+                    disabled={fieldDisabled}
                     onChange={(e) =>
                       void run(
                         () => tasksApi.setChecklistItem(ctx!, t.id, item.id, e.target.checked),
@@ -418,11 +466,15 @@ export default function TaskDetailPage() {
                     ) : null}
                   </label>
                 </li>
+              ) : item.kind === 'PHOTO' ? (
+                <li key={item.id} className={`${styles.item} ${item.is_done ? styles.itemDone : ''}`}>
+                  <ChecklistPhotoField ctx={ctx!} taskId={t.id} item={item} disabled={fieldDisabled} onChange={() => void refresh()} />
+                </li>
               ) : (
                 <li key={item.id} className={`${styles.item} ${item.is_done ? styles.itemDone : ''}`}>
                   <ChecklistAnswer
                     item={item}
-                    disabled={busy || !open || !may.update}
+                    disabled={fieldDisabled}
                     onSave={(value) =>
                       void run(() => tasksApi.setChecklistItem(ctx!, t.id, item.id, true, value), 'Answer saved.')
                     }
@@ -440,6 +492,144 @@ export default function TaskDetailPage() {
             </p>
           ) : null}
         </section>
+      ) : null}
+
+      {sectioned ? (
+        <>
+          {checklistGroups.map((group, gi) => {
+            const meta = group.section ? sectionMeta(group.section) : null;
+            return (
+              <section key={gi} className={`${styles.panel} ${meta?.accentClass ?? ''}`}>
+                {group.section && meta ? (
+                  <div className={styles.sectionHeader}>
+                    <span className={`${styles.sectionIcon} ${meta.iconClass}`}>
+                      <AppIcon name={meta.icon} size={18} />
+                    </span>
+                    <h2 className={styles.panelTitle} style={{ margin: 0 }}>
+                      {group.section}
+                    </h2>
+                  </div>
+                ) : (
+                  <h2 className={styles.panelTitle}>Checklist</h2>
+                )}
+                <ul className={styles.items}>
+                  {group.items.map((item) =>
+                    item.kind === 'CHECK' ? (
+                      // A yes/no question: saves the moment it's flipped, like a
+                      // photo, rather than waiting for the Submit button.
+                      <li key={item.id} className={styles.item}>
+                        <div className={styles.toggleRow}>
+                          <label className={styles.itemLabel} htmlFor={`ck-${item.id}`}>
+                            {item.label}
+                            {item.is_required ? (
+                              <span className={styles.required} title="Required">
+                                {' '}
+                                *
+                              </span>
+                            ) : null}
+                          </label>
+                          <input
+                            id={`ck-${item.id}`}
+                            type="checkbox"
+                            role="switch"
+                            className={styles.toggle}
+                            checked={item.is_done}
+                            disabled={fieldDisabled}
+                            onChange={(e) =>
+                              void run(
+                                () => tasksApi.setChecklistItem(ctx!, t.id, item.id, e.target.checked),
+                                e.target.checked ? 'Marked yes.' : 'Marked no.',
+                              )
+                            }
+                          />
+                        </div>
+                      </li>
+                    ) : item.kind === 'PHOTO' ? (
+                      <li key={item.id} className={styles.item}>
+                        <ChecklistPhotoField ctx={ctx!} taskId={t.id} item={item} disabled={fieldDisabled} onChange={() => void refresh()} />
+                      </li>
+                    ) : (
+                      <li key={item.id} className={styles.item}>
+                        <div className={styles.field}>
+                          <label className={styles.itemLabel} htmlFor={`fd-${item.id}`} id={`fd-${item.id}-label`}>
+                            {item.label}
+                            {item.is_required ? (
+                              <span className={styles.required} title="Required">
+                                {' '}
+                                *
+                              </span>
+                            ) : null}
+                          </label>
+                          {item.kind === 'RATING' ? (
+                            <div className={styles.ratingRow} role="radiogroup" aria-labelledby={`fd-${item.id}-label`}>
+                              {['1', '2', '3', '4', '5'].map((n) => {
+                                const selected = draftValue(item) === n;
+                                return (
+                                  <button
+                                    key={n}
+                                    type="button"
+                                    role="radio"
+                                    aria-checked={selected}
+                                    aria-label={`${item.label}: ${n}`}
+                                    className={`${styles.ratingBtn} ${selected ? styles.ratingBtnActive : ''}`}
+                                    disabled={fieldDisabled}
+                                    onClick={() => setDraftValue(item.id, selected ? '' : n)}
+                                  >
+                                    {n}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          ) : item.kind === 'DATE' ? (
+                            <input
+                              id={`fd-${item.id}`}
+                              type="date"
+                              className={styles.input}
+                              value={draftValue(item)}
+                              disabled={fieldDisabled}
+                              onChange={(e) => setDraftValue(item.id, e.target.value)}
+                            />
+                          ) : item.kind === 'NUMBER' ? (
+                            <input
+                              id={`fd-${item.id}`}
+                              type="text"
+                              inputMode="decimal"
+                              className={styles.input}
+                              value={draftValue(item)}
+                              disabled={fieldDisabled}
+                              onChange={(e) => setDraftValue(item.id, e.target.value)}
+                            />
+                          ) : (
+                            <textarea
+                              id={`fd-${item.id}`}
+                              className={`${styles.textarea} ${styles.textareaCompact}`}
+                              maxLength={1000}
+                              value={draftValue(item)}
+                              disabled={fieldDisabled}
+                              onChange={(e) => setDraftValue(item.id, e.target.value)}
+                            />
+                          )}
+                        </div>
+                      </li>
+                    ),
+                  )}
+                </ul>
+              </section>
+            );
+          })}
+          {open && may.update ? (
+            <div className={styles.actions} style={{ marginBottom: 'var(--gap-lg)' }}>
+              <button
+                type="button"
+                className={`${styles.action} ${styles.primary}`}
+                disabled={busy}
+                onClick={() => void run(() => submitSectioned(), `${t.title} submitted.`)}
+              >
+                Submit {t.title}
+              </button>
+            </div>
+          ) : null}
+        </>
       ) : null}
 
       {may.assign && open ? (

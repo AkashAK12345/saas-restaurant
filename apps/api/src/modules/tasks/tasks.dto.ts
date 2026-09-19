@@ -59,6 +59,12 @@ export class ChecklistItemDto {
   @IsOptional()
   @IsBoolean()
   is_required?: boolean;
+
+  /** Group label ("Today's Summary", "EB", ...). Omitted renders flat. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  section?: string;
 }
 
 export class CreateChecklistTemplateDto {
@@ -187,6 +193,25 @@ export class ToggleChecklistItemDto {
   @IsString()
   @MaxLength(1000)
   value?: string;
+}
+
+export const MAX_ITEM_PHOTOS = 5;
+export const MAX_PHOTO_SIZE_BYTES = 5 * 1024 * 1024;
+
+/** A photo attached to a PHOTO-kind checklist item. Same shape as banquet's UploadBookingPhotoDto. */
+export class UploadChecklistItemPhotoDto {
+  @IsString()
+  @IsNotEmpty()
+  data!: string;
+
+  @IsString()
+  @Matches(/^image\/(jpeg|png|webp|gif)$/, { message: 'mime_type must be image/jpeg, image/png, image/webp or image/gif' })
+  mime_type!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(255)
+  file_name?: string;
 }
 
 /** A branch-local window for a routine's transposed log. */

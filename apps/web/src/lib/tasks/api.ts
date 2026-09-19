@@ -3,6 +3,7 @@ import type { StreamTicketResponse } from '@/lib/api/types';
 import type { Paginated } from '@/lib/queue/types';
 import type {
   ChecklistItemKind,
+  ChecklistItemPhoto,
   ChecklistTemplate,
   MaterializeResult,
   ReferenceChecklist,
@@ -94,6 +95,20 @@ export const tasksApi = {
       value !== undefined && isDone ? { is_done: isDone, value } : { is_done: isDone },
       branch(ctx),
     ),
+
+  /** A PHOTO item's photos — up to 5, each ≤5MB, base64-encoded on upload. */
+  listItemPhotos: (ctx: TaskContext, id: string, itemId: string) =>
+    api.get<ChecklistItemPhoto[]>(`/tasks/${id}/checklist/${itemId}/photos`, branch(ctx)),
+  uploadItemPhoto: (
+    ctx: TaskContext,
+    id: string,
+    itemId: string,
+    body: { data: string; mime_type: string; file_name?: string },
+  ) => api.post<ChecklistItemPhoto>(`/tasks/${id}/checklist/${itemId}/photos`, body, branch(ctx)),
+  deleteItemPhoto: (ctx: TaskContext, id: string, itemId: string, photoId: string) =>
+    api.delete(`/tasks/${id}/checklist/${itemId}/photos/${photoId}`, branch(ctx)),
+  itemPhotoUrl: (id: string, itemId: string, photoId: string) =>
+    `/tasks/${id}/checklist/${itemId}/photos/${photoId}`,
 
   /** Transposed compliance log for a routine over branch-local dates. */
   routineLog: (ctx: TaskContext, routineId: string, from: string, to: string) =>

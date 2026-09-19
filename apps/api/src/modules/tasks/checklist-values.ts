@@ -1,6 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
 
-export type ChecklistItemKindName = 'CHECK' | 'NUMBER' | 'TEXT' | 'RATING' | 'DATE';
+export type ChecklistItemKindName = 'CHECK' | 'NUMBER' | 'TEXT' | 'RATING' | 'DATE' | 'PHOTO';
 
 export const RATING_MIN = 1;
 export const RATING_MAX = 5;
@@ -17,10 +17,12 @@ export const TEXT_MAX = 1000;
  *   DATE    a real calendar date, YYYY-MM-DD
  *   TEXT    1–1000 characters after trimming
  *   CHECK   takes no value at all
+ *   PHOTO   takes no value at all — its state comes from the item-photo
+ *           endpoints (see TaskChecklistItemPhoto), never this PATCH
  */
 export function normalizeChecklistValue(kind: ChecklistItemKindName, raw: unknown): string {
-  if (kind === 'CHECK') {
-    throw new BadRequestException('A tick item takes no value');
+  if (kind === 'CHECK' || kind === 'PHOTO') {
+    throw new BadRequestException(`A ${kind === 'CHECK' ? 'tick' : 'photo'} item takes no value here`);
   }
   if (typeof raw !== 'string') {
     throw new BadRequestException('This item needs an answer');

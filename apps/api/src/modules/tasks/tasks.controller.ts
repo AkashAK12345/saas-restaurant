@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   ForbiddenException,
   Get,
   Headers,
@@ -40,6 +41,7 @@ import {
   UpdateChecklistTemplateDto,
   UpdateRoutineDto,
   UpdateTaskDto,
+  UploadChecklistItemPhotoDto,
 } from './tasks.dto.js';
 import { PaginationQueryDto } from '../../common/pagination.dto.js';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
@@ -504,5 +506,75 @@ export class TasksController {
       dto.is_done,
       dto.value,
     );
+  }
+
+  // ── Checklist item photos ────────────────────────────────────────────────
+  // Same permission as ticking an item (tasks.update): attaching a photo is
+  // doing the task, exactly like answering any other checklist item.
+
+  @Get('tasks/:id/checklist/:itemId/photos')
+  @UseGuards(PermissionGuard)
+  @RequireBranchPermission(TASK_READ)
+  listItemPhotos(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('itemId', ParseUUIDPipe) itemId: string,
+    @Headers('x-company-id') companyId: string,
+    @Headers('x-branch-id') branchId: string,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.tasks.listItemPhotos(this.branchCtx(companyId, branchId, req), id, itemId);
+  }
+
+  @Get('tasks/:id/checklist/:itemId/photos/:photoId')
+  @UseGuards(PermissionGuard)
+  @RequireBranchPermission(TASK_READ)
+  async getItemPhoto(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('itemId', ParseUUIDPipe) itemId: string,
+    @Param('photoId', ParseUUIDPipe) photoId: string,
+    @Headers('x-company-id') companyId: string,
+    @Headers('x-branch-id') branchId: string,
+    @Req() req: AuthenticatedRequest,
+    @Res() res: Response,
+  ) {
+    const { data, mime_type, file_name } = await this.tasks.getItemPhotoData(
+      this.branchCtx(companyId, branchId, req),
+      id,
+      itemId,
+      photoId,
+    );
+    res.setHeader('Content-Type', mime_type);
+    if (file_name) res.setHeader('Content-Disposition', `inline; filename="${file_name}"`);
+    res.send(data);
+  }
+
+  @Post('tasks/:id/checklist/:itemId/photos')
+  @HttpCode(HttpStatus.CREATED)
+  @UseGuards(PermissionGuard)
+  @RequireBranchPermission(PERMISSION_KEYS.TASKS_UPDATE)
+  uploadItemPhoto(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('itemId', ParseUUIDPipe) itemId: string,
+    @Headers('x-company-id') companyId: string,
+    @Headers('x-branch-id') branchId: string,
+    @Body() dto: UploadChecklistItemPhotoDto,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.tasks.uploadItemPhoto(this.branchCtx(companyId, branchId, req), id, itemId, dto);
+  }
+
+  @Delete('tasks/:id/checklist/:itemId/photos/:photoId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  @UseGuards(PermissionGuard)
+  @RequireBranchPermission(PERMISSION_KEYS.TASKS_UPDATE)
+  deleteItemPhoto(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('itemId', ParseUUIDPipe) itemId: string,
+    @Param('photoId', ParseUUIDPipe) photoId: string,
+    @Headers('x-company-id') companyId: string,
+    @Headers('x-branch-id') branchId: string,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.tasks.deleteItemPhoto(this.branchCtx(companyId, branchId, req), id, itemId, photoId);
   }
 }

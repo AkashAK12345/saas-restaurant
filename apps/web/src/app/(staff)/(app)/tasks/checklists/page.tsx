@@ -12,6 +12,7 @@ const KIND_LABEL: Record<ChecklistItemKind, string> = {
   TEXT: 'Text',
   RATING: 'Rating 1–5',
   DATE: 'Date',
+  PHOTO: 'Photo',
 };
 import styles from '@/components/tasks/tasks.module.css';
 

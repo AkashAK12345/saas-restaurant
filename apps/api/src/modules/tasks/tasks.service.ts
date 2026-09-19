@@ -36,6 +36,7 @@ import {
   isEditable,
 } from './task-state-machine.js';
 import type {
+  ChecklistItemPhotoView,
   ChecklistItemView,
   ChecklistProgressView,
   StaffRefView,
@@ -44,13 +45,16 @@ import type {
   TaskSummaryView,
   TaskView,
 } from './tasks-views.js';
-import type {
-  AddTaskCommentDto,
-  AssignTaskDto,
-  CreateTaskDto,
-  ListTasksQueryDto,
-  TaskSummaryQueryDto,
-  UpdateTaskDto,
+import {
+  MAX_ITEM_PHOTOS,
+  MAX_PHOTO_SIZE_BYTES,
+  type AddTaskCommentDto,
+  type AssignTaskDto,
+  type CreateTaskDto,
+  type ListTasksQueryDto,
+  type TaskSummaryQueryDto,
+  type UpdateTaskDto,
+  type UploadChecklistItemPhotoDto,
 } from './tasks.dto.js';
 
 /** Realtime event types on the staff-only `tasks` channel. */
@@ -543,6 +547,149 @@ export class TasksService {
     return this.emitDetail(ctx, TASK_EVENT_TYPES.CHECKLIST_UPDATED, task);
   }
 
+  // ── Checklist item photos ─────────────────────────────────────────────────
+  //
+  // A PHOTO item's "answer" is its attached photos rather than a scalar value
+  // (see checklist-values.ts), stored the same way as BanquetBookingPhoto —
+  // bytes in Postgres, capped at MAX_ITEM_PHOTOS / MAX_PHOTO_SIZE_BYTES —
+  // since SAMCO has no object storage. is_done tracks "has at least one".
+
+  async listItemPhotos(ctx: TaskActorContext, taskId: string, itemId: string): Promise<ChecklistItemPhotoView[]> {
+    await this.findItem(ctx, taskId, itemId);
+    return this.prisma.taskChecklistItemPhoto.findMany({
+      where: { checklist_item_id: itemId },
+      orderBy: { position: 'asc' },
+      select: {
+        id: true,
+        checklist_item_id: true,
+        mime_type: true,
+        file_name: true,
+        position: true,
+        created_at: true,
+      },
+    });
+  }
+
+  async getItemPhotoData(
+    ctx: TaskActorContext,
+    taskId: string,
+    itemId: string,
+    photoId: string,
+  ): Promise<{ data: Buffer; mime_type: string; file_name: string | null }> {
+    await this.findItem(ctx, taskId, itemId);
+    const photo = await this.prisma.taskChecklistItemPhoto.findFirst({
+      where: { id: photoId, checklist_item_id: itemId },
+    });
+    if (!photo) throw new NotFoundException('Photo not found');
+    return { data: photo.data, mime_type: photo.mime_type, file_name: photo.file_name };
+  }
+
+  async uploadItemPhoto(
+    ctx: TaskActorContext,
+    taskId: string,
+    itemId: string,
+    dto: UploadChecklistItemPhotoDto,
+  ): Promise<ChecklistItemPhotoView> {
+    const buf = Buffer.from(dto.data, 'base64');
+    if (buf.length > MAX_PHOTO_SIZE_BYTES) {
+      throw new BadRequestException(`Photo exceeds the ${MAX_PHOTO_SIZE_BYTES / (1024 * 1024)}MB limit`);
+    }
+
+    const { photo, task } = await this.mutate(async (tx) => {
+      const current = await this.loadForMutation(tx, ctx, taskId);
+      if (!isEditable(current.status)) {
+        throw new ConflictException('A finished task’s checklist cannot be changed');
+      }
+      const item = current.checklist.find((i) => i.id === itemId);
+      if (!item) throw new NotFoundException('Checklist item not found');
+      if (item.kind !== ChecklistItemKind.PHOTO) {
+        throw new BadRequestException('Only a photo item accepts photos');
+      }
+
+      const count = await tx.taskChecklistItemPhoto.count({ where: { checklist_item_id: item.id } });
+      if (count >= MAX_ITEM_PHOTOS) {
+        throw new ConflictException(`An item can have at most ${MAX_ITEM_PHOTOS} photos`);
+      }
+
+      const created = await tx.taskChecklistItemPhoto.create({
+        data: {
+          checklist_item_id: item.id,
+          data: buf,
+          mime_type: dto.mime_type,
+          file_name: dto.file_name ?? null,
+          position: count,
+        },
+        select: {
+          id: true,
+          checklist_item_id: true,
+          mime_type: true,
+          file_name: true,
+          position: true,
+          created_at: true,
+        },
+      });
+
+      if (!item.is_done) {
+        await tx.taskChecklistItem.update({
+          where: { id: item.id },
+          data: { is_done: true, done_at: new Date(), done_by: ctx.actorUserId },
+        });
+      }
+
+      await this.audit(tx, ctx, AuditEventType.UPDATE, current.id, {
+        action: 'upload_checklist_item_photo',
+        item_id: item.id,
+        photo_count: count + 1,
+      });
+      return { photo: created, task: current };
+    });
+
+    this.publish(ctx, TASK_EVENT_TYPES.CHECKLIST_UPDATED, task);
+    return photo;
+  }
+
+  async deleteItemPhoto(ctx: TaskActorContext, taskId: string, itemId: string, photoId: string): Promise<void> {
+    const task = await this.mutate(async (tx) => {
+      const current = await this.loadForMutation(tx, ctx, taskId);
+      if (!isEditable(current.status)) {
+        throw new ConflictException('A finished task’s checklist cannot be changed');
+      }
+      const item = current.checklist.find((i) => i.id === itemId);
+      if (!item) throw new NotFoundException('Checklist item not found');
+
+      const photo = await tx.taskChecklistItemPhoto.findFirst({
+        where: { id: photoId, checklist_item_id: itemId },
+        select: { id: true },
+      });
+      if (!photo) throw new NotFoundException('Photo not found');
+      await tx.taskChecklistItemPhoto.delete({ where: { id: photo.id } });
+
+      const remaining = await tx.taskChecklistItemPhoto.count({ where: { checklist_item_id: itemId } });
+      if (remaining === 0 && item.is_done) {
+        await tx.taskChecklistItem.update({
+          where: { id: item.id },
+          data: { is_done: false, value: null, done_at: null, done_by: null },
+        });
+      }
+
+      await this.audit(tx, ctx, AuditEventType.UPDATE, current.id, {
+        action: 'delete_checklist_item_photo',
+        item_id: item.id,
+        photo_count: remaining,
+      });
+      return this.reload(tx, current.id);
+    });
+    this.publish(ctx, TASK_EVENT_TYPES.CHECKLIST_UPDATED, task);
+  }
+
+  /** Scope + existence check for a checklist item's photos, reusing `get`'s visibility rules. */
+  private async findItem(ctx: TaskActorContext, taskId: string, itemId: string): Promise<ChecklistItemView> {
+    const task = await this.get(ctx, taskId);
+    const item = task.checklist.find((i) => i.id === itemId);
+    if (!item) throw new NotFoundException('Checklist item not found');
+    return item;
+  }
+
   // ── Completion reporting (Phase 9 scope only) ─────────────────────────────
 
   /**
@@ -643,7 +790,9 @@ export class TasksService {
     tx: Prisma.TransactionClient,
     companyId: string,
     templateId: string,
-  ): Promise<Array<{ label: string; position: number; kind: ChecklistItemKind; is_required: boolean }>> {
+  ): Promise<
+    Array<{ label: string; position: number; kind: ChecklistItemKind; is_required: boolean; section: string | null }>
+  > {
     const template = await tx.checklistTemplate.findFirst({
       where: { id: templateId, company_id: companyId },
       include: { items: { orderBy: { position: 'asc' } } },
@@ -657,6 +806,7 @@ export class TasksService {
       position: i.position,
       kind: i.kind,
       is_required: i.is_required,
+      section: i.section,
     }));
   }
 
@@ -849,6 +999,7 @@ export class TasksService {
           is_required: i.is_required,
           is_done: i.is_done,
           value: i.value,
+          section: i.section,
           done_at: i.done_at,
           done_by: i.done_by,
         }),

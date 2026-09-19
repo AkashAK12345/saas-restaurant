@@ -13,6 +13,7 @@
  */
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { json, urlencoded } from 'express';
 import request from 'supertest';
 import * as bcrypt from 'bcrypt';
 import {
@@ -24,6 +25,7 @@ import {
 import { AppModule } from '../src/app.module.js';
 import { PrismaService } from '../src/core/database/prisma.service.js';
 import { AllExceptionsFilter } from '../src/core/filters/all-exceptions.filter.js';
+import { MAX_REQUEST_BODY_SIZE } from '../src/core/http-body-limit.js';
 import { resetDatabase, assertPermissionsSeeded } from './utils/db.js';
 import { EVENT_BROKER, type EventBroker } from '../src/common/realtime/event-broker.js';
 import { RealtimeChannel } from '../src/common/realtime/channels.js';
@@ -84,7 +86,11 @@ describe('Phase 9 Tasks & Routines (e2e)', () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
       imports: [AppModule],
     }).compile();
-    app = moduleFixture.createNestApplication();
+    // bodyParser: false + the same explicit limit main.ts configures — a
+    // base64 photo upload well exceeds Express's 100kb default.
+    app = moduleFixture.createNestApplication({ bodyParser: false });
+    app.use(json({ limit: MAX_REQUEST_BODY_SIZE }));
+    app.use(urlencoded({ extended: true, limit: MAX_REQUEST_BODY_SIZE }));
     app.setGlobalPrefix('api/v1');
     app.useGlobalFilters(new AllExceptionsFilter());
     app.useGlobalPipes(
@@ -1776,6 +1782,114 @@ describe('Phase 9 Tasks & Routines (e2e)', () => {
       } finally {
         await prisma.rolePermission.deleteMany({ where: { role_id: assignment.role_id, permission_id: exportPermission.id } });
       }
+    });
+  });
+
+  describe('Checklist item photos', () => {
+    let photoTemplate: any;
+    // A tiny valid PNG — a real (decodable) image keeps this test honest about
+    // what a client would actually send, unlike an arbitrary byte string.
+    const onePixelPng =
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=';
+    const bigPng = Buffer.alloc(6 * 1024 * 1024).toString('base64'); // > MAX_PHOTO_SIZE_BYTES
+
+    beforeAll(async () => {
+      photoTemplate = (
+        await as(request(http).post('/api/v1/checklists'), tokenManagerA, companyA.id).send({
+          name: 'EOD with photos',
+          items: [
+            { label: 'EB Photos', kind: 'PHOTO', section: 'EB' },
+            { label: 'EB Reading', kind: 'NUMBER', is_required: false, section: 'EB' },
+          ],
+        })
+      ).body;
+    });
+
+    const upload = (taskId: string, itemId: string, data: string, token = tokenManagerA) =>
+      as(request(http).post(`/api/v1/tasks/${taskId}/checklist/${itemId}/photos`), token, companyA.id, branchA.id).send({
+        data,
+        mime_type: 'image/png',
+        file_name: 'evidence.png',
+      });
+
+    it('PH-1. a template carries `section` onto the task it creates', async () => {
+      const task = (await createTask({ checklist_template_id: photoTemplate.id })).body;
+      expect(task.checklist.map((i: any) => [i.kind, i.section])).toEqual([
+        ['PHOTO', 'EB'],
+        ['NUMBER', 'EB'],
+      ]);
+    });
+
+    it('PH-2. uploading a photo marks the item done; deleting the last one clears it again', async () => {
+      const task = (await createTask({ checklist_template_id: photoTemplate.id })).body;
+      const [photoItem] = task.checklist;
+
+      const uploaded = await upload(task.id, photoItem.id, onePixelPng);
+      expect(uploaded.status).toBe(201);
+      expect(uploaded.body).toMatchObject({ checklist_item_id: photoItem.id, mime_type: 'image/png', file_name: 'evidence.png', position: 0 });
+      expect(uploaded.body.data).toBeUndefined(); // bytes are never in a JSON response
+
+      const afterUpload = await asManager(request(http).get(`/api/v1/tasks/${task.id}`));
+      expect(afterUpload.body.checklist[0]).toMatchObject({ is_done: true });
+
+      const list = await as(request(http).get(`/api/v1/tasks/${task.id}/checklist/${photoItem.id}/photos`), tokenManagerA, companyA.id, branchA.id);
+      expect(list.status).toBe(200);
+      expect(list.body).toHaveLength(1);
+
+      const fetched = await as(
+        request(http).get(`/api/v1/tasks/${task.id}/checklist/${photoItem.id}/photos/${uploaded.body.id}`),
+        tokenManagerA,
+        companyA.id,
+        branchA.id,
+      ).responseType('blob');
+      expect(fetched.status).toBe(200);
+      expect(fetched.headers['content-type']).toBe('image/png');
+      expect(Buffer.from(fetched.body).toString('base64')).toBe(onePixelPng);
+
+      const deleted = await as(
+        request(http).delete(`/api/v1/tasks/${task.id}/checklist/${photoItem.id}/photos/${uploaded.body.id}`),
+        tokenManagerA,
+        companyA.id,
+        branchA.id,
+      ).send();
+      expect(deleted.status).toBe(204);
+
+      const afterDelete = await asManager(request(http).get(`/api/v1/tasks/${task.id}`));
+      expect(afterDelete.body.checklist[0]).toMatchObject({ is_done: false });
+    });
+
+    it('PH-3. refuses a photo over the size limit, a 6th photo, and a photo on a non-photo item', async () => {
+      const task = (await createTask({ checklist_template_id: photoTemplate.id })).body;
+      const [photoItem, numberItem] = task.checklist;
+
+      expect((await upload(task.id, photoItem.id, bigPng)).status).toBe(400);
+      expect((await upload(task.id, numberItem.id, onePixelPng)).status).toBe(400);
+
+      for (let i = 0; i < 5; i++) {
+        expect((await upload(task.id, photoItem.id, onePixelPng)).status).toBe(201);
+      }
+      expect((await upload(task.id, photoItem.id, onePixelPng)).status).toBe(409);
+    });
+
+    it('PH-4. photos ride on tasks.update — a viewer may see them but not add or remove one', async () => {
+      const task = (await createTask({ checklist_template_id: photoTemplate.id })).body;
+      const [photoItem] = task.checklist;
+      const uploaded = await upload(task.id, photoItem.id, onePixelPng);
+
+      expect((await upload(task.id, photoItem.id, onePixelPng, tokenViewerA)).status).toBe(403);
+      expect(
+        (
+          await as(
+            request(http).delete(`/api/v1/tasks/${task.id}/checklist/${photoItem.id}/photos/${uploaded.body.id}`),
+            tokenViewerA,
+            companyA.id,
+            branchA.id,
+          ).send()
+        ).status,
+      ).toBe(403);
+      expect(
+        (await as(request(http).get(`/api/v1/tasks/${task.id}/checklist/${photoItem.id}/photos`), tokenViewerA, companyA.id, branchA.id)).status,
+      ).toBe(200);
     });
   });
 

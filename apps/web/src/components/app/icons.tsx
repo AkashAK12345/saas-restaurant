@@ -62,7 +62,15 @@ export type AppIconName =
   | 'box'
   | 'cart'
   | 'trash'
-  | 'briefcase';
+  | 'briefcase'
+  | 'lightning'
+  | 'shield'
+  | 'parking'
+  | 'door'
+  | 'lift'
+  | 'broom'
+  | 'party'
+  | 'chat';
 
 const FILLED: Partial<Record<AppIconName, ReactNode>> = {
   people: (
@@ -375,6 +383,52 @@ const STROKED: Record<AppIconName, ReactNode> = {
       <rect x="3" y="7.5" width="18" height="12" rx="2" />
       <path d="M8.5 7.5V6a2 2 0 0 1 2-2h3a2 2 0 0 1 2 2v1.5" />
       <path d="M3 12.5h18M10.7 12v1.6h2.6V12" />
+    </>
+  ),
+  lightning: <path d="M13 2 5 14h5.5L11 22l8-13h-5.5z" />,
+  shield: (
+    <>
+      <path d="M12 3 5 6v5.5c0 4.3 3 8 7 9.5 4-1.5 7-5.2 7-9.5V6z" />
+      <path d="m9 12 2 2 4-4" />
+    </>
+  ),
+  parking: (
+    <>
+      <rect x="4" y="4" width="16" height="16" rx="3" />
+      <path d="M10 16.5v-9h3a2.6 2.6 0 0 1 0 5.2h-3" />
+    </>
+  ),
+  door: (
+    <>
+      <path d="M6 21V4.5A1.5 1.5 0 0 1 7.5 3h9A1.5 1.5 0 0 1 18 4.5V21" />
+      <path d="M3.5 21h17" />
+      <path d="M14.5 12h.01" strokeWidth="2.6" />
+    </>
+  ),
+  lift: (
+    <>
+      <rect x="4" y="3" width="16" height="18" rx="2" />
+      <path d="M9.5 9 12 6.5 14.5 9M9.5 15l2.5 2.5 2.5-2.5" />
+    </>
+  ),
+  broom: (
+    <>
+      <path d="M14.5 3.5 11 12" />
+      <path d="M6.5 12h8l1.5 8.5H5z" />
+      <path d="M9 16v4.5M12.5 16v4.5" />
+    </>
+  ),
+  party: (
+    <>
+      <path d="M4 20 8.5 7.5l8 8z" />
+      <path d="M13 5.5c.5-1 1.3-1.5 2.3-1.5M17 9c1-.4 2-.3 2.8.3" />
+      <path d="M15.5 3h.01M20.5 5.5h.01M20 12h.01" strokeWidth="2.6" />
+    </>
+  ),
+  chat: (
+    <>
+      <path d="M4 5.5A1.5 1.5 0 0 1 5.5 4h13A1.5 1.5 0 0 1 20 5.5v10a1.5 1.5 0 0 1-1.5 1.5H9l-5 4z" />
+      <path d="M8 9h8M8 12.5h5" />
     </>
   ),
 };

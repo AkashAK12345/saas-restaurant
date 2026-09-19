@@ -9,6 +9,9 @@ const HINT: Record<Exclude<ChecklistItem['kind'], 'CHECK'>, string> = {
   TEXT: 'Your answer',
   RATING: 'Rate 1 (poor) to 5 (excellent)',
   DATE: 'A date',
+  // Unreachable in practice: PHOTO items render <ChecklistPhotoField> instead
+  // of this component. Present only so this map stays exhaustive.
+  PHOTO: 'A photo',
 };
 
 /**

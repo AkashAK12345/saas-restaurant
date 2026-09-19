@@ -46,4 +46,9 @@ describe('checklist answers', () => {
     expect(() => normalizeChecklistValue('NUMBER', 12 as unknown as string)).toThrow(BadRequestException);
     expect(() => normalizeChecklistValue('TEXT', null)).toThrow(BadRequestException);
   });
+
+  it('refuses any value on a photo item too — its state comes from the item-photo endpoints', () => {
+    expect(() => normalizeChecklistValue('PHOTO', 'anything')).toThrow(BadRequestException);
+    expect(() => normalizeChecklistValue('PHOTO', undefined)).toThrow(BadRequestException);
+  });
 });

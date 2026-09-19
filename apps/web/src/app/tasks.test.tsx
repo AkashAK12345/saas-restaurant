@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { FakeEventSource } from '@/lib/realtime/fake-event-source';
 import type { ChecklistTemplate, Routine, Task, TaskDetail, TaskSummary } from '@/lib/tasks/types';
+import { branchToday } from '@/lib/format/datetime';
 
 const apiMock = vi.hoisted(() => ({
   list: vi.fn(),
@@ -68,10 +69,11 @@ vi.mock('@/lib/context/app-context-provider', () => ({
 
 let pathname = '/tasks';
 let quickAccessKey = 'eod-report';
+const router = vi.hoisted(() => ({ push: vi.fn(), replace: vi.fn() }));
 vi.mock('next/navigation', () => ({
   usePathname: () => pathname,
   useParams: () => ({ id: 'tk-1', key: quickAccessKey }),
-  useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
+  useRouter: () => router,
 }));
 
 let authUser: { id: string; email: string; first_name: string | null; last_name: string | null } | null = {
@@ -144,8 +146,8 @@ const detail = (over: Partial<TaskDetail> = {}): TaskDetail => ({
 const withChecklist = (): TaskDetail =>
   detail({
     checklist: [
-      { id: 'i-1', label: 'Unlock the doors', position: 0, kind: 'CHECK', is_required: true, is_done: false, value: null, done_at: null, done_by: null },
-      { id: 'i-2', label: 'Water the plants', position: 1, kind: 'CHECK', is_required: false, is_done: false, value: null, done_at: null, done_by: null },
+      { id: 'i-1', label: 'Unlock the doors', position: 0, kind: 'CHECK', is_required: true, is_done: false, value: null, section: null, done_at: null, done_by: null },
+      { id: 'i-2', label: 'Water the plants', position: 1, kind: 'CHECK', is_required: false, is_done: false, value: null, section: null, done_at: null, done_by: null },
     ],
     checklist_progress: {
       total: 2,
@@ -185,8 +187,8 @@ const template = (over: Partial<ChecklistTemplate> = {}): ChecklistTemplate => (
   description: null,
   status: 'ACTIVE',
   items: [
-    { id: 'ci-1', label: 'Unlock the doors', position: 0, kind: 'CHECK', is_required: true },
-    { id: 'ci-2', label: 'Water the plants', position: 1, kind: 'CHECK', is_required: false },
+    { id: 'ci-1', label: 'Unlock the doors', position: 0, kind: 'CHECK', is_required: true, section: null },
+    { id: 'ci-2', label: 'Water the plants', position: 1, kind: 'CHECK', is_required: false, section: null },
   ],
   created_at: '2027-01-01T09:00:00.000Z',
   updated_at: '2027-01-01T09:00:00.000Z',
@@ -536,22 +538,126 @@ describe('Task Quick Access dashboard', () => {
 });
 
 describe('Task Quick Access detail', () => {
-  beforeEach(() => {
-    selectedBranchId = 'br-1';
+  const today = branchToday('Asia/Kolkata');
+  const refChecklist = (over: Record<string, unknown> = {}) => ({
+    key: 'eod-report',
+    name: 'EOD Report',
+    description: 'Day close: sales, petty cash, meter readings.',
+    items: [{ label: 'Morning sales', kind: 'NUMBER', is_required: true }],
+    installed: false,
+    ...over,
   });
 
-  it('opens the tile it was reached from, not yet wired to its real flow', () => {
+  beforeEach(() => {
+    for (const fn of Object.values(apiMock)) fn.mockReset();
+    router.push.mockReset();
+    router.replace.mockReset();
+    selectedBranchId = 'br-1';
     quickAccessKey = 'eod-report';
-    render(<TaskQuickAccessPage />);
-    expect(screen.getAllByText('EOD Report').length).toBeGreaterThan(0);
-    expect(screen.getByText(/being built next/)).toBeTruthy();
-    expect(screen.getByText('← Back to Task Dashboard').getAttribute('href')).toBe('/tasks');
+    branchPermissions = [];
+    companyPermissions = [];
   });
 
   it('says plainly when the key in the address does not match a shortcut', () => {
     quickAccessKey = 'not-a-real-key';
     render(<TaskQuickAccessPage />);
     expect(screen.getByText('No such shortcut')).toBeTruthy();
+  });
+
+  it('falls back to "being built" for a shortcut with no backend definition', async () => {
+    quickAccessKey = 'kitchen-checklist';
+    apiMock.referenceLibrary.mockResolvedValue([refChecklist()]); // eod-report only
+    render(<TaskQuickAccessPage />);
+    expect(await screen.findByText(/being built next/)).toBeTruthy();
+    expect(apiMock.listChecklists).not.toHaveBeenCalled();
+  });
+
+  it('installs the checklist, creates the routine, and opens today\'s task — all in one tap', async () => {
+    companyPermissions = ['tasks.checklist.manage'];
+    branchPermissions = ['tasks.routine.manage'];
+    apiMock.referenceLibrary.mockResolvedValue([refChecklist({ installed: false })]);
+    apiMock.installReference.mockResolvedValue(template({ id: 'cl-eod', name: 'EOD Report' }));
+    apiMock.listRoutines.mockResolvedValue(page([]));
+    apiMock.createRoutine.mockResolvedValue(
+      routine({ id: 'rt-eod', name: 'EOD Report', checklist_template_id: 'cl-eod' }),
+    );
+    apiMock.list.mockResolvedValue(page([task({ id: 'tk-eod', routine_id: 'rt-eod', routine_occurrence_date: today })]));
+
+    render(<TaskQuickAccessPage />);
+    await waitFor(() => expect(router.replace).toHaveBeenCalledWith('/tasks/tk-eod'));
+
+    expect(apiMock.installReference).toHaveBeenCalledWith(expect.anything(), 'eod-report');
+    expect(apiMock.createRoutine.mock.calls[0][1]).toMatchObject({
+      name: 'EOD Report',
+      frequency: 'DAILY',
+      time_of_day: '00:00',
+      due_time: '23:59',
+      checklist_template_id: 'cl-eod',
+    });
+    expect(apiMock.list.mock.calls[0][1]).toMatchObject({ routine_id: 'rt-eod' });
+    // Already there today — no need to force materialization.
+    expect(apiMock.materialize).not.toHaveBeenCalled();
+  });
+
+  it('skips straight to today\'s task when the checklist and routine already exist', async () => {
+    apiMock.referenceLibrary.mockResolvedValue([refChecklist({ installed: true })]);
+    apiMock.listChecklists.mockResolvedValue(page([template({ id: 'cl-eod', name: 'EOD Report' })]));
+    apiMock.listRoutines.mockResolvedValue(
+      page([routine({ id: 'rt-eod', name: 'EOD Report', checklist_template_id: 'cl-eod', status: 'ACTIVE' })]),
+    );
+    apiMock.list.mockResolvedValue(page([task({ id: 'tk-eod', routine_id: 'rt-eod', routine_occurrence_date: today })]));
+
+    render(<TaskQuickAccessPage />);
+    await waitFor(() => expect(router.replace).toHaveBeenCalledWith('/tasks/tk-eod'));
+    expect(apiMock.installReference).not.toHaveBeenCalled();
+    expect(apiMock.createRoutine).not.toHaveBeenCalled();
+  });
+
+  it('asks for help from someone who can manage checklists, without attempting the install itself', async () => {
+    apiMock.referenceLibrary.mockResolvedValue([refChecklist({ installed: false })]);
+    render(<TaskQuickAccessPage />);
+    expect(await screen.findByText(/hasn.t been set up for your company yet/)).toBeTruthy();
+    expect(apiMock.installReference).not.toHaveBeenCalled();
+    expect(screen.getByRole('link', { name: 'Go to Checklists' }).getAttribute('href')).toBe('/tasks/checklists');
+  });
+
+  it('asks for help setting up the routine once the checklist exists', async () => {
+    companyPermissions = ['tasks.checklist.manage'];
+    apiMock.referenceLibrary.mockResolvedValue([refChecklist({ installed: true })]);
+    apiMock.listChecklists.mockResolvedValue(page([template({ id: 'cl-eod', name: 'EOD Report' })]));
+    apiMock.listRoutines.mockResolvedValue(page([]));
+    render(<TaskQuickAccessPage />);
+    expect(await screen.findByText(/no daily routine has been set up for this branch yet/)).toBeTruthy();
+    expect(apiMock.createRoutine).not.toHaveBeenCalled();
+    expect(screen.getByRole('link', { name: 'Go to Routines' }).getAttribute('href')).toBe('/tasks/routines');
+  });
+
+  it('says today\'s task is not generated yet when the routine exists but the scheduler has not caught up', async () => {
+    apiMock.referenceLibrary.mockResolvedValue([refChecklist({ installed: true })]);
+    apiMock.listChecklists.mockResolvedValue(page([template({ id: 'cl-eod', name: 'EOD Report' })]));
+    apiMock.listRoutines.mockResolvedValue(
+      page([routine({ id: 'rt-eod', name: 'EOD Report', checklist_template_id: 'cl-eod' })]),
+    );
+    apiMock.list.mockResolvedValue(page([])); // nothing materialised yet
+    render(<TaskQuickAccessPage />);
+    expect(await screen.findByText(/hasn.t been generated yet/)).toBeTruthy();
+    expect(apiMock.materialize).not.toHaveBeenCalled();
+    expect(router.replace).not.toHaveBeenCalled();
+  });
+
+  it('shows the reason and lets the operator retry when a step fails', async () => {
+    apiMock.referenceLibrary.mockRejectedValue(new Error('Network down'));
+    render(<TaskQuickAccessPage />);
+    expect((await screen.findByRole('alert')).textContent).toMatch('Network down');
+
+    apiMock.referenceLibrary.mockResolvedValue([refChecklist({ installed: true })]);
+    apiMock.listChecklists.mockResolvedValue(page([template({ id: 'cl-eod', name: 'EOD Report' })]));
+    apiMock.listRoutines.mockResolvedValue(
+      page([routine({ id: 'rt-eod', name: 'EOD Report', checklist_template_id: 'cl-eod' })]),
+    );
+    apiMock.list.mockResolvedValue(page([task({ id: 'tk-eod', routine_id: 'rt-eod', routine_occurrence_date: today })]));
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    await waitFor(() => expect(router.replace).toHaveBeenCalledWith('/tasks/tk-eod'));
   });
 });
 
@@ -638,8 +744,8 @@ describe('Task detail and checklist', () => {
   it('asks for an answer on a typed item and sends it; clears it again', async () => {
     const typed = detail({
       checklist: [
-        { id: 'n-1', label: 'Meter reading', position: 0, kind: 'NUMBER', is_required: true, is_done: false, value: null, done_at: null, done_by: null },
-        { id: 'r-1', label: 'Reception', position: 1, kind: 'RATING', is_required: true, is_done: true, value: '4', done_at: '2027-01-01T10:00:00.000Z', done_by: 'u-1' },
+        { id: 'n-1', label: 'Meter reading', position: 0, kind: 'NUMBER', is_required: true, is_done: false, value: null, section: null, done_at: null, done_by: null },
+        { id: 'r-1', label: 'Reception', position: 1, kind: 'RATING', is_required: true, is_done: true, value: '4', section: null, done_at: '2027-01-01T10:00:00.000Z', done_by: 'u-1' },
       ],
       checklist_progress: { total: 2, done: 1, required_total: 2, required_done: 1, ready_to_complete: false },
     });
@@ -666,6 +772,52 @@ describe('Task detail and checklist', () => {
     await waitFor(() =>
       expect(apiMock.setChecklistItem).toHaveBeenCalledWith({ companyId: 'co-1', branchId: 'br-1' }, 'tk-1', 'r-1', false),
     );
+  });
+
+  it('fills a sectioned checklist as one form: switches save at once, ratings and text on Submit', async () => {
+    const ctx = { companyId: 'co-1', branchId: 'br-1' };
+    const item = (over: Record<string, unknown>) => ({
+      is_required: false,
+      is_done: false,
+      value: null,
+      done_at: null,
+      done_by: null,
+      ...over,
+    });
+    const sectioned = detail({
+      title: 'Operational Checklist',
+      checklist: [
+        item({ id: 's-1', label: 'Was security present at the entrance?', position: 0, kind: 'CHECK', section: 'Security' }),
+        item({ id: 's-2', label: 'Overall Rating for security (scale 1-5)', position: 1, kind: 'RATING', section: 'Security' }),
+        item({ id: 's-3', label: 'Remarks', position: 2, kind: 'TEXT', section: 'Remarks' }),
+      ] as TaskDetail['checklist'],
+      checklist_progress: { total: 3, done: 0, required_total: 0, required_done: 0, ready_to_complete: true },
+    });
+    apiMock.get.mockResolvedValue(sectioned);
+    apiMock.setChecklistItem.mockResolvedValue(sectioned);
+    render(<TaskDetailPage />);
+
+    expect(await screen.findByRole('heading', { name: 'Security' })).toBeTruthy();
+    expect(screen.getByRole('heading', { name: 'Remarks' })).toBeTruthy();
+    // One form: no Save/Clear pair on each item.
+    expect(screen.queryByRole('button', { name: 'Save' })).toBeNull();
+
+    fireEvent.click(screen.getByRole('switch', { name: 'Was security present at the entrance?' }));
+    await waitFor(() => expect(apiMock.setChecklistItem).toHaveBeenCalledWith(ctx, 'tk-1', 's-1', true));
+    apiMock.setChecklistItem.mockClear();
+
+    const four = () => screen.getByRole('radio', { name: 'Overall Rating for security (scale 1-5): 4' });
+    await waitFor(() => expect(four().hasAttribute('disabled')).toBe(false));
+    fireEvent.click(four());
+    expect(four().getAttribute('aria-checked')).toBe('true');
+    fireEvent.change(screen.getByLabelText('Remarks'), { target: { value: 'All fine' } });
+    // Nothing is sent until Submit.
+    expect(apiMock.setChecklistItem).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Submit Operational Checklist' }));
+    await waitFor(() => expect(apiMock.complete).toHaveBeenCalledWith(ctx, 'tk-1'));
+    expect(apiMock.setChecklistItem).toHaveBeenCalledWith(ctx, 'tk-1', 's-2', true, '4');
+    expect(apiMock.setChecklistItem).toHaveBeenCalledWith(ctx, 'tk-1', 's-3', true, 'All fine');
   });
 
   it('blocks completion until the server says the required items are done', async () => {

@@ -30,8 +30,10 @@ export interface ChecklistItemView {
   kind: ChecklistItemKind;
   is_required: boolean;
   is_done: boolean;
-  /** The canonical answer for a non-CHECK item; null while unanswered. */
+  /** The canonical answer for a non-CHECK, non-PHOTO item; null while unanswered. */
   value: string | null;
+  /** Group label; items sharing one render together. Null renders flat. */
+  section: string | null;
   done_at: Date | null;
   done_by: string | null;
 }
@@ -121,15 +123,26 @@ export interface ChecklistTemplateItemView {
   position: number;
   kind: ChecklistItemKind;
   is_required: boolean;
+  section: string | null;
 }
 
 export interface ReferenceChecklistView {
   key: string;
   name: string;
   description: string;
-  items: Array<{ label: string; kind: ChecklistItemKind; is_required: boolean }>;
+  items: Array<{ label: string; kind: ChecklistItemKind; is_required: boolean; section?: string }>;
   /** A template with this name already exists in the company. */
   installed: boolean;
+}
+
+/** A photo attached to a PHOTO-kind checklist item. */
+export interface ChecklistItemPhotoView {
+  id: string;
+  checklist_item_id: string;
+  mime_type: string;
+  file_name: string | null;
+  position: number;
+  created_at: Date;
 }
 
 export interface ChecklistTemplateView {

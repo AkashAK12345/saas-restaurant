@@ -84,6 +84,7 @@ export class ChecklistTemplatesService {
                 position: index,
                 kind: item.kind ?? ChecklistItemKind.CHECK,
                 is_required: item.is_required ?? true,
+                section: item.section ?? null,
               })),
             },
           },
@@ -132,6 +133,7 @@ export class ChecklistTemplatesService {
                 position: index,
                 kind: item.kind ?? ChecklistItemKind.CHECK,
                 is_required: item.is_required ?? true,
+                section: item.section ?? null,
               },
             });
           }
@@ -188,6 +190,7 @@ export class ChecklistTemplatesService {
         label: i.label,
         kind: i.kind as ChecklistItemKind,
         is_required: i.is_required,
+        section: i.section,
       })),
     });
     return view;
@@ -227,6 +230,7 @@ export class ChecklistTemplatesService {
         position: i.position,
         kind: i.kind,
         is_required: i.is_required,
+        section: i.section,
       })),
       created_at: template.created_at,
       updated_at: template.updated_at,

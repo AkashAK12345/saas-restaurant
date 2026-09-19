@@ -20,8 +20,8 @@ export interface StaffRef {
   name: string;
 }
 
-/** CHECK is a tick; the others are done when answered. */
-export type ChecklistItemKind = 'CHECK' | 'NUMBER' | 'TEXT' | 'RATING' | 'DATE';
+/** CHECK is a tick; the others are done when answered. PHOTO is done once it has ≥1 attached photo. */
+export type ChecklistItemKind = 'CHECK' | 'NUMBER' | 'TEXT' | 'RATING' | 'DATE' | 'PHOTO';
 
 export interface ChecklistItem {
   id: string;
@@ -30,10 +30,22 @@ export interface ChecklistItem {
   kind: ChecklistItemKind;
   is_required: boolean;
   is_done: boolean;
-  /** The canonical answer for a non-CHECK item; null while unanswered. */
+  /** The canonical answer for a non-CHECK, non-PHOTO item; null while unanswered. */
   value: string | null;
+  /** Group label ("Today's Summary", "EB", ...); null renders flat. */
+  section: string | null;
   done_at: string | null;
   done_by: string | null;
+}
+
+/** A photo attached to a PHOTO-kind checklist item. */
+export interface ChecklistItemPhoto {
+  id: string;
+  checklist_item_id: string;
+  mime_type: string;
+  file_name: string | null;
+  position: number;
+  created_at: string;
 }
 
 /** Items down the side, occurrence dates across the top. */
@@ -51,7 +63,7 @@ export interface ReferenceChecklist {
   key: string;
   name: string;
   description: string;
-  items: Array<{ label: string; kind: ChecklistItemKind; is_required: boolean }>;
+  items: Array<{ label: string; kind: ChecklistItemKind; is_required: boolean; section?: string }>;
   installed: boolean;
 }
 
@@ -118,6 +130,7 @@ export interface ChecklistTemplateItem {
   position: number;
   kind: ChecklistItemKind;
   is_required: boolean;
+  section: string | null;
 }
 
 export interface ChecklistTemplate {
