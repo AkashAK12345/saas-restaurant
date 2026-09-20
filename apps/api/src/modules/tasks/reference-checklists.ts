@@ -246,9 +246,19 @@ export const REFERENCE_CHECKLISTS: readonly ReferenceChecklist[] = [
   },
   {
     key: 'biryani-sales',
-    name: 'Biryani Sales',
-    description: 'Daily capture for the highest-volume product line.',
-    items: [req('Biryani portions sold', 'NUMBER'), opt('Remarks')],
+    name: 'Biryani Sales Report',
+    description: "The day's purchase, morning and evening sales and order quantity, per product line.",
+    items: [
+      ...['Chicken Biryani (Non-Veg)', 'Mutton Biryani (Non-Veg)', 'Chicken Mandi (Non-Veg)', 'Mutton Mandi (Non-Veg)', 'Appam (Veg)'].flatMap(
+        (product) => [
+          opt('Purchase (KG)', 'NUMBER', product),
+          opt('Morning (KG)', 'NUMBER', product),
+          opt('Evening (KG)', 'NUMBER', product),
+          opt('Order Qty (KG)', 'NUMBER', product),
+        ],
+      ),
+      opt('Remarks', 'TEXT', 'Remarks'),
+    ],
   },
   {
     key: 'kitchen-balance',

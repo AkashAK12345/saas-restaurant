@@ -62,6 +62,12 @@ const SECTION_META: Record<string, { icon: AppIconName; tone: Tone }> = {
   Tandoor: { icon: 'flame', tone: 'red' },
   Fish: { icon: 'fish', tone: 'red' },
   BBQ: { icon: 'grill', tone: 'red' },
+  // Biryani Sales Report — one section per product line.
+  'Chicken Biryani (Non-Veg)': { icon: 'bowl', tone: 'amber' },
+  'Mutton Biryani (Non-Veg)': { icon: 'bowl', tone: 'red' },
+  'Chicken Mandi (Non-Veg)': { icon: 'fork', tone: 'red' },
+  'Mutton Mandi (Non-Veg)': { icon: 'fork', tone: 'blue' },
+  'Appam (Veg)': { icon: 'bowl', tone: 'green' },
 };
 
 export function sectionMeta(section: string): { icon: AppIconName; iconClass: string; accentClass: string } {
