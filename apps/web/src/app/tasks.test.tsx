@@ -565,7 +565,7 @@ describe('Task Quick Access detail', () => {
   });
 
   it('falls back to "being built" for a shortcut with no backend definition', async () => {
-    quickAccessKey = 'branch-manager-checklist';
+    quickAccessKey = 'activity-calendar';
     apiMock.referenceLibrary.mockResolvedValue([refChecklist()]); // eod-report only
     render(<TaskQuickAccessPage />);
     expect(await screen.findByText(/being built next/)).toBeTruthy();

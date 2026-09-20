@@ -49,6 +49,11 @@ const SECTION_META: Record<string, { icon: AppIconName; tone: Tone }> = {
   'Hall Cleanliness': { icon: 'broom', tone: 'red' },
   'Climate & Lighting': { icon: 'snowflake', tone: 'green' },
   'AV Equipment': { icon: 'monitor', tone: 'amber' },
+  // BM Checklist
+  'Checklist Information': { icon: 'clipboard', tone: 'red' },
+  'Daily Checks': { icon: 'clipboardCheck', tone: 'green' },
+  'Points Discussed on Briefing': { icon: 'notes', tone: 'amber' },
+  'Remarks/Comments': { icon: 'chat', tone: 'blue' },
 };
 
 export function sectionMeta(section: string): { icon: AppIconName; iconClass: string; accentClass: string } {

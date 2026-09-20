@@ -1633,7 +1633,9 @@ describe('Phase 9 Tasks & Routines (e2e)', () => {
       expect(library.status).toBe(200);
       const banquet = library.body.find((r: any) => r.key === 'banquet-opening');
       expect(banquet.installed).toBe(false);
-      expect(library.body.map((r: any) => r.name)).not.toContain('BM Checklist');
+      // Every offered definition carries items; the Activity Calendar is not a checklist at all.
+      expect(library.body.every((r: any) => r.items.length > 0)).toBe(true);
+      expect(library.body.map((r: any) => r.key)).not.toContain('activity-calendar');
       // A checklist with its own deadline says so; the rest leave it to the day's end.
       expect(library.body.find((r: any) => r.key === 'opening-checklist').due_time).toBe('11:45');
       expect(banquet.due_time).toBeNull();

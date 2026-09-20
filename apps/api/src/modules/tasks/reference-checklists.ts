@@ -6,11 +6,9 @@ import type { ChecklistItemKindName } from './checklist-values.js';
  * not eleven separate implementations.
  *
  * WHAT IS HERE, AND WHAT IS NOT
- *   Items are taken from what the source document names for each routine.
- *   Where it names only a purpose ("Kitchen hygiene and operations") and no
- *   items, no definition is offered: inventing a company's hygiene standard
- *   would be fabrication. That one (BM Checklist) is built by the operator
- *   with the same editor.
+ *   Items are taken from what the source document or the reference app's own
+ *   screens name for each routine; nothing is invented beyond finishing a
+ *   question the screenshots cut off.
  *   Stock-ledger routines (balance, wastage, indent) capture the figures as
  *   answers only; they do not post to an inventory, which is a future module.
  *
@@ -283,9 +281,33 @@ export const REFERENCE_CHECKLISTS: readonly ReferenceChecklist[] = [
       opt('Auditor notes'),
     ],
   },
-];
+  {
+    key: 'branch-manager-checklist',
+    name: 'BM Checklist',
+    description: "The branch manager's daily round: staff, premises, equipment and the day's briefing.",
+    items: [
+      req('Manager Name', 'TEXT', 'Checklist Information'),
 
-/** The reference routines deliberately NOT offered, and why. */
-export const REFERENCE_NOT_OFFERED: ReadonlyArray<{ name: string; reason: string }> = [
-  { name: 'BM Checklist', reason: 'The source names its purpose but not its items.' },
+      opt(
+        'Are all the staff well-groomed as per the Samco standards? (clean and ironed uniform, with name badge, well-polished shoes)',
+        'YES_NO',
+        'Daily Checks',
+      ),
+      opt('TV & Music is on?', 'YES_NO', 'Daily Checks'),
+      opt('Is the scheduled staff present and on time?', 'YES_NO', 'Daily Checks'),
+      opt('Is the dining area clean and presentable? (Tables, chairs, floors, windows, etc.)', 'YES_NO', 'Daily Checks'),
+      opt('Are all equipment and appliances functioning properly? (Lights, air conditioning, POS system)', 'YES_NO', 'Daily Checks'),
+      opt('Has the restroom been cleaned & sanitized properly and checklist has been filled?', 'YES_NO', 'Daily Checks'),
+
+      opt('Grooming', 'YES_NO', 'Points Discussed on Briefing'),
+      opt('Cleanliness', 'YES_NO', 'Points Discussed on Briefing'),
+      opt("Yesterday's Feedback", 'YES_NO', 'Points Discussed on Briefing'),
+      opt("Day's Special", 'YES_NO', 'Points Discussed on Briefing'),
+      opt('Menu Knowledge', 'YES_NO', 'Points Discussed on Briefing'),
+      opt('Staff Concern', 'YES_NO', 'Points Discussed on Briefing'),
+      opt('Please elaborate the Briefing points for the day', 'TEXT', 'Points Discussed on Briefing'),
+
+      req('Remarks/Comments', 'TEXT', 'Remarks/Comments'),
+    ],
+  },
 ];

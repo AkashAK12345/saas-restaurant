@@ -7,9 +7,7 @@ import type { AppIconName } from '@/components/app/icons';
  * `key` matches the backend's `REFERENCE_CHECKLISTS` key
  * (`apps/api/src/modules/tasks/reference-checklists.ts`) wherever one exists,
  * so wiring a tile to its real submission flow later is a lookup, not a
- * rename. branch-manager-checklist has no reference definition on the
- * backend yet (the source names its purpose but not its items); an operator
- * builds it with the ordinary checklist editor. activity-calendar is not a
+ * rename. Every tile has one except activity-calendar, which is not a
  * checklist at all.
  *
  * Each entry only describes the tile — what a tap actually does is still
