@@ -285,6 +285,18 @@
   gap: 10px;
   margin-bottom: var(--gap);
 }
+/* The same header as a control, for sections that collapse. */
+.sectionToggle {
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.sectionToggle .spacer { flex: 1 1 auto; }
+.sectionChevron { flex: none; color: var(--color-text-muted); display: inline-flex; }
 .sectionIcon {
   display: inline-flex;
   align-items: center;
@@ -310,6 +322,21 @@
 
 .field { display: grid; gap: 6px; width: 100%; }
 .textareaCompact { min-height: 56px; }
+
+/* A counted item: name on the left, a small number box on the right. */
+.numberRow { display: flex; align-items: center; gap: var(--gap); width: 100%; }
+.numberRow .itemLabel { flex: 1 1 auto; }
+.numberInput {
+  flex: 0 0 96px;
+  width: 96px;
+  min-height: var(--tap-min);
+  padding: 8px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
 
 /* A yes/no item in a sectioned form: question on the left, switch on the right. */
 .toggleRow { display: flex; align-items: center; gap: var(--gap); width: 100%; }

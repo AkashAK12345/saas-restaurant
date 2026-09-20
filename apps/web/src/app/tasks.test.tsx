@@ -844,6 +844,38 @@ describe('Task detail and checklist', () => {
     expect(apiMock.setChecklistItem).toHaveBeenCalledWith(ctx, 'tk-1', 's-4', true, 'NO');
   });
 
+  it('folds a section away when its header is tapped', async () => {
+    const sectioned = detail({
+      title: 'Kitchen Balance Report',
+      checklist: [
+        {
+          id: 'b-1',
+          label: 'Chicken Biryani Rice',
+          position: 0,
+          kind: 'NUMBER',
+          is_required: false,
+          is_done: false,
+          value: null,
+          section: 'Biryani',
+          max_photos: null,
+          done_at: null,
+          done_by: null,
+        },
+      ],
+      checklist_progress: { total: 1, done: 0, required_total: 0, required_done: 0, ready_to_complete: true },
+    });
+    apiMock.get.mockResolvedValue(sectioned);
+    render(<TaskDetailPage />);
+
+    const header = await screen.findByRole('button', { name: /Biryani/ });
+    expect(header.getAttribute('aria-expanded')).toBe('true');
+    expect(screen.getByLabelText('Chicken Biryani Rice')).toBeTruthy();
+
+    fireEvent.click(header);
+    expect(header.getAttribute('aria-expanded')).toBe('false');
+    expect(screen.queryByLabelText('Chicken Biryani Rice')).toBeNull();
+  });
+
   it('blocks completion until the server says the required items are done', async () => {
     render(<TaskDetailPage />);
     await screen.findByText('Unlock the doors');

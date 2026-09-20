@@ -89,6 +89,9 @@ export default function TaskDetailPage() {
   // refresh triggered by an unrelated action (ticking a box, a photo upload)
   // never clobbers an in-progress answer elsewhere on the same form.
   const [sectionDraft, setSectionDraft] = useState<Record<string, string>>({});
+  // Sections start open; a long form (a stock count runs to dozens of items)
+  // can be folded away section by section.
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const draftValue = (item: ChecklistItem) => sectionDraft[item.id] ?? item.value ?? '';
   const setDraftValue = (itemId: string, value: string) =>
     setSectionDraft((d) => ({ ...d, [itemId]: value }));
@@ -501,17 +504,29 @@ export default function TaskDetailPage() {
             return (
               <section key={gi} className={`${styles.panel} ${meta?.accentClass ?? ''}`}>
                 {group.section && meta ? (
-                  <div className={styles.sectionHeader}>
+                  <button
+                    type="button"
+                    className={`${styles.sectionHeader} ${styles.sectionToggle}`}
+                    aria-expanded={!collapsed[group.section]}
+                    onClick={() =>
+                      setCollapsed((c) => ({ ...c, [group.section as string]: !c[group.section as string] }))
+                    }
+                  >
                     <span className={`${styles.sectionIcon} ${meta.iconClass}`}>
                       <AppIcon name={meta.icon} size={18} />
                     </span>
                     <h2 className={styles.panelTitle} style={{ margin: 0 }}>
                       {group.section}
                     </h2>
-                  </div>
+                    <span className={styles.spacer} />
+                    <span className={styles.sectionChevron}>
+                      <AppIcon name={collapsed[group.section] ? 'chevronDown' : 'chevronUp'} size={20} />
+                    </span>
+                  </button>
                 ) : (
                   <h2 className={styles.panelTitle}>Checklist</h2>
                 )}
+                {group.section && collapsed[group.section] ? null : (
                 <ul className={styles.items}>
                   {group.items.map((item) =>
                     item.kind === 'CHECK' ? (
@@ -547,6 +562,31 @@ export default function TaskDetailPage() {
                     ) : item.kind === 'PHOTO' ? (
                       <li key={item.id} className={styles.item}>
                         <ChecklistPhotoField ctx={ctx!} taskId={t.id} item={item} disabled={fieldDisabled} onChange={() => void refresh()} />
+                      </li>
+                    ) : item.kind === 'NUMBER' ? (
+                      // A counted item reads as one line: name, then its box.
+                      <li key={item.id} className={styles.item}>
+                        <div className={styles.numberRow}>
+                          <label className={styles.itemLabel} htmlFor={`fd-${item.id}`}>
+                            {item.label}
+                            {item.is_required ? (
+                              <span className={styles.required} title="Required">
+                                {' '}
+                                *
+                              </span>
+                            ) : null}
+                          </label>
+                          <input
+                            id={`fd-${item.id}`}
+                            type="text"
+                            inputMode="decimal"
+                            placeholder="0"
+                            className={styles.numberInput}
+                            value={draftValue(item)}
+                            disabled={fieldDisabled}
+                            onChange={(e) => setDraftValue(item.id, e.target.value)}
+                          />
+                        </div>
                       </li>
                     ) : (
                       <li key={item.id} className={styles.item}>
@@ -612,16 +652,6 @@ export default function TaskDetailPage() {
                               disabled={fieldDisabled}
                               onChange={(e) => setDraftValue(item.id, e.target.value)}
                             />
-                          ) : item.kind === 'NUMBER' ? (
-                            <input
-                              id={`fd-${item.id}`}
-                              type="text"
-                              inputMode="decimal"
-                              className={styles.input}
-                              value={draftValue(item)}
-                              disabled={fieldDisabled}
-                              onChange={(e) => setDraftValue(item.id, e.target.value)}
-                            />
                           ) : (
                             <textarea
                               id={`fd-${item.id}`}
@@ -637,6 +667,7 @@ export default function TaskDetailPage() {
                     ),
                   )}
                 </ul>
+                )}
               </section>
             );
           })}

@@ -76,7 +76,11 @@ export type AppIconName =
   | 'store'
   | 'check'
   | 'snowflake'
-  | 'notes';
+  | 'notes'
+  | 'bowl'
+  | 'flame'
+  | 'fish'
+  | 'grill';
 
 const FILLED: Partial<Record<AppIconName, ReactNode>> = {
   people: (
@@ -460,6 +464,27 @@ const STROKED: Record<AppIconName, ReactNode> = {
   ),
   check: <path d="m5 12.5 4.5 4.5L19 7.5" />,
   notes: <path d="M4 6.5h16M4 12h12M4 17.5h8" />,
+  bowl: (
+    <>
+      <path d="M3.5 11.5h17a8.5 8.5 0 0 1-17 0z" />
+      <path d="M8 8.5c0-2 1.8-3.5 4-3.5s4 1.5 4 3.5" />
+    </>
+  ),
+  flame: (
+    <path d="M12 3s5 4.3 5 9a5 5 0 0 1-10 0c0-1.7.7-3.1 1.6-4.1.1 1.4.9 2.1 1.9 2.1.9 0 1.4-.8 1.1-2.1-.4-1.5-.5-3.4.4-4.9z" />
+  ),
+  fish: (
+    <>
+      <path d="M3 12c3-4 6.3-5.5 9.5-5.5 2.6 0 4.8 1.1 6.5 2.8-1.6 1.6-1.6 3.8 0 5.4-1.7 1.7-3.9 2.8-6.5 2.8C9.3 17.5 6 16 3 12z" />
+      <path d="M19 9.3 21.5 7v10L19 14.7M8 11.5h.01" strokeWidth="2.2" />
+    </>
+  ),
+  grill: (
+    <>
+      <path d="M4 5.5h16a8 8 0 0 1-16 0z" />
+      <path d="m7.5 13-1.5 6.5M16.5 13l1.5 6.5M9 9.5h6" />
+    </>
+  ),
   snowflake: (
     <>
       <path d="M12 2.5v19M3.8 7.25l16.4 9.5M3.8 16.75l16.4-9.5" />

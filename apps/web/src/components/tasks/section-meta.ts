@@ -54,6 +54,14 @@ const SECTION_META: Record<string, { icon: AppIconName; tone: Tone }> = {
   'Daily Checks': { icon: 'clipboardCheck', tone: 'green' },
   'Points Discussed on Briefing': { icon: 'notes', tone: 'amber' },
   'Remarks/Comments': { icon: 'chat', tone: 'blue' },
+  // Kitchen Balance Report
+  Biryani: { icon: 'bowl', tone: 'red' },
+  Mandi: { icon: 'fork', tone: 'red' },
+  Breads: { icon: 'box', tone: 'red' },
+  Indian: { icon: 'bowl', tone: 'red' },
+  Tandoor: { icon: 'flame', tone: 'red' },
+  Fish: { icon: 'fish', tone: 'red' },
+  BBQ: { icon: 'grill', tone: 'red' },
 };
 
 export function sectionMeta(section: string): { icon: AppIconName; iconClass: string; accentClass: string } {
