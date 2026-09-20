@@ -325,8 +325,18 @@ export const REFERENCE_CHECKLISTS: readonly ReferenceChecklist[] = [
   {
     key: 'kitchen-wastage',
     name: 'Kitchen Wastage Report',
-    description: 'Wastage quantity and reason. Figures only — no inventory posting.',
-    items: [req('Wastage quantity (KG)', 'NUMBER'), req('Reason', 'TEXT')],
+    description:
+      'One block per wasted product — leave the blocks you do not need empty. Figures only, no inventory posting.',
+    items: [1, 2, 3, 4, 5, 6].flatMap((slot) => [
+      opt('Product Name', 'TEXT', `Product ${slot}`),
+      opt('Category', 'TEXT', `Product ${slot}`),
+      opt('Weight', 'NUMBER', `Product ${slot}`),
+      opt('Unit', 'TEXT', `Product ${slot}`),
+      opt('Unit Cost (₹)', 'NUMBER', `Product ${slot}`),
+      opt('Reason for Wastage', 'TEXT', `Product ${slot}`),
+      opt('Chef Approved (Name)', 'TEXT', `Product ${slot}`),
+      opt('Store Head Verified (Name)', 'TEXT', `Product ${slot}`),
+    ]),
   },
   {
     key: 'kitchen-stock-request',
@@ -336,15 +346,17 @@ export const REFERENCE_CHECKLISTS: readonly ReferenceChecklist[] = [
   },
   {
     key: 'corporate-branch-visit',
-    name: 'Corporate Branch Visit',
-    description: "Head-office auditor's scorecard.",
+    name: 'Corporate Branch Visit Report',
+    description: 'A head-office visit: when it ran, what was actioned, what was found, with photos.',
     items: [
-      req('Staff', 'RATING'),
-      req('Manager', 'RATING'),
-      req('Cashiers', 'RATING'),
-      req('Hygiene', 'RATING'),
-      opt('Last hygiene audit', 'DATE'),
-      opt('Auditor notes'),
+      opt('Time of Arrival', 'TIME', 'Visit Details'),
+      opt('Time of Departure', 'TIME', 'Visit Details'),
+      opt('Actions Implemented', 'TEXT', 'Visit Details'),
+      opt('Issues / Problems Observed', 'TEXT', 'Visit Details'),
+
+      opt('Remarks', 'TEXT', 'Remarks / Observations'),
+
+      { ...opt('Reference Photos', 'PHOTO', 'Reference Photos'), max_photos: 5 },
     ],
   },
   {

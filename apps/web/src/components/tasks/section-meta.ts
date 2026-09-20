@@ -68,9 +68,17 @@ const SECTION_META: Record<string, { icon: AppIconName; tone: Tone }> = {
   'Chicken Mandi (Non-Veg)': { icon: 'fork', tone: 'red' },
   'Mutton Mandi (Non-Veg)': { icon: 'fork', tone: 'blue' },
   'Appam (Veg)': { icon: 'bowl', tone: 'green' },
+  // Corporate Branch Visit Report
+  'Visit Details': { icon: 'briefcase', tone: 'blue' },
+  'Remarks / Observations': { icon: 'notes', tone: 'blue' },
+  'Reference Photos': { icon: 'image', tone: 'pink' },
 };
 
 export function sectionMeta(section: string): { icon: AppIconName; iconClass: string; accentClass: string } {
-  const meta = SECTION_META[section] ?? { icon: 'clipboard', tone: 'neutral' as Tone };
+  // "Product 1", "Product 2", … are the repeated blocks of a wastage report.
+  const fallback: { icon: AppIconName; tone: Tone } = /^Product \d+$/.test(section)
+    ? { icon: 'trash', tone: 'red' }
+    : { icon: 'clipboard', tone: 'neutral' };
+  const meta = SECTION_META[section] ?? fallback;
   return { icon: meta.icon, ...TONE_CLASSES[meta.tone] };
 }

@@ -9,6 +9,7 @@ const HINT: Record<Exclude<ChecklistItem['kind'], 'CHECK'>, string> = {
   TEXT: 'Your answer',
   RATING: 'Rate 1 (poor) to 5 (excellent)',
   DATE: 'A date',
+  TIME: 'A 24-hour time',
   YES_NO: 'Yes or No',
   // Unreachable in practice: PHOTO items render <ChecklistPhotoField> instead
   // of this component. Present only so this map stays exhaustive.
@@ -87,7 +88,7 @@ export function ChecklistAnswer({
         <input
           id={id}
           className={styles.input}
-          type={kind === 'DATE' ? 'date' : 'text'}
+          type={kind === 'DATE' ? 'date' : kind === 'TIME' ? 'time' : 'text'}
           inputMode={kind === 'NUMBER' ? 'decimal' : undefined}
           maxLength={kind === 'TEXT' ? 1000 : 20}
           placeholder={HINT[kind]}

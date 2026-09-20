@@ -1,6 +1,14 @@
 import { BadRequestException } from '@nestjs/common';
 
-export type ChecklistItemKindName = 'CHECK' | 'NUMBER' | 'TEXT' | 'RATING' | 'DATE' | 'PHOTO' | 'YES_NO';
+export type ChecklistItemKindName =
+  | 'CHECK'
+  | 'NUMBER'
+  | 'TEXT'
+  | 'RATING'
+  | 'DATE'
+  | 'TIME'
+  | 'PHOTO'
+  | 'YES_NO';
 
 export const RATING_MIN = 1;
 export const RATING_MAX = 5;
@@ -15,6 +23,7 @@ export const TEXT_MAX = 1000;
  *   NUMBER  up to 12 integer digits and 3 decimals, optional minus
  *   RATING  a whole number 1–5
  *   DATE    a real calendar date, YYYY-MM-DD
+ *   TIME    a 24-hour wall clock, HH:MM
  *   TEXT    1–1000 characters after trimming
  *   YES_NO  "YES" or "NO" (any case), stored upper-case
  *   CHECK   takes no value at all
@@ -52,6 +61,12 @@ export function normalizeChecklistValue(kind: ChecklistItemKindName, raw: unknow
       const d = new Date(`${value}T00:00:00.000Z`);
       if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || Number.isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== value) {
         throw new BadRequestException('Enter a real date as YYYY-MM-DD');
+      }
+      return value;
+    }
+    case 'TIME': {
+      if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(value)) {
+        throw new BadRequestException('Enter a 24-hour time as HH:MM');
       }
       return value;
     }

@@ -643,10 +643,10 @@ export default function TaskDetailPage() {
                                 );
                               })}
                             </div>
-                          ) : item.kind === 'DATE' ? (
+                          ) : item.kind === 'DATE' || item.kind === 'TIME' ? (
                             <input
                               id={`fd-${item.id}`}
-                              type="date"
+                              type={item.kind === 'DATE' ? 'date' : 'time'}
                               className={styles.input}
                               value={draftValue(item)}
                               disabled={fieldDisabled}

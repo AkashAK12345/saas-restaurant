@@ -918,6 +918,7 @@ enum ChecklistItemKind {
   TEXT
   RATING
   DATE
+  TIME
   PHOTO
   YES_NO
 }

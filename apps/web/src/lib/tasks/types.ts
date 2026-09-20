@@ -25,7 +25,15 @@ export interface StaffRef {
  * "YES" or "NO" (a recorded "No", unlike an unticked CHECK). PHOTO is done
  * once it has ≥1 attached photo.
  */
-export type ChecklistItemKind = 'CHECK' | 'NUMBER' | 'TEXT' | 'RATING' | 'DATE' | 'PHOTO' | 'YES_NO';
+export type ChecklistItemKind =
+  | 'CHECK'
+  | 'NUMBER'
+  | 'TEXT'
+  | 'RATING'
+  | 'DATE'
+  | 'TIME'
+  | 'PHOTO'
+  | 'YES_NO';
 
 export interface ChecklistItem {
   id: string;

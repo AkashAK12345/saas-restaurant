@@ -47,6 +47,14 @@ describe('checklist answers', () => {
     expect(() => normalizeChecklistValue('TEXT', null)).toThrow(BadRequestException);
   });
 
+  it('accepts a 24-hour wall clock only', () => {
+    expect(normalizeChecklistValue('TIME', '09:30')).toBe('09:30');
+    expect(normalizeChecklistValue('TIME', ' 23:59 ')).toBe('23:59');
+    for (const bad of ['24:00', '9:30', '09:60', '9.30am', '']) {
+      expect(() => normalizeChecklistValue('TIME', bad)).toThrow(BadRequestException);
+    }
+  });
+
   it('takes Yes or No on a yes/no item, in any case, stored upper-case', () => {
     expect(normalizeChecklistValue('YES_NO', 'yes')).toBe('YES');
     expect(normalizeChecklistValue('YES_NO', ' No ')).toBe('NO');
