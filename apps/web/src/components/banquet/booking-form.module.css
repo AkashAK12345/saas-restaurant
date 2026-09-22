@@ -106,7 +106,8 @@
   border-radius: 14px;
   background: var(--color-surface-muted);
   color: var(--color-text);
-  font-size: 0.95rem;
+  /* 16px is the line below which iOS Safari zooms the page on focus. */
+  font-size: 1rem;
 }
 
 .input::placeholder {
@@ -121,7 +122,7 @@
   border-radius: 14px;
   background: var(--color-surface-muted);
   color: var(--color-text);
-  font-size: 0.95rem;
+  font-size: 1rem;
   appearance: none;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%23999' stroke-width='1.5' fill='none'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
@@ -231,7 +232,8 @@
   border-radius: 12px;
   background: var(--color-surface-muted);
   color: var(--color-text);
-  font-size: 0.9rem;
+  /* 16px is the line below which iOS Safari zooms the page on focus. */
+  font-size: 1rem;
 }
 
 .paymentEntryInput::placeholder {
@@ -248,7 +250,7 @@
   border-radius: 12px;
   background: var(--color-surface-muted);
   color: var(--color-text);
-  font-size: 0.9rem;
+  font-size: 1rem;
   text-align: center;
 }
 
@@ -389,6 +391,12 @@
 }
 
 .menuSetup {
+  display: inline-flex;
+  align-items: center;
+  /* A secondary utility link, not a full-size button — 24px is the WCAG
+     2.5.8 floor rather than the app's usual --tap-min, same as a photo's
+     remove badge elsewhere. */
+  min-height: 24px;
   color: var(--color-primary);
   font-weight: 600;
   font-size: 0.85rem;

@@ -42,6 +42,9 @@
   border: 0;
   padding: 0;
   min-height: var(--tap-min);
+  /* A short name (a single letter, in the extreme) would otherwise render a
+     tap target only as wide as its own text — well under WCAG 2.5.8. */
+  min-width: var(--tap-min);
   color: var(--color-primary);
   font: inherit;
   font-weight: 600;
