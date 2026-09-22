@@ -393,6 +393,9 @@
 .menuSetup {
   display: inline-flex;
   align-items: center;
+  /* Replaces the word space the icon and label had before this became a
+     flex container, which packs its children with no separator. */
+  gap: 4px;
   /* A secondary utility link, not a full-size button — 24px is the WCAG
      2.5.8 floor rather than the app's usual --tap-min, same as a photo's
      remove badge elsewhere. */
