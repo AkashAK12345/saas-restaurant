@@ -351,8 +351,12 @@
   position: absolute;
   top: 4px;
   right: 4px;
-  width: 22px;
-  height: 22px;
+  width: 24px;
+  height: 24px;
+  /* The global `button { min-height: var(--tap-min) }` would otherwise
+     stretch this badge into an ellipse overhanging the thumbnail. */
+  min-height: 24px;
+  padding: 0;
   border: 0;
   border-radius: 50%;
   background: rgba(0, 0, 0, 0.6);

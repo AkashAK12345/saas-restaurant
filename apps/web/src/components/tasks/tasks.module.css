@@ -306,19 +306,39 @@
   height: 36px;
   border-radius: 12px;
 }
-.toneGreen { background: #e3f5e9; color: #2f9e58; }
-.toneBlue { background: #e3edfb; color: #2f6fc7; }
-.toneAmber { background: #fdf1e0; color: #b8860a; }
-.tonePink { background: #fbe4ea; color: #c4477a; }
-.toneRed { background: #fbe4dc; color: #c4573a; }
+/* Section tints come from the palette's accent pairs, not one-off hexes. */
+.toneGreen { background: var(--accent-green-bg); color: var(--accent-green-fg); }
+.toneBlue { background: var(--accent-blue-bg); color: var(--accent-blue-fg); }
+.toneAmber { background: var(--accent-amber-bg); color: var(--accent-amber-fg); }
+.tonePurple { background: var(--accent-purple-bg); color: var(--accent-purple-fg); }
+.toneRed { background: var(--accent-terracotta-bg); color: var(--accent-terracotta-fg); }
 .toneNeutral { background: var(--color-surface-muted); color: var(--color-text-muted); }
 
 /* The coloured bar down a section card's left edge. */
-.accentGreen { border-left: 4px solid #2f9e58; }
-.accentBlue { border-left: 4px solid #2f6fc7; }
-.accentAmber { border-left: 4px solid #d4960f; }
-.accentPink { border-left: 4px solid #c4477a; }
-.accentRed { border-left: 4px solid #c4573a; }
+.accentGreen { border-left: 4px solid var(--accent-green-fg); }
+.accentBlue { border-left: 4px solid var(--accent-blue-fg); }
+.accentAmber { border-left: 4px solid var(--accent-amber-fg); }
+.accentPurple { border-left: 4px solid var(--accent-purple-fg); }
+.accentRed { border-left: 4px solid var(--accent-terracotta-fg); }
+
+/*
+ * A sectioned form's controls stop at a readable column. Left to stretch, a
+ * desktop turns a rating into five 200px-wide buttons, puts a counted item's
+ * box a full screen away from its name, and runs answer text past any sane
+ * line length. Phones and tablets are narrower than this, so they are
+ * unaffected.
+ */
+.field,
+.numberRow,
+.yesNoRow,
+.ratingRow,
+.toggleRow,
+.photoField { max-width: 640px; }
+
+/* The one action that ends a long form spans that same column, so it is not
+   a small button adrift under dozens of fields. */
+.submitRow { margin-bottom: var(--gap-lg); }
+.submitRow .action { flex: 1 1 auto; max-width: 640px; }
 
 .field { display: grid; gap: 6px; width: 100%; }
 .textareaCompact { min-height: 56px; }
@@ -348,9 +368,9 @@
   height: 30px;
   min-height: 30px;
   margin: 0;
-  border: 2px solid #7a5a52;
-  border-radius: 999px;
-  background: #f3e3dc;
+  border: 2px solid var(--color-text-muted);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface-muted);
   cursor: pointer;
   transition: background 0.15s, border-color 0.15s;
 }
@@ -362,7 +382,7 @@
   width: 20px;
   height: 20px;
   border-radius: 50%;
-  background: #7a5a52;
+  background: var(--color-text-muted);
   transition: transform 0.15s, background 0.15s;
 }
 .toggle:checked { background: var(--color-primary); border-color: var(--color-primary); }
@@ -370,7 +390,7 @@
 .toggle:disabled { opacity: 0.55; cursor: not-allowed; }
 
 /* A 1–5 rating in a sectioned form: five tappable buttons. */
-.ratingRow { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
+.ratingRow { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; width: 100%; }
 .ratingBtn {
   min-height: var(--tap-min);
   border: 1px solid var(--color-border);
@@ -403,8 +423,8 @@
   cursor: pointer;
 }
 .yesNoBtn svg { color: var(--color-text-muted); }
-.yesNoYes { background: #e3f5e9; border-color: #2f9e58; color: #1f7a42; }
-.yesNoNo { background: #fbe4dc; border-color: #c4573a; color: #a4452c; }
+.yesNoYes { background: var(--accent-green-bg); border-color: var(--color-success); color: var(--color-success); }
+.yesNoNo { background: var(--color-danger-bg); border-color: var(--color-danger); color: var(--color-danger); }
 .yesNoYes svg,
 .yesNoNo svg { color: currentColor; }
 .yesNoBtn:disabled { cursor: not-allowed; opacity: 0.55; }
@@ -428,8 +448,13 @@
   position: absolute;
   top: 4px;
   right: 4px;
-  width: 20px;
-  height: 20px;
+  width: 24px;
+  height: 24px;
+  /* Without this the global `button { min-height: var(--tap-min) }` stretches
+     the badge into a 24×44 ellipse hanging off the thumbnail. 24px is the
+     WCAG 2.5.8 minimum for a target this size. */
+  min-height: 24px;
+  padding: 0;
   border: 0;
   border-radius: 50%;
   background: rgba(0, 0, 0, 0.6);

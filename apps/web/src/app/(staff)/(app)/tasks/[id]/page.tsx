@@ -672,7 +672,7 @@ export default function TaskDetailPage() {
             );
           })}
           {open && may.update ? (
-            <div className={styles.actions} style={{ marginBottom: 'var(--gap-lg)' }}>
+            <div className={`${styles.actions} ${styles.submitRow}`}>
               <button
                 type="button"
                 className={`${styles.action} ${styles.primary}`}

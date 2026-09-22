@@ -1,13 +1,13 @@
 import type { AppIconName } from '@/components/app/icons';
 import styles from './tasks.module.css';
 
-type Tone = 'green' | 'blue' | 'amber' | 'pink' | 'red' | 'neutral';
+type Tone = 'green' | 'blue' | 'amber' | 'purple' | 'red' | 'neutral';
 
 const TONE_CLASSES: Record<Tone, { iconClass: string; accentClass: string }> = {
   green: { iconClass: styles.toneGreen, accentClass: styles.accentGreen },
   blue: { iconClass: styles.toneBlue, accentClass: styles.accentBlue },
   amber: { iconClass: styles.toneAmber, accentClass: styles.accentAmber },
-  pink: { iconClass: styles.tonePink, accentClass: styles.accentPink },
+  purple: { iconClass: styles.tonePurple, accentClass: styles.accentPurple },
   red: { iconClass: styles.toneRed, accentClass: styles.accentRed },
   neutral: { iconClass: styles.toneNeutral, accentClass: '' },
 };
@@ -23,7 +23,7 @@ const SECTION_META: Record<string, { icon: AppIconName; tone: Tone }> = {
   "Today's Summary": { icon: 'calendarCheck', tone: 'green' },
   EB: { icon: 'lightning', tone: 'blue' },
   "Tomorrow's Operational Info": { icon: 'calendar', tone: 'amber' },
-  'Submitted By': { icon: 'person', tone: 'pink' },
+  'Submitted By': { icon: 'person', tone: 'purple' },
   // Operational Checklist
   Security: { icon: 'shield', tone: 'blue' },
   'Parking / Driver': { icon: 'parking', tone: 'amber' },
@@ -71,7 +71,7 @@ const SECTION_META: Record<string, { icon: AppIconName; tone: Tone }> = {
   // Corporate Branch Visit Report
   'Visit Details': { icon: 'briefcase', tone: 'blue' },
   'Remarks / Observations': { icon: 'notes', tone: 'blue' },
-  'Reference Photos': { icon: 'image', tone: 'pink' },
+  'Reference Photos': { icon: 'image', tone: 'purple' },
 };
 
 export function sectionMeta(section: string): { icon: AppIconName; iconClass: string; accentClass: string } {
