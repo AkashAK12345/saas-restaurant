@@ -471,6 +471,7 @@ describe('Phase 10 Reports & Dashboard (e2e)', () => {
         'queue.tokens',
         'tasks.assignee',
         'tasks.completion',
+        'tasks.log',
         'tasks.routines',
       ]);
       expect(res.body.meta.total).toBe(keys.length);
@@ -735,6 +736,139 @@ describe('Phase 10 Reports & Dashboard (e2e)', () => {
       expect(res.status).toBe(200);
       expect(res.body.rows).toHaveLength(2);
       expect(res.body.meta.offset).toBe(0);
+    });
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // TASK LOG — its own day, so the shared KOLKATA_DAY figures above (and the
+  // live tasks.open tile, which counts every open task) never see these rows.
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  describe('Task log', () => {
+    const LOG_DAY = '2026-04-15';
+    const logRange = { from: LOG_DAY, to: LOG_DAY };
+    const PAST = new Date('2026-04-15T06:00:00.000Z');
+    const FUTURE = new Date('2099-01-01T00:00:00.000Z');
+    const created: string[] = [];
+
+    const logTask = async (
+      title: string,
+      status: TaskStatus,
+      extra: { assignee?: string; due?: Date; branchId?: string; completedAt?: Date } = {},
+    ) => {
+      const task = await prisma.task.create({
+        data: {
+          company_id: companyA.id,
+          branch_id: extra.branchId ?? branchA.id,
+          title,
+          status,
+          created_at: new Date('2026-04-15T05:00:00.000Z'),
+          assignee_id: extra.assignee ?? null,
+          due_at: extra.due ?? null,
+          completed_at: extra.completedAt ?? null,
+        },
+      });
+      created.push(task.id);
+      return task;
+    };
+
+    const log = (query: Record<string, unknown> = {}) =>
+      asAnalyst(request(http).get('/api/v1/reports/tasks.log/data')).query({ ...logRange, ...query });
+
+    const titles = (res: request.Response) => res.body.rows.map((r: any) => r.title).sort();
+
+    beforeAll(async () => {
+      const done = await logTask('Log: done', TaskStatus.COMPLETED, {
+        assignee: analystA.id,
+        due: PAST,
+        completedAt: new Date('2026-04-15T05:30:00.000Z'),
+      });
+      await prisma.taskChecklistItem.createMany({
+        data: [
+          { task_id: done.id, label: 'One', position: 0, is_done: true },
+          { task_id: done.id, label: 'Two', position: 1, is_done: true },
+        ],
+      });
+      await logTask('Log: working', TaskStatus.IN_PROGRESS, { assignee: analystA.id, due: FUTURE });
+      await logTask('Log: assigned', TaskStatus.PENDING, { assignee: analystA.id, due: PAST });
+      await logTask('Log: unassigned', TaskStatus.PENDING);
+      await logTask('Log: cancelled', TaskStatus.CANCELLED, { due: PAST });
+      await logTask('Log: other branch', TaskStatus.PENDING, { branchId: branchA2.id, due: PAST });
+    });
+
+    afterAll(async () => {
+      // Checklist items restrict their task's deletion, so they go first.
+      await prisma.taskChecklistItem.deleteMany({ where: { task_id: { in: created } } });
+      await prisma.task.deleteMany({ where: { id: { in: created } } });
+    });
+
+    it('RP-TL1. lists every task raised in the window at this branch, and no other branch’s', async () => {
+      const res = await log();
+      expect(res.status).toBe(200);
+      expect(res.body.name).toBe('Task Reports');
+      expect(titles(res)).toEqual([
+        'Log: assigned',
+        'Log: cancelled',
+        'Log: done',
+        'Log: unassigned',
+        'Log: working',
+      ]);
+      expect(res.body.meta.total).toBe(5);
+    });
+
+    it('RP-TL2. headline figures: pending is everything still open, overdue excludes cancelled work', async () => {
+      const res = await log();
+      const metric = (key: string) => res.body.metrics.find((m: any) => m.key === key).value;
+      expect(metric('total_tasks')).toBe(5);
+      expect(metric('completed')).toBe(1);
+      expect(metric('pending')).toBe(3); // working + assigned + unassigned
+      expect(metric('overdue')).toBe(1); // only "assigned": open AND past due
+    });
+
+    it('RP-TL3. each chip selects exactly its tasks', async () => {
+      expect(titles(await log({ view: 'COMPLETED' }))).toEqual(['Log: done']);
+      expect(titles(await log({ view: 'IN_PROGRESS' }))).toEqual(['Log: working']);
+      // Assigned means handed to someone and not yet started.
+      expect(titles(await log({ view: 'ASSIGNED' }))).toEqual(['Log: assigned']);
+      expect(titles(await log({ view: 'INCOMPLETE' }))).toEqual([
+        'Log: assigned',
+        'Log: unassigned',
+        'Log: working',
+      ]);
+      // A future due date is not late; a cancelled task is never overdue.
+      expect(titles(await log({ view: 'OVERDUE' }))).toEqual(['Log: assigned']);
+    });
+
+    it('RP-TL4. the headline figures summarise the whole window, whichever chip is selected', async () => {
+      const res = await log({ view: 'OVERDUE' });
+      expect(res.body.meta.total).toBe(1);
+      expect(res.body.metrics.find((m: any) => m.key === 'total_tasks').value).toBe(5);
+    });
+
+    it('RP-TL5. shows checklist progress, an unassigned task as such, and links each row to its task', async () => {
+      const res = await log();
+      const byTitle = (t: string) => res.body.rows.find((r: any) => r.title === t);
+      expect(byTitle('Log: done').checklist).toBe('2/2');
+      expect(byTitle('Log: unassigned').checklist).toBeNull();
+      expect(byTitle('Log: unassigned').assignee_name).toBe('Unassigned');
+      expect(byTitle('Log: done').assignee_name).toBe('Ana Lyst');
+      expect(byTitle('Log: done').source).toBe('Manual');
+      expect(res.body.drilldown).toEqual({ id_key: 'task_id', path: '/tasks/:id' });
+      expect(typeof byTitle('Log: done').task_id).toBe('string');
+    });
+
+    it('RP-TL6. offers no "pending approval" filter — SAMCO tasks have no approval step', async () => {
+      expect((await log({ view: 'PENDING_APPROVAL' })).status).toBe(400);
+    });
+
+    it('RP-TL7. needs tasks.reports.view, like every other task report', async () => {
+      const res = await as(
+        request(http).get('/api/v1/reports/tasks.log/data'),
+        tokenQueueOnlyA,
+        companyA.id,
+        branchA.id,
+      ).query(logRange);
+      expect(res.status).toBe(403);
     });
   });
 

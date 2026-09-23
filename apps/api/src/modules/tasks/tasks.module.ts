@@ -12,6 +12,7 @@ import { ReportingCoreModule } from '../reports/reporting-core.module.js';
 import {
   TaskAssigneeReport,
   TaskCompletionReport,
+  TaskLogReport,
   TaskReportRegistrar,
   TaskRoutineReport,
   TasksOpenWidget,
@@ -77,6 +78,7 @@ export class RoutineScheduler implements OnModuleInit {
     TaskCompletionReport,
     TaskAssigneeReport,
     TaskRoutineReport,
+    TaskLogReport,
     TasksOpenWidget,
     TaskReportRegistrar,
   ],

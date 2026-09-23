@@ -392,8 +392,19 @@ describe('report view', () => {
   });
 
   it('RF-18. shows an empty period honestly', async () => {
+    // queue.tokens (the default route here) sits in a titled panel, which
+    // uses the reference design's icon-and-line empty state.
     apiMock.run.mockImplementation(async () =>
       reportResponse({ rows: [], meta: { total: 0, limit: 50, offset: 0 } }),
+    );
+    const { unmount } = render(<ReportPage />);
+    expect(await screen.findByText(/no data found/i)).toBeTruthy();
+    unmount();
+
+    // A report with no panel keeps the plain wording.
+    routeKey = 'banquet.payments';
+    apiMock.run.mockImplementation(async () =>
+      reportResponse({ key: 'banquet.payments', rows: [], meta: { total: 0, limit: 50, offset: 0 } }),
     );
     render(<ReportPage />);
     expect(await screen.findByText(/no data for this period/i)).toBeTruthy();
@@ -608,6 +619,125 @@ describe('banquet.bookings report panel', () => {
     await waitFor(() => expect(screen.getAllByRole('row')).toHaveLength(2));
     expect(screen.getByText('button garments')).toBeTruthy();
     expect(screen.queryByText('test1')).toBeNull();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// TASK REPORTS — filter chips that ask the server, and the empty log
+// ═══════════════════════════════════════════════════════════════════════════
+
+function tasksLogResponse(overrides: Partial<ReportResponse> = {}): ReportResponse {
+  return reportResponse({
+    key: 'tasks.log',
+    name: 'Task Reports',
+    columns: [
+      { key: 'title', label: 'Task', type: 'string' },
+      { key: 'assignee_name', label: 'Assignee', type: 'string' },
+      { key: 'status', label: 'Status', type: 'badge' },
+      { key: 'priority', label: 'Priority', type: 'badge' },
+      { key: 'checklist', label: 'Checklist', type: 'string' },
+    ],
+    option_specs: [
+      { key: 'view', label: 'Show', values: ['COMPLETED', 'IN_PROGRESS', 'ASSIGNED', 'INCOMPLETE', 'OVERDUE'] },
+    ],
+    metrics: [
+      { key: 'total_tasks', label: 'Total Tasks', value: 2, type: 'number' },
+      { key: 'completed', label: 'Completed', value: 1, type: 'number' },
+      { key: 'pending', label: 'Pending', value: 1, type: 'number' },
+      { key: 'overdue', label: 'Overdue', value: 1, type: 'number' },
+    ],
+    rows: [
+      { title: 'Clean the fryer', assignee_name: 'Ana Lyst', status: 'COMPLETED', priority: 'NORMAL', checklist: '2/2' },
+      { title: 'Restock napkins', assignee_name: 'Unassigned', status: 'PENDING', priority: 'HIGH', checklist: null },
+    ],
+    meta: { total: 2, limit: 50, offset: 0 },
+    ...overrides,
+  });
+}
+
+describe('tasks.log report panel', () => {
+  beforeEach(() => {
+    routeKey = 'tasks.log';
+    apiMock.run.mockImplementation(async () => tasksLogResponse());
+  });
+
+  const chips = () =>
+    within(screen.getByRole('group', { name: 'Filter the log' })).getAllByRole('button');
+
+  it('RF-49. offers the reference chips, starting on All, with no "Pending Approval"', async () => {
+    render(<ReportPage />);
+    await screen.findByRole('table');
+
+    expect(chips().map((c) => c.textContent)).toEqual([
+      'All',
+      'Completed',
+      'In Progress',
+      'Assigned',
+      'Incomplete',
+      'Overdue',
+    ]);
+    expect(chips()[0].getAttribute('aria-pressed')).toBe('true');
+    expect(screen.queryByText('Pending Approval')).toBeNull();
+  });
+
+  it('RF-50. a chip filters on the SERVER, and All clears it', async () => {
+    render(<ReportPage />);
+    await screen.findByRole('table');
+    apiMock.run.mockClear();
+
+    fireEvent.click(chips().find((c) => c.textContent === 'Overdue')!);
+    await waitFor(() => expect(apiMock.run).toHaveBeenCalled());
+    expect(apiMock.run.mock.calls.at(-1)?.[2]).toMatchObject({ options: { view: 'OVERDUE' }, offset: 0 });
+    await waitFor(() =>
+      expect(chips().find((c) => c.textContent === 'Overdue')!.getAttribute('aria-pressed')).toBe('true'),
+    );
+
+    apiMock.run.mockClear();
+    fireEvent.click(chips()[0]);
+    await waitFor(() => expect(apiMock.run).toHaveBeenCalled());
+    expect(apiMock.run.mock.calls.at(-1)?.[2].options).toEqual({});
+  });
+
+  it('RF-51. the chip option is not repeated as a dropdown', async () => {
+    render(<ReportPage />);
+    await screen.findByRole('table');
+    expect(screen.queryByLabelText('Show')).toBeNull();
+  });
+
+  it('RF-52. four headline cards, with a red warning for Overdue', async () => {
+    const { container } = render(<ReportPage />);
+    await screen.findByRole('table');
+
+    expect([...container.querySelectorAll('dt')].map((dt) => dt.textContent)).toEqual([
+      'Total Tasks',
+      'Completed',
+      'Pending',
+      'Overdue',
+    ]);
+    expect(container.querySelector('[data-tone="red"]')).not.toBeNull();
+  });
+
+  it('RF-53. status and priority read as the task board shows them', async () => {
+    render(<ReportPage />);
+    const table = await screen.findByRole('table');
+    const rows = within(table).getAllByRole('row').slice(1);
+    expect(within(rows[0]).getByText('Completed').getAttribute('data-tone')).toBe('success');
+    expect(within(rows[1]).getByText('Pending').getAttribute('data-tone')).toBe('warning');
+    expect(within(rows[1]).getByText('High').getAttribute('data-tone')).toBe('danger');
+    // No checklist is a dash, not "0/0".
+    expect(within(rows[1]).getByText('—')).toBeTruthy();
+  });
+
+  it('RF-54. an empty log says so inside the panel, with 0 entries', async () => {
+    apiMock.run.mockImplementation(async () =>
+      tasksLogResponse({ rows: [], meta: { total: 0, limit: 50, offset: 0 } }),
+    );
+    render(<ReportPage />);
+
+    expect(await screen.findByText('No data found')).toBeTruthy();
+    expect(screen.getByText('Task Log')).toBeTruthy();
+    expect(screen.getByText('0 entries')).toBeTruthy();
+    expect(screen.getByPlaceholderText('Search task…')).toBeTruthy();
   });
 });
 

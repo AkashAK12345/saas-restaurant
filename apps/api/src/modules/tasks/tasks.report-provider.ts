@@ -373,6 +373,160 @@ export class TaskRoutineReport implements ReportProvider {
   }
 }
 
+const TASK_LOG_COLUMNS = [
+  { key: 'title', label: 'Task', type: 'string' },
+  { key: 'created_at', label: 'Created', type: 'datetime' },
+  { key: 'assignee_name', label: 'Assignee', type: 'string' },
+  { key: 'status', label: 'Status', type: 'badge' },
+  { key: 'priority', label: 'Priority', type: 'badge' },
+  { key: 'due_at', label: 'Due', type: 'datetime' },
+  { key: 'completed_at', label: 'Completed', type: 'datetime' },
+  { key: 'checklist', label: 'Checklist', type: 'string' },
+  { key: 'source', label: 'Source', type: 'string' },
+] as const;
+
+/**
+ * The Task Log's filter chips. Each value selects a FIXED SQL fragment below
+ * — the value itself is never interpolated, and ReportsService has already
+ * refused anything not on this list.
+ *
+ *   COMPLETED   — done
+ *   IN_PROGRESS — started, not done
+ *   ASSIGNED    — handed to someone, not yet started
+ *   INCOMPLETE  — anything still open (PENDING or IN_PROGRESS): exactly the
+ *                 tasks behind the "Pending" card
+ *   OVERDUE     — open and past its due time, the same rule every other task
+ *                 report and the dashboard tile already use
+ *
+ * There is deliberately no "pending approval": SAMCO tasks have no approval
+ * step, so such a filter could only ever be empty.
+ */
+const TASK_VIEWS = ['COMPLETED', 'IN_PROGRESS', 'ASSIGNED', 'INCOMPLETE', 'OVERDUE'] as const;
+
+function taskViewFilter(view: string | undefined): Prisma.Sql {
+  switch (view) {
+    case 'COMPLETED':
+      return Prisma.sql`AND t."status" = 'COMPLETED'`;
+    case 'IN_PROGRESS':
+      return Prisma.sql`AND t."status" = 'IN_PROGRESS'`;
+    case 'ASSIGNED':
+      return Prisma.sql`AND t."status" = 'PENDING' AND t."assignee_id" IS NOT NULL`;
+    case 'INCOMPLETE':
+      return Prisma.sql`AND t."status" IN ${OPEN_STATUSES}`;
+    case 'OVERDUE':
+      return Prisma.sql`AND t."status" IN ${OPEN_STATUSES} AND t."due_at" IS NOT NULL AND t."due_at" < NOW()`;
+    default:
+      return Prisma.empty;
+  }
+}
+
+interface TaskLogRow {
+  task_id: string;
+  title: string;
+  created_at: Date;
+  assignee_name: string;
+  status: string;
+  priority: string;
+  due_at: Date | null;
+  completed_at: Date | null;
+  source: string;
+  checklist_total: bigint;
+  checklist_done: bigint;
+}
+
+/**
+ * Every task raised in the period, one row each — the Task Log.
+ *
+ * The headline figures summarise the WHOLE window and ignore the chip filter,
+ * so they read as a legend for the chips rather than repeating whichever one
+ * is selected. The row count (and pagination) follows the filter.
+ */
+@Injectable()
+export class TaskLogReport implements ReportProvider {
+  readonly definition: ReportDefinition = {
+    key: 'tasks.log',
+    name: 'Task Reports',
+    description: 'Every task raised in the period, who it went to and how it ended.',
+    domain: 'tasks',
+    scope: 'branch',
+    kind: 'rows',
+    permission: PERMISSION_KEYS.TASKS_REPORTS_VIEW,
+    columns: TASK_LOG_COLUMNS,
+    options: [{ key: 'view', label: 'Show', values: TASK_VIEWS }],
+    exportable: true,
+    drilldown: { id_key: 'task_id', path: '/tasks/:id' },
+  };
+
+  constructor(private readonly prisma: PrismaService) {}
+
+  async run({ ctx, range, options, page }: ReportQuery): Promise<ReportResult> {
+    const window = windowFor(ctx.companyId, ctx.branchId, range.from, range.to);
+    const filtered = Prisma.sql`${window} ${taskViewFilter(options.view)}`;
+
+    const [rows, counted, summary] = await Promise.all([
+      this.prisma.$queryRaw<TaskLogRow[]>(Prisma.sql`
+        SELECT
+          t."id" AS "task_id",
+          t."title",
+          t."created_at",
+          COALESCE(NULLIF(TRIM(CONCAT_WS(' ', u."first_name", u."last_name")), ''), 'Unassigned')
+            AS "assignee_name",
+          t."status"::text   AS "status",
+          t."priority"::text AS "priority",
+          t."due_at",
+          t."completed_at",
+          CASE WHEN t."source" = 'ROUTINE' THEN 'Routine' ELSE 'Manual' END AS "source",
+          (SELECT COUNT(*) FROM "task_checklist_items" ci WHERE ci."task_id" = t."id") AS "checklist_total",
+          (SELECT COUNT(*) FROM "task_checklist_items" ci
+            WHERE ci."task_id" = t."id" AND ci."is_done") AS "checklist_done"
+        FROM "tasks" t
+        LEFT JOIN "users" u ON u."id" = t."assignee_id"
+        ${filtered}
+        -- id breaks ties: two tasks raised in the same instant must not swap between pages.
+        ORDER BY t."created_at" DESC, t."id" ASC
+        LIMIT ${page.limit} OFFSET ${page.offset}
+      `),
+      this.prisma.$queryRaw<Array<{ total: bigint }>>(Prisma.sql`
+        SELECT COUNT(*) AS "total" FROM "tasks" t ${filtered}
+      `),
+      this.prisma.$queryRaw<
+        Array<{ total: bigint; completed: bigint; pending: bigint; overdue: bigint }>
+      >(Prisma.sql`
+        SELECT
+          COUNT(*)                                               AS "total",
+          COUNT(*) FILTER (WHERE t."status" = 'COMPLETED')       AS "completed",
+          COUNT(*) FILTER (WHERE t."status" IN ${OPEN_STATUSES}) AS "pending",
+          COUNT(*) FILTER (
+            WHERE t."status" IN ${OPEN_STATUSES}
+              AND t."due_at" IS NOT NULL
+              AND t."due_at" < NOW()
+          ) AS "overdue"
+        FROM "tasks" t
+        ${window}
+      `),
+    ]);
+
+    const s = summary[0];
+    return {
+      rows: rows.map(({ checklist_total, checklist_done, ...row }) => {
+        const itemCount = toReportNumber(checklist_total);
+        return {
+          ...row,
+          // A task with no checklist has nothing to count — a dash, not "0/0".
+          checklist: itemCount === 0 ? null : `${toReportNumber(checklist_done)}/${itemCount}`,
+        };
+      }),
+      total: toReportNumber(counted[0]?.total),
+      metrics: [
+        { key: 'total_tasks', label: 'Total Tasks', value: toReportNumber(s?.total), type: 'number' },
+        { key: 'completed', label: 'Completed', value: toReportNumber(s?.completed), type: 'number' },
+        { key: 'pending', label: 'Pending', value: toReportNumber(s?.pending), type: 'number' },
+        { key: 'overdue', label: 'Overdue', value: toReportNumber(s?.overdue), type: 'number' },
+      ],
+    };
+  }
+}
+
 /** What is open and what is late — the shift-lead's glance. */
 @Injectable()
 export class TasksOpenWidget implements DashboardWidgetProvider {
@@ -445,6 +599,7 @@ export class TaskReportRegistrar implements OnModuleInit {
     private readonly completion: TaskCompletionReport,
     private readonly assignee: TaskAssigneeReport,
     private readonly routines: TaskRoutineReport,
+    private readonly log: TaskLogReport,
     private readonly open: TasksOpenWidget,
   ) {}
 
@@ -452,6 +607,7 @@ export class TaskReportRegistrar implements OnModuleInit {
     this.registry.register(this.completion);
     this.registry.register(this.assignee);
     this.registry.register(this.routines);
+    this.registry.register(this.log);
     this.dashboard.register(this.open);
   }
 }

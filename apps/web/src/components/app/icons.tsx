@@ -82,7 +82,9 @@ export type AppIconName =
   | 'fish'
   | 'grill'
   | 'lock'
-  | 'scale';
+  | 'scale'
+  | 'warning'
+  | 'inbox';
 
 const FILLED: Partial<Record<AppIconName, ReactNode>> = {
   people: (
@@ -497,6 +499,18 @@ const STROKED: Record<AppIconName, ReactNode> = {
     <>
       <path d="M12 4.5v15M7.5 19.5h9M5 7.5h14" />
       <path d="M5 7.5 2.5 13a2.6 2.6 0 0 0 5 0zM19 7.5 16.5 13a2.6 2.6 0 0 0 5 0z" />
+    </>
+  ),
+  warning: (
+    <>
+      <path d="M10.3 4.2 2.8 17.5A2 2 0 0 0 4.5 20.5h15a2 2 0 0 0 1.7-3L13.7 4.2a2 2 0 0 0-3.4 0z" />
+      <path d="M12 9.5v4.5M12 17.2h.01" />
+    </>
+  ),
+  inbox: (
+    <>
+      <rect x="3.5" y="4.5" width="17" height="15" rx="2.5" />
+      <path d="M3.5 13.5h4.5l1.5 2.5h5l1.5-2.5h4.5" />
     </>
   ),
   snowflake: (

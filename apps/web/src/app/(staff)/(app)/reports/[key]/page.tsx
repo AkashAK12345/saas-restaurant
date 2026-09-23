@@ -17,6 +17,13 @@ import {
   BANQUET_SEARCHABLE_COLUMNS,
   banquetRevenueIcon,
 } from '@/lib/reports/banquet-bookings-ui';
+import {
+  TASK_METRIC_ICONS,
+  TASK_PRIORITY_BADGES,
+  TASK_SEARCHABLE_COLUMNS,
+  TASK_STATUS_BADGES,
+  TASK_VIEW_CHIPS,
+} from '@/lib/reports/tasks-log-ui';
 import type { MetricIcon } from '@/components/reports/metric-grid';
 import type { BadgeSpec } from '@/components/reports/report-table';
 import type { ExportFormat, ReportMetric, ReportResponse } from '@/lib/reports/types';
@@ -46,6 +53,12 @@ interface ReportUiHint {
    *  in green, still-owed in red/amber) rather than the plain black number
    *  every other money column gets. */
   amountTones?: Readonly<Record<string, (value: number) => 'success' | 'danger' | undefined>>;
+  /** Render one declared option as a row of chips (plus "All") instead of a
+   *  dropdown. The value still goes to the SERVER like any other filter. */
+  chips?: {
+    optionKey: string;
+    values: ReadonlyArray<{ value: string; label: string }>;
+  };
 }
 
 const REPORT_UI_HINTS: Readonly<Record<string, ReportUiHint>> = {
@@ -79,6 +92,14 @@ const REPORT_UI_HINTS: Readonly<Record<string, ReportUiHint>> = {
       // Owing (positive) reads as a warning; overpaid (negative) as fine.
       balance_minor: (value) => (value > 0 ? 'danger' : value < 0 ? 'success' : undefined),
     },
+  },
+  'tasks.log': {
+    title: 'Task Log',
+    searchPlaceholder: 'Search task…',
+    searchableColumns: TASK_SEARCHABLE_COLUMNS,
+    badges: { status: TASK_STATUS_BADGES, priority: TASK_PRIORITY_BADGES },
+    metricIcons: () => TASK_METRIC_ICONS,
+    chips: { optionKey: 'view', values: TASK_VIEW_CHIPS },
   },
 };
 
@@ -274,8 +295,9 @@ export default function ReportPage() {
           />
         </div>
 
-        {/* Filters are whatever the report declared — never a free-text box. */}
-        {(report?.option_specs ?? []).map((spec) => (
+        {/* Filters are whatever the report declared — never a free-text box.
+            One rendered as chips below is not repeated here as a dropdown. */}
+        {(report?.option_specs ?? []).filter((spec) => spec.key !== hint?.chips?.optionKey).map((spec) => (
           <div className={styles.field} key={spec.key}>
             <label className={styles.label} htmlFor={`report-${spec.key}`}>
               {spec.label}
@@ -352,6 +374,34 @@ export default function ReportPage() {
         <>
           <MetricGrid metrics={visibleMetrics} timezone={timezone} icons={metricIcons} />
 
+          {hint?.chips ? (
+            <div className={styles.chips} role="group" aria-label="Filter the log">
+              {[{ value: '', label: 'All' }, ...hint.chips.values].map((chip) => {
+                const optionKey = hint.chips!.optionKey;
+                const selected = (options[optionKey] ?? '') === chip.value;
+                return (
+                  <button
+                    key={chip.value || 'all'}
+                    type="button"
+                    className={styles.chip}
+                    aria-pressed={selected}
+                    onClick={() => {
+                      setOptions((current) => {
+                        const next = { ...current };
+                        if (chip.value) next[optionKey] = chip.value;
+                        else delete next[optionKey];
+                        return next;
+                      });
+                      setOffset(0);
+                    }}
+                  >
+                    {chip.label}
+                  </button>
+                );
+              })}
+            </div>
+          ) : null}
+
           {hint ? (
             <div className={styles.panel}>
               <div className={styles.panelHead}>
@@ -380,6 +430,7 @@ export default function ReportPage() {
                 drilldown={report.drilldown}
                 badges={hint.badges}
                 amountTones={hint.amountTones}
+                emptyVariant="panel"
               />
             </div>
           ) : (

@@ -7,7 +7,7 @@ import styles from './reports.module.css';
  *  metric with no entry here renders exactly as it always has. */
 export interface MetricIcon {
   icon: AppIconName;
-  tone: 'blue' | 'amber' | 'green' | 'terracotta' | 'purple';
+  tone: 'blue' | 'amber' | 'green' | 'terracotta' | 'purple' | 'red';
 }
 
 /**

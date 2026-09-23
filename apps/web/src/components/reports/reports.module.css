@@ -224,6 +224,8 @@
 .metricIcon[data-tone='green'] { --tone-bg: var(--accent-green-bg); --tone-fg: var(--accent-green-fg); }
 .metricIcon[data-tone='terracotta'] { --tone-bg: var(--accent-terracotta-bg); --tone-fg: var(--accent-terracotta-fg); }
 .metricIcon[data-tone='purple'] { --tone-bg: var(--accent-purple-bg); --tone-fg: var(--accent-purple-fg); }
+/* No red in the accent palette — the danger tokens are the app's red. */
+.metricIcon[data-tone='red'] { --tone-bg: var(--color-danger-bg); --tone-fg: var(--color-danger); }
 
 /* A 'badge' column's cell — status and similar short state words. */
 .badge {
@@ -323,6 +325,80 @@
 
 .searchInput:focus-visible {
   outline: none;
+}
+
+/* Opt-in filter chips — one declared option rendered as pills instead of a
+   select. The row scrolls inside itself, so seven chips on a 320px phone
+   never push the page sideways. */
+.chips {
+  display: flex;
+  gap: 10px;
+  min-width: 0;
+  margin: 0;
+  padding: 2px 0 4px;
+  list-style: none;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.chips::-webkit-scrollbar {
+  display: none;
+}
+
+.chip {
+  flex: none;
+  min-height: var(--tap-min);
+  padding: 0 18px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.chip:hover:not([aria-pressed='true']) {
+  background: var(--color-surface-muted);
+}
+
+.chip[aria-pressed='true'] {
+  border-color: var(--color-primary);
+  background: var(--color-primary);
+  color: var(--color-primary-contrast);
+}
+
+.chip:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+/* The empty state INSIDE a panel: already framed by the panel, so no second
+   border — an icon and one line, centred. */
+.panelEmpty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 48px var(--gap);
+  color: var(--color-text-muted);
+  text-align: center;
+}
+
+.panelEmptyIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 64px;
+  height: 64px;
+  border-radius: 14px;
+  background: var(--color-surface-muted);
+  color: var(--color-text-muted);
+}
+
+.panelEmpty p {
+  margin: 0;
 }
 
 /* ── Table ───────────────────────────────────────────────────────────────── */

@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { AppIcon } from '@/components/app/icons';
 import { formatValue, isNumericType } from '@/lib/reports/format';
 import type { ReportColumn, ReportDrilldown } from '@/lib/reports/types';
 import styles from './reports.module.css';
@@ -34,6 +35,7 @@ export function ReportTable({
   drilldown,
   badges,
   amountTones,
+  emptyVariant = 'plain',
 }: {
   columns: readonly ReportColumn[];
   rows: ReadonlyArray<Record<string, unknown>>;
@@ -45,9 +47,19 @@ export function ReportTable({
   /** Column key -> a money value's colour by sign — e.g. a balance still
    *  owed in red, overpaid in green. Plain black for anything unmapped. */
   amountTones?: Readonly<Record<string, (value: number) => 'success' | 'danger' | undefined>>;
+  /** 'panel' when the table sits inside a titled panel that already frames
+   *  it — an icon and a line instead of a second bordered box. */
+  emptyVariant?: 'plain' | 'panel';
 }) {
   if (rows.length === 0) {
-    return (
+    return emptyVariant === 'panel' ? (
+      <div className={styles.panelEmpty} role="status">
+        <span className={styles.panelEmptyIcon} aria-hidden="true">
+          <AppIcon name="inbox" size={30} />
+        </span>
+        <p>No data found</p>
+      </div>
+    ) : (
       <p className={styles.empty} role="status">
         No data for this period.
       </p>
