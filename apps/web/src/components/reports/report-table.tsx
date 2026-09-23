@@ -42,6 +42,8 @@ export function ReportTable({
   wrapCells = false,
   boldFirstColumn = false,
   textTones,
+  cellAddons,
+  rowAction,
 }: {
   columns: readonly ReportColumn[];
   rows: ReadonlyArray<Record<string, unknown>>;
@@ -72,6 +74,18 @@ export function ReportTable({
   /** Column key -> a colour for any cell's text by its raw value, e.g. a
    *  missed count in red once it is above zero. */
   textTones?: Readonly<Record<string, (value: unknown) => 'success' | 'danger' | undefined>>;
+  /** Column key -> a small pill after the cell's own value, read from the
+   *  whole row — e.g. "+1 filed" beside a pending count. */
+  cellAddons?: Readonly<Record<string, (row: Record<string, unknown>) => BadgeSpec | undefined>>;
+  /** A trailing column with one button per row, e.g. "View" to open the
+   *  submission in full. The page decides what opening means. */
+  rowAction?: {
+    header: string;
+    label: string;
+    /** Names the row for assistive technology: "View 23 Sep 2026". */
+    describe: (row: Record<string, unknown>) => string;
+    onSelect: (row: Record<string, unknown>) => void;
+  };
 }) {
   if (rows.length === 0) {
     return emptyVariant === 'panel' ? (
@@ -116,6 +130,7 @@ export function ReportTable({
                 {column.label}
               </th>
             ))}
+            {rowAction ? <th scope="col">{rowAction.header}</th> : null}
           </tr>
         </thead>
         <tbody>
@@ -157,15 +172,34 @@ export function ReportTable({
                   ) : (
                     text
                   );
+                  const addon = cellAddons?.[column.key]?.(row);
                   return (
                     <td
                       key={column.key}
                       className={isNumericType(column.type) ? styles.numeric : undefined}
                     >
                       {href && columnIndex === 0 ? <Link href={href}>{content}</Link> : content}
+                      {addon ? (
+                        <span className={`${styles.badge} ${styles.cellAddon}`} data-tone={addon.tone}>
+                          <span className={styles.pillDot} aria-hidden="true" />
+                          {addon.label}
+                        </span>
+                      ) : null}
                     </td>
                   );
                 })}
+                {rowAction ? (
+                  <td>
+                    <button
+                      type="button"
+                      className={styles.rowAction}
+                      aria-label={`${rowAction.label} ${rowAction.describe(row)}`}
+                      onClick={() => rowAction.onSelect(row)}
+                    >
+                      {rowAction.label}
+                    </button>
+                  </td>
+                ) : null}
               </tr>
             );
           })}

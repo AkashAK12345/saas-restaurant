@@ -258,6 +258,37 @@
   background: currentColor;
 }
 
+/* A pill after a cell's own value ("0  ● +1 filed"). */
+.cellAddon {
+  margin-left: 10px;
+}
+
+/* A row's own button, e.g. "View" — a soft pill, not a primary action. */
+.rowAction {
+  position: relative;
+  min-height: 32px;
+  padding: 4px 16px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--color-danger-bg);
+  color: var(--color-primary);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* Drawn at 32px as the design has it, but hit-tested at the 44px minimum. */
+.rowAction::after {
+  content: '';
+  position: absolute;
+  inset: -6px -2px;
+}
+
+.rowAction:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
 .boldFirst tbody td:first-child {
   font-weight: 700;
   color: var(--color-text);

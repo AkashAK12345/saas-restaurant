@@ -136,20 +136,22 @@ export function ChecklistPhotoField({
   );
 }
 
-function PhotoThumb({
+/** One photo, fetched with the session's credentials. Without `onRemove`
+ *  it is read-only — as in a report's details view. */
+export function PhotoThumb({
   ctx,
   taskId,
   item,
   photo,
   onRemove,
-  disabled,
+  disabled = false,
 }: {
   ctx: TaskContext;
   taskId: string;
-  item: ChecklistItem;
+  item: Pick<ChecklistItem, 'id' | 'label'>;
   photo: ChecklistItemPhoto;
-  onRemove: () => void;
-  disabled: boolean;
+  onRemove?: () => void;
+  disabled?: boolean;
 }) {
   const [src, setSrc] = useState<string | null>(null);
 
@@ -182,9 +184,11 @@ function PhotoThumb({
   return (
     <div className={styles.photoThumb}>
       {src ? <img src={src} alt={photo.file_name ?? item.label} /> : null}
-      <button type="button" className={styles.photoRemove} aria-label="Remove photo" disabled={disabled} onClick={onRemove}>
-        ×
-      </button>
+      {onRemove ? (
+        <button type="button" className={styles.photoRemove} aria-label="Remove photo" disabled={disabled} onClick={onRemove}>
+          ×
+        </button>
+      ) : null}
     </div>
   );
 }

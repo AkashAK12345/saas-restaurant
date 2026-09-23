@@ -61,10 +61,13 @@ const MONTHS = [
   'Dec',
 ];
 
-/** "18 Sep" from a branch-local YYYY-MM-DD — reordering text, no timezone maths. */
-export function dayLabel(localDate: string): string {
-  const [, month, day] = localDate.split('-').map(Number);
-  return `${day} ${MONTHS[month - 1]}`;
+/**
+ * "18 Sep" (or "18 Sep 2026" with the year) from a branch-local YYYY-MM-DD —
+ * reordering text, no timezone maths.
+ */
+export function dayLabel(localDate: string, withYear = false): string {
+  const [year, month, day] = localDate.split('-').map(Number);
+  return `${day} ${MONTHS[month - 1]}${withYear ? ` ${year}` : ''}`;
 }
 
 /**
@@ -294,7 +297,7 @@ const MISSED_DATES_SHOWN = 4;
 /** "16 Sep, 17 Sep, 18 Sep, 19 Sep +3 more" — the list stays one short line. */
 export function missedDatesLabel(localDates: readonly string[]): string | null {
   if (localDates.length === 0) return null;
-  const shown = localDates.slice(0, MISSED_DATES_SHOWN).map(dayLabel).join(', ');
+  const shown = localDates.slice(0, MISSED_DATES_SHOWN).map((d) => dayLabel(d)).join(', ');
   const rest = localDates.length - MISSED_DATES_SHOWN;
   return rest > 0 ? `${shown} +${rest} more` : shown;
 }
@@ -375,8 +378,17 @@ export async function runCompliance(
       pending: p,
       compliance: s + m === 0 ? null : Math.round((s / (s + m)) * 100),
       missed_dates: missedDatesLabel((r.missed_dates ?? []).map(toLocalDateString)),
+      // Not a column: the "+1 filed" beside Pending on screen.
+      filed_today: toReportNumber(r.filed),
     };
   });
+  // Worst first, as the screen reads: whoever needs chasing is at the top.
+  // Nobody-was-due rows have no rate and go last.
+  shaped.sort(
+    (a, b) =>
+      (a.compliance ?? Infinity) - (b.compliance ?? Infinity) ||
+      a.staff.localeCompare(b.staff),
+  );
 
   // Nothing was due: no rate to invent, and no "0 of 0" to show.
   const due = submitted + missedTotal;

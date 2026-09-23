@@ -1,7 +1,8 @@
 import type { AppIconName } from '@/components/app/icons';
 import styles from './tasks.module.css';
 
-type Tone = 'green' | 'blue' | 'amber' | 'purple' | 'red' | 'neutral';
+export type SectionTone = 'green' | 'blue' | 'amber' | 'purple' | 'red' | 'neutral';
+type Tone = SectionTone;
 
 const TONE_CLASSES: Record<Tone, { iconClass: string; accentClass: string }> = {
   green: { iconClass: styles.toneGreen, accentClass: styles.accentGreen },
@@ -74,11 +75,16 @@ const SECTION_META: Record<string, { icon: AppIconName; tone: Tone }> = {
   'Reference Photos': { icon: 'image', tone: 'purple' },
 };
 
-export function sectionMeta(section: string): { icon: AppIconName; iconClass: string; accentClass: string } {
+export function sectionMeta(section: string): {
+  icon: AppIconName;
+  tone: SectionTone;
+  iconClass: string;
+  accentClass: string;
+} {
   // "Product 1", "Product 2", … are the repeated blocks of a wastage report.
   const fallback: { icon: AppIconName; tone: Tone } = /^Product \d+$/.test(section)
     ? { icon: 'trash', tone: 'red' }
     : { icon: 'clipboard', tone: 'neutral' };
   const meta = SECTION_META[section] ?? fallback;
-  return { icon: meta.icon, ...TONE_CLASSES[meta.tone] };
+  return { icon: meta.icon, tone: meta.tone, ...TONE_CLASSES[meta.tone] };
 }

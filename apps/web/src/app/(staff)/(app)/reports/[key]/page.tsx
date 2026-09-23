@@ -19,6 +19,12 @@ import {
 } from '@/lib/reports/eod-ui';
 import { OPERATIONAL_LOG_METRIC_ICONS } from '@/lib/reports/operational-ui';
 import { KITCHEN_LOG_METRIC_ICONS } from '@/lib/reports/kitchen-ui';
+import {
+  OPENING_LOG_METRIC_ICONS,
+  OPENING_SEARCHABLE_COLUMNS,
+  OPENING_SECTION_LOOKS,
+} from '@/lib/reports/opening-ui';
+import { ChecklistDetailsDialog, type SectionLook } from '@/components/reports/checklist-details-dialog';
 import { QUEUE_METRIC_ICONS, QUEUE_STATUS_BADGES, QUEUE_SEARCHABLE_COLUMNS } from '@/lib/reports/queue-tokens-ui';
 import {
   BANQUET_METRIC_ICONS,
@@ -60,6 +66,16 @@ interface ReportUiHint {
   /** Numeric columns shown as a coloured pill, e.g. a compliance rate. */
   valuePills?: Readonly<Record<string, (value: number) => BadgeSpec['tone'] | undefined>>;
   table?: { stickyFirstColumn?: boolean; wrapCells?: boolean; boldFirstColumn?: boolean };
+  /** A pill after a cell, read from its row — e.g. "+1 filed" by Pending. */
+  cellAddons?: Readonly<Record<string, (row: Record<string, unknown>) => BadgeSpec | undefined>>;
+  /** Each row opens its submitted checklist in full (a "View" column). The
+   *  row must carry the task's id as `task_id`. */
+  details?: {
+    title: string;
+    icon: AppIconName;
+    subtitle: (row: Record<string, unknown>) => string;
+    sectionLooks?: Readonly<Record<string, SectionLook>>;
+  };
   /** Any column's text coloured by its raw value, e.g. a missed count in red. */
   textTones?: Readonly<Record<string, (value: unknown) => 'success' | 'danger' | undefined>>;
   /** The empty panel's line, when "No data found" would not say why. */
@@ -102,6 +118,12 @@ function complianceHint(emptyText: string): ReportUiHint {
     textTones: {
       missed: (value) => (typeof value === 'number' && value > 0 ? 'danger' : undefined),
       missed_dates: (value) => (value ? 'danger' : undefined),
+    },
+    cellAddons: {
+      pending: (row) => {
+        const filed = Number(row.filed_today ?? 0);
+        return filed > 0 ? { label: `+${filed} filed`, tone: 'success' } : undefined;
+      },
     },
     emptyText,
   };
@@ -169,6 +191,22 @@ const REPORT_UI_HINTS: Readonly<Record<string, ReportUiHint>> = {
     companion: 'tasks.kitchen_compliance',
   },
   'tasks.kitchen_compliance': complianceHint('No Kitchen Checklist was scheduled for anyone in this period'),
+  'tasks.opening': {
+    title: 'Checklist Log',
+    searchPlaceholder: 'Search...',
+    searchableColumns: OPENING_SEARCHABLE_COLUMNS,
+    metricIcons: () => OPENING_LOG_METRIC_ICONS,
+    companion: 'tasks.opening_compliance',
+    details: {
+      title: 'Branch Head Opening Details',
+      icon: 'sun',
+      subtitle: (row) => [row.date, row.submitted_by].filter(Boolean).join(' - '),
+      sectionLooks: OPENING_SECTION_LOOKS,
+    },
+  },
+  'tasks.opening_compliance': complianceHint(
+    'No Branch Head Opening Checklist was scheduled for anyone in this period',
+  ),
 };
 
 /**
@@ -181,12 +219,15 @@ function ReportPanel({
   rows,
   search,
   onSearch,
+  onView,
 }: {
   report: ReportResponse;
   hint: ReportUiHint;
   rows: ReadonlyArray<Record<string, unknown>>;
   search?: string;
   onSearch?: (value: string) => void;
+  /** Opens a row's submission in full; set for a hint with `details`. */
+  onView?: (row: Record<string, unknown>) => void;
 }) {
   return (
     <div className={styles.panel}>
@@ -229,6 +270,17 @@ function ReportPanel({
         wrapCells={hint.table?.wrapCells}
         boldFirstColumn={hint.table?.boldFirstColumn}
         textTones={hint.textTones}
+        cellAddons={hint.cellAddons}
+        rowAction={
+          hint.details && onView
+            ? {
+                header: 'Details',
+                label: 'View',
+                describe: (row) => String(row.date ?? ''),
+                onSelect: onView,
+              }
+            : undefined
+        }
       />
     </div>
   );
@@ -333,6 +385,9 @@ export default function ReportPage() {
   const companionKey = reportKey ? REPORT_UI_HINTS[reportKey]?.companion : undefined;
   const [companion, setCompanion] = useState<ReportResponse | null>(null);
   const [companionError, setCompanionError] = useState<string | null>(null);
+  // The row whose submission is open in the details view, if any.
+  const [viewing, setViewing] = useState<Record<string, unknown> | null>(null);
+  const closeDetails = useCallback(() => setViewing(null), []);
 
   useEffect(() => {
     if (!ctx || !companionKey) {
@@ -579,7 +634,14 @@ export default function ReportPage() {
           ) : null}
 
           {hint ? (
-            <ReportPanel report={report} hint={hint} rows={visibleRows} search={search} onSearch={setSearch} />
+            <ReportPanel
+              report={report}
+              hint={hint}
+              rows={visibleRows}
+              search={search}
+              onSearch={setSearch}
+              onView={hint.details ? setViewing : undefined}
+            />
           ) : (
             <ReportTable
               columns={report.columns}
@@ -634,6 +696,17 @@ export default function ReportPage() {
             </>
           ) : null}
         </>
+      ) : null}
+      {viewing && ctx && hint?.details && typeof viewing.task_id === 'string' ? (
+        <ChecklistDetailsDialog
+          ctx={ctx}
+          taskId={viewing.task_id}
+          title={hint.details.title}
+          subtitle={hint.details.subtitle(viewing)}
+          icon={hint.details.icon}
+          sectionLooks={hint.details.sectionLooks}
+          onClose={closeDetails}
+        />
       ) : null}
     </section>
   );

@@ -20,6 +20,7 @@ import {
 import { EodComplianceReport, EodLogReport } from './eod.report-provider.js';
 import { OperationalComplianceReport, OperationalLogReport } from './operational.report-provider.js';
 import { KitchenComplianceReport, KitchenLogReport } from './kitchen.report-provider.js';
+import { OpeningComplianceReport, OpeningLogReport } from './opening.report-provider.js';
 
 /** How often the process wakes to look for due routine occurrences. */
 export const ROUTINE_JOB_NAME = 'tasks.routines.materialize';
@@ -88,6 +89,8 @@ export class RoutineScheduler implements OnModuleInit {
     OperationalComplianceReport,
     KitchenLogReport,
     KitchenComplianceReport,
+    OpeningLogReport,
+    OpeningComplianceReport,
     TasksOpenWidget,
     TaskReportRegistrar,
   ],

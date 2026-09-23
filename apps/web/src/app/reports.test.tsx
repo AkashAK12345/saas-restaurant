@@ -32,6 +32,13 @@ let selectedBranchId: string | null = 'br-1';
 let selectedCompanyId: string | null = 'co-1';
 let contextBranches: Array<{ id: string; name: string; timezone: string; status: string; has_roles: boolean }> = [];
 let roleNames: string[] = [];
+// The details view reads the task itself; only those two calls are faked.
+const tasksApiMock = vi.hoisted(() => ({ get: vi.fn(), listItemPhotos: vi.fn(async () => []) }));
+vi.mock('@/lib/tasks/api', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/tasks/api')>();
+  return { ...actual, tasksApi: { ...actual.tasksApi, ...tasksApiMock } };
+});
+
 vi.mock('@/lib/context/app-context-provider', () => ({
   useAppContext: () => ({
     selectedCompanyId,
@@ -1154,6 +1161,160 @@ describe('compliance card icon', () => {
     expect(tone(75)).toBe('amber');
     expect(tone(100)).toBe('green');
     expect(tone(null)).toBe('blue');
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// BRANCH HEAD OPENING — a searchable log whose rows open in full
+// ═══════════════════════════════════════════════════════════════════════════
+
+function openingLogResponse(): ReportResponse {
+  return reportResponse({
+    key: 'tasks.opening',
+    name: 'Branch Head Opening',
+    kind: 'summary',
+    option_specs: [],
+    columns: [
+      { key: 'date', label: 'Date', type: 'string' },
+      { key: 'submitted_at', label: 'Submitted At', type: 'string' },
+      { key: 'submitted_by', label: 'Submitted By', type: 'string' },
+      { key: 'branch_name', label: 'Branch', type: 'string' },
+      { key: 'cctv', label: 'CCTV', type: 'string' },
+      { key: 'remarks', label: 'Remarks', type: 'string' },
+    ],
+    rows: [
+      {
+        task_id: 'bbbbbbbb-0000-4000-8000-000000000001',
+        date: '23 Sep 2026',
+        submitted_at: '23 Sep, 11:26 AM',
+        submitted_by: 'pallavaramba',
+        branch_name: 'Pallavaram',
+        cctv: 'yes',
+        remarks: 'N/A',
+      },
+      {
+        task_id: 'bbbbbbbb-0000-4000-8000-000000000002',
+        date: '22 Sep 2026',
+        submitted_at: '22 Sep, 10:56 AM',
+        submitted_by: 'mogappairba',
+        branch_name: 'Pallavaram',
+        cctv: '1 is not working',
+        remarks: 'restaurant ready',
+      },
+    ],
+    metrics: [
+      { key: 'total_reports', label: 'Total Reports', value: 38, type: 'number' },
+      { key: 'branches', label: 'Branches', value: 1, type: 'number' },
+      { key: 'date_range', label: 'Date Range', value: '8d', type: 'string' },
+    ],
+    meta: { total: 2, limit: 50, offset: 0 },
+  });
+}
+
+function openingComplianceResponse(): ReportResponse {
+  return reportResponse({
+    key: 'tasks.opening_compliance',
+    name: 'Branch Head Opening Submission Compliance',
+    kind: 'summary',
+    option_specs: [],
+    columns: [
+      { key: 'staff', label: 'Staff', type: 'string' },
+      { key: 'missed', label: 'Missed', type: 'number' },
+      { key: 'pending', label: 'Pending', type: 'number' },
+      { key: 'compliance', label: 'Compliance', type: 'percent' },
+    ],
+    rows: [
+      { staff: 'teynampetba', missed: 6, pending: 0, compliance: 14, filed_today: 1 },
+      { staff: 'metheakash12', missed: 7, pending: 1, compliance: 0, filed_today: 0 },
+    ],
+    metrics: [
+      { key: 'compliance', label: 'Compliance', value: 51, type: 'percent' },
+      { key: 'submitted', label: 'Submitted', value: '32 of 63', type: 'string' },
+      { key: 'missed', label: 'Missed', value: 31, type: 'number' },
+      { key: 'pending', label: 'Pending (6 filed)', value: 3, type: 'number' },
+      { key: 'filed_today', label: 'Filed today', value: 6, type: 'number' },
+      { key: 'staff_count', label: 'Staff', value: 9, type: 'number' },
+      { key: 'due_days', label: 'Days due', value: 7, type: 'number' },
+    ],
+    meta: { total: 2, limit: 50, offset: 0 },
+  });
+}
+
+describe('tasks.opening report screen', () => {
+  beforeEach(() => {
+    routeKey = 'tasks.opening';
+    apiMock.run.mockImplementation(async (_ctx: unknown, key: string) =>
+      key === 'tasks.opening_compliance' ? openingComplianceResponse() : openingLogResponse(),
+    );
+    tasksApiMock.get.mockReset();
+    tasksApiMock.get.mockResolvedValue({
+      checklist: [
+        {
+          id: 'i1',
+          label: 'Security present as per roster?',
+          position: 0,
+          kind: 'TEXT',
+          is_required: false,
+          is_done: true,
+          value: 'yes',
+          section: 'Parking & Security',
+          max_photos: null,
+          done_at: null,
+          done_by: null,
+        },
+      ],
+    });
+  });
+
+  it('RF-67. three cards, a searchable log with a View button per row', async () => {
+    const { container } = render(<ReportPage />);
+    await screen.findByText('Submission Compliance');
+
+    const cards = [...container.querySelectorAll('dt')].map((dt) => [
+      dt.textContent,
+      dt.parentElement?.querySelector('dd')?.textContent,
+    ]);
+    expect(cards.slice(0, 3)).toEqual([
+      ['Total Reports', '38'],
+      ['Branches', '1'],
+      ['Date Range', '8d'],
+    ]);
+    expect(screen.getByText('Checklist Log')).toBeTruthy();
+    const table = screen.getAllByRole('table')[0];
+    expect(within(table).getAllByRole('columnheader').at(-1)?.textContent).toBe('Details');
+    expect(within(table).getAllByRole('button', { name: /^View / })).toHaveLength(2);
+
+    fireEvent.change(screen.getByPlaceholderText('Search...'), { target: { value: 'restaurant ready' } });
+    expect(within(table).getAllByRole('button', { name: /^View / })).toHaveLength(1);
+    expect(within(table).getByRole('button', { name: 'View 22 Sep 2026' })).toBeTruthy();
+  });
+
+  it('RF-68. View opens that submission, read from its task, and Escape closes it', async () => {
+    render(<ReportPage />);
+    const table = (await screen.findAllByRole('table'))[0];
+    fireEvent.click(within(table).getByRole('button', { name: 'View 23 Sep 2026' }));
+
+    const dialog = screen.getByRole('dialog', { name: 'Branch Head Opening Details' });
+    expect(within(dialog).getByText('23 Sep 2026 - pallavaramba')).toBeTruthy();
+    expect(await within(dialog).findByText('Parking & Security')).toBeTruthy();
+    expect(within(dialog).getByText('Security present as per roster?')).toBeTruthy();
+    expect(tasksApiMock.get).toHaveBeenCalledWith(
+      expect.objectContaining({ branchId: expect.any(String) }),
+      'bbbbbbbb-0000-4000-8000-000000000001',
+    );
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('RF-69. compliance: "+1 filed" beside Pending for whoever filed today, and worst first as sent', async () => {
+    render(<ReportPage />);
+    await waitFor(() => expect(screen.getAllByRole('table')).toHaveLength(2));
+    const table = screen.getAllByRole('table')[1];
+    const rows = within(table).getAllByRole('row').slice(1);
+    expect(within(rows[0]).getByText('+1 filed').closest('[data-tone]')?.getAttribute('data-tone')).toBe('success');
+    expect(within(rows[1]).queryByText(/filed/)).toBeNull();
+    expect(screen.getByText('Pending (6 filed)')).toBeTruthy();
   });
 });
 

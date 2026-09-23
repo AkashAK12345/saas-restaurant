@@ -476,6 +476,8 @@ describe('Phase 10 Reports & Dashboard (e2e)', () => {
         'tasks.kitchen',
         'tasks.kitchen_compliance',
         'tasks.log',
+        'tasks.opening',
+        'tasks.opening_compliance',
         'tasks.operational',
         'tasks.operational_compliance',
         'tasks.routines',
@@ -1036,6 +1038,7 @@ describe('Phase 10 Reports & Dashboard (e2e)', () => {
           pending: 1,
           compliance: 67,
           missed_dates: '12 May',
+          filed_today: 0,
         },
       ]);
       const metric = (key: string) => res.body.metrics.find((m: any) => m.key === key).value;
@@ -1229,6 +1232,7 @@ describe('Phase 10 Reports & Dashboard (e2e)', () => {
           pending: 0,
           compliance: 67,
           missed_dates: '12 Jun',
+          filed_today: 0,
         },
       ]);
       expect(res.body.metrics.find((m: any) => m.key === 'due_days').value).toBe(3);
@@ -1414,6 +1418,7 @@ describe('Phase 10 Reports & Dashboard (e2e)', () => {
           pending: 1,
           compliance: 67,
           missed_dates: '12 Jul',
+          filed_today: 1,
         },
       ]);
       const metric = (key: string) => res.body.metrics.find((m: any) => m.key === key);
@@ -1424,6 +1429,164 @@ describe('Phase 10 Reports & Dashboard (e2e)', () => {
 
     it('RP-KIT4. both need tasks.reports.view', async () => {
       for (const key of ['tasks.kitchen', 'tasks.kitchen_compliance']) {
+        const res = await as(
+          request(http).get(`/api/v1/reports/${key}/data`),
+          tokenQueueOnlyA,
+          companyA.id,
+          branchA.id,
+        ).query(range);
+        expect(res.status).toBe(403);
+      }
+    });
+  });
+
+  describe('Branch Head Opening reports', () => {
+    const range = { from: '2026-08-10', to: '2026-08-12' };
+    const taskIds: string[] = [];
+    const routineIds: string[] = [];
+    let templateId: string;
+
+    const openingTask = async (
+      day: string,
+      status: TaskStatus,
+      extra: {
+        completedAt?: Date;
+        due?: Date;
+        assignee?: string | null;
+        answers?: Array<{ label: string; value: string | null }>;
+      } = {},
+    ) => {
+      const routine = await prisma.taskRoutine.create({
+        data: {
+          company_id: companyA.id,
+          branch_id: branchA.id,
+          name: `Branch Head Opening ${day} ${status} ${taskIds.length}`,
+          frequency: 'DAILY',
+          time_of_day: '00:00',
+          checklist_template_id: templateId,
+        },
+      });
+      routineIds.push(routine.id);
+      const task = await prisma.task.create({
+        data: {
+          company_id: companyA.id,
+          branch_id: branchA.id,
+          title: 'Branch Head Opening Checklist',
+          status,
+          source: 'ROUTINE',
+          routine_id: routine.id,
+          routine_occurrence_date: new Date(`${day}T00:00:00.000Z`),
+          checklist_template_id: templateId,
+          assignee_id: extra.assignee === undefined ? analystA.id : extra.assignee,
+          created_at: new Date(`${day}T01:00:00.000Z`),
+          due_at: extra.due ?? null,
+          completed_at: extra.completedAt ?? null,
+          completed_by: extra.completedAt ? analystA.id : null,
+        },
+      });
+      taskIds.push(task.id);
+      await prisma.taskChecklistItem.createMany({
+        data: (extra.answers ?? []).map((a, position) => ({
+          task_id: task.id,
+          label: a.label,
+          position,
+          kind: 'TEXT' as const,
+          value: a.value,
+          is_done: a.value != null,
+        })),
+      });
+      return task;
+    };
+
+    const run = (key: string) => asAnalyst(request(http).get(`/api/v1/reports/${key}/data`)).query(range);
+
+    beforeAll(async () => {
+      const template = await prisma.checklistTemplate.create({
+        data: { company_id: companyA.id, name: 'Branch Head Opening Checklist' },
+      });
+      templateId = template.id;
+
+      await openingTask('2026-08-10', TaskStatus.COMPLETED, {
+        completedAt: new Date('2026-08-10T05:56:00.000Z'),
+        answers: [
+          { label: 'Security present as per roster?', value: 'yes' },
+          { label: 'CCTV cameras working?', value: '1 is not working' },
+          { label: 'Any additional remarks or observations', value: 'restaurant ready' },
+        ],
+      });
+      await openingTask('2026-08-11', TaskStatus.COMPLETED, {
+        completedAt: new Date('2026-08-11T06:08:00.000Z'),
+        answers: [{ label: 'Security present as per roster?', value: 'N/A' }],
+      });
+      await openingTask('2026-08-12', TaskStatus.PENDING, { due: new Date('2026-08-12T06:15:00.000Z') });
+      // Nobody assigned, and never filed: the worst rate, so listed first.
+      await openingTask('2026-08-11', TaskStatus.PENDING, {
+        assignee: null,
+        due: new Date('2026-08-11T06:15:00.000Z'),
+      });
+    });
+
+    afterAll(async () => {
+      await prisma.taskChecklistItem.deleteMany({ where: { task_id: { in: taskIds } } });
+      await prisma.task.deleteMany({ where: { id: { in: taskIds } } });
+      await prisma.taskRoutine.deleteMany({ where: { id: { in: routineIds } } });
+      await prisma.checklistTemplate.delete({ where: { id: templateId } });
+    });
+
+    it('RP-BHO1. a row per submission, newest first, dated with the year', async () => {
+      const res = await run('tasks.opening');
+      expect(res.status).toBe(200);
+      expect(res.body.name).toBe('Branch Head Opening');
+      expect(res.body.columns.map((c: any) => c.label)).toEqual([
+        'Date',
+        'Submitted At',
+        'Submitted By',
+        'Branch',
+        'Security',
+        'Valet',
+        'Grooming',
+        'Cashiers',
+        'Meat/Veg',
+        'Kitchen',
+        'Ready',
+        'Manager',
+        'CCTV',
+        'Remarks',
+      ]);
+      expect(res.body.rows.map((r: any) => r.date)).toEqual(['11 Aug 2026', '10 Aug 2026']);
+      expect(res.body.rows[1]).toMatchObject({
+        submitted_at: '10 Aug, 11:26 AM',
+        submitted_by: 'Ana Lyst',
+        branch_name: 'Alpha Main',
+        security: 'yes',
+        cctv: '1 is not working',
+        remarks: 'restaurant ready',
+        valet: null,
+      });
+      // The row carries its task, for the details view to open.
+      expect(taskIds).toContain(res.body.rows[0].task_id);
+    });
+
+    it('RP-BHO2. the cards: reports, branches, and the window in days', async () => {
+      const res = await run('tasks.opening');
+      const metric = (key: string) => res.body.metrics.find((m: any) => m.key === key).value;
+      expect(metric('total_reports')).toBe(2);
+      expect(metric('branches')).toBe(1);
+      expect(metric('date_range')).toBe('3d');
+    });
+
+    it('RP-BHO3. compliance lists the worst rate first', async () => {
+      const res = await run('tasks.opening_compliance');
+      expect(res.status).toBe(200);
+      expect(res.body.rows.map((r: any) => [r.staff, r.compliance, r.submitted])).toEqual([
+        ['Unassigned', 0, '0 of 1'],
+        ['Ana Lyst', 67, '2 of 3'],
+      ]);
+      expect(res.body.rows[1].filed_today).toBe(0);
+    });
+
+    it('RP-BHO4. both need tasks.reports.view', async () => {
+      for (const key of ['tasks.opening', 'tasks.opening_compliance']) {
         const res = await as(
           request(http).get(`/api/v1/reports/${key}/data`),
           tokenQueueOnlyA,
