@@ -470,6 +470,8 @@ describe('Phase 10 Reports & Dashboard (e2e)', () => {
         'queue.summary',
         'queue.tokens',
         'tasks.assignee',
+        'tasks.banquet_opening',
+        'tasks.banquet_opening_compliance',
         'tasks.completion',
         'tasks.eod',
         'tasks.eod_compliance',
@@ -1587,6 +1589,149 @@ describe('Phase 10 Reports & Dashboard (e2e)', () => {
 
     it('RP-BHO4. both need tasks.reports.view', async () => {
       for (const key of ['tasks.opening', 'tasks.opening_compliance']) {
+        const res = await as(
+          request(http).get(`/api/v1/reports/${key}/data`),
+          tokenQueueOnlyA,
+          companyA.id,
+          branchA.id,
+        ).query(range);
+        expect(res.status).toBe(403);
+      }
+    });
+  });
+
+  describe('Banquet Opening reports', () => {
+    const range = { from: '2026-08-20', to: '2026-08-21' };
+    const taskIds: string[] = [];
+    const routineIds: string[] = [];
+    let templateId: string;
+
+    const bqtTask = async (
+      day: string,
+      status: TaskStatus,
+      extra: {
+        completedAt?: Date;
+        due?: Date;
+        answers?: Array<{ label: string; kind: 'TEXT' | 'YES_NO'; value: string | null }>;
+      } = {},
+    ) => {
+      const routine = await prisma.taskRoutine.create({
+        data: {
+          company_id: companyA.id,
+          branch_id: branchA.id,
+          name: `Banquet Opening ${day} ${status} ${taskIds.length}`,
+          frequency: 'DAILY',
+          time_of_day: '00:00',
+          checklist_template_id: templateId,
+        },
+      });
+      routineIds.push(routine.id);
+      const task = await prisma.task.create({
+        data: {
+          company_id: companyA.id,
+          branch_id: branchA.id,
+          title: 'Banquet Opening Checklist',
+          status,
+          source: 'ROUTINE',
+          routine_id: routine.id,
+          routine_occurrence_date: new Date(`${day}T00:00:00.000Z`),
+          checklist_template_id: templateId,
+          assignee_id: analystA.id,
+          created_at: new Date(`${day}T01:00:00.000Z`),
+          due_at: extra.due ?? null,
+          completed_at: extra.completedAt ?? null,
+          completed_by: extra.completedAt ? analystA.id : null,
+        },
+      });
+      taskIds.push(task.id);
+      await prisma.taskChecklistItem.createMany({
+        data: (extra.answers ?? []).map((a, position) => ({
+          task_id: task.id,
+          label: a.label,
+          position,
+          kind: a.kind,
+          value: a.value,
+          is_done: a.value != null,
+        })),
+      });
+      return task;
+    };
+
+    const run = (key: string) => asAnalyst(request(http).get(`/api/v1/reports/${key}/data`)).query(range);
+
+    beforeAll(async () => {
+      const template = await prisma.checklistTemplate.create({
+        data: { company_id: companyA.id, name: 'Banquet Opening Checklist' },
+      });
+      templateId = template.id;
+
+      await bqtTask('2026-08-20', TaskStatus.COMPLETED, {
+        completedAt: new Date('2026-08-20T06:20:00.000Z'),
+        answers: [
+          { label: 'Number of parties (L/D), Pax guarantee & Hall name', kind: 'TEXT', value: 'L-70 pax Royale' },
+          { label: 'Q1. Is the hall clean and tidy?', kind: 'YES_NO', value: 'YES' },
+          { label: 'Q7. Are all TVs in the Banquet Halls working?', kind: 'YES_NO', value: 'NO' },
+          { label: 'Any additional remarks (optional)', kind: 'TEXT', value: 'Chaufing dish Legs to be fixed' },
+        ],
+      });
+      await bqtTask('2026-08-21', TaskStatus.PENDING, { due: new Date('2026-08-21T12:00:00.000Z') });
+    });
+
+    afterAll(async () => {
+      await prisma.taskChecklistItem.deleteMany({ where: { task_id: { in: taskIds } } });
+      await prisma.task.deleteMany({ where: { id: { in: taskIds } } });
+      await prisma.taskRoutine.deleteMany({ where: { id: { in: routineIds } } });
+      await prisma.checklistTemplate.delete({ where: { id: templateId } });
+    });
+
+    it('RP-BQO1. a row per submission with every answer, yes/no read as Yes/No', async () => {
+      const res = await run('tasks.banquet_opening');
+      expect(res.status).toBe(200);
+      expect(res.body.name).toBe('Banquet Opening');
+      expect(res.body.columns.map((c: any) => c.label)).toEqual([
+        'Date',
+        'Submitted At',
+        'Submitted By',
+        'Branch',
+        'Party Bookings',
+        'Hall Clean',
+        'Toilets',
+        'Chair/Cloths',
+        'AC',
+        'Room AC',
+        'Lights',
+        'TVs',
+        'Speakers',
+        'Amps',
+        'Projectors',
+        'Remarks',
+      ]);
+      expect(res.body.rows).toHaveLength(1);
+      expect(res.body.rows[0]).toMatchObject({
+        date: '20 Aug 2026',
+        submitted_at: '20 Aug, 11:50 AM',
+        branch_name: 'Alpha Main',
+        party_bookings: 'L-70 pax Royale',
+        hall_clean: 'Yes',
+        tvs: 'No',
+        toilets: null,
+        remarks: 'Chaufing dish Legs to be fixed',
+      });
+      const metric = (key: string) => res.body.metrics.find((m: any) => m.key === key).value;
+      expect(metric('total_reports')).toBe(1);
+      expect(metric('date_range')).toBe('2d');
+    });
+
+    it('RP-BQO2. compliance for this form alone', async () => {
+      const res = await run('tasks.banquet_opening_compliance');
+      expect(res.status).toBe(200);
+      expect(res.body.rows.map((r: any) => [r.staff, r.submitted, r.missed_dates])).toEqual([
+        ['Ana Lyst', '1 of 2', '21 Aug'],
+      ]);
+    });
+
+    it('RP-BQO3. both need tasks.reports.view', async () => {
+      for (const key of ['tasks.banquet_opening', 'tasks.banquet_opening_compliance']) {
         const res = await as(
           request(http).get(`/api/v1/reports/${key}/data`),
           tokenQueueOnlyA,

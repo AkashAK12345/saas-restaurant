@@ -444,3 +444,65 @@ export async function photoCounts(
   `);
   return new Map(rows.map((r) => [r.task_id, toReportNumber(r.photos)]));
 }
+
+/** Calendar days in the window, both ends included — a "Date Range: 8d" card. */
+export function windowDays(fromLocal: string, toLocal: string): number {
+  const ms = Date.parse(`${toLocal}T00:00:00Z`) - Date.parse(`${fromLocal}T00:00:00Z`);
+  return Math.max(0, Math.round(ms / 86_400_000) + 1);
+}
+
+/** Log column key -> its heading and the form question it shows. */
+export type AnswerColumns = Readonly<Record<string, { label: string; field: string }>>;
+
+/** The columns of a submission log: who and when, then the chosen answers. */
+export function submissionLogColumns(answers: AnswerColumns): ReportColumn[] {
+  return [
+    { key: 'date', label: 'Date', type: 'string' },
+    { key: 'submitted_at', label: 'Submitted At', type: 'string' },
+    { key: 'submitted_by', label: 'Submitted By', type: 'string' },
+    { key: 'branch_name', label: 'Branch', type: 'string' },
+    ...Object.entries(answers).map(([key, a]) => ({ key, label: a.label, type: 'string' as const })),
+  ];
+}
+
+/**
+ * A submission log: one row per submission, newest first, dated with the
+ * year, carrying its task id so the screen can open the whole form. The
+ * cards are how many, from how many branches, over how many days.
+ */
+export async function runSubmissionLog(
+  prisma: PrismaService,
+  query: ReportQuery,
+  templateName: string,
+  answers: AnswerColumns,
+): Promise<ReportResult> {
+  const forms = await loadSubmissions(prisma, query, templateName);
+  const rows = [...forms.submissions].reverse().map((s) => ({
+    task_id: s.task_id,
+    date: dayLabel(toLocalDateString(s.report_date), true),
+    submitted_at: instantLabel(s.completed_at, query.ctx.timezone),
+    submitted_by: s.submitted_by,
+    ...Object.fromEntries(
+      Object.entries(answers).map(([key, a]) => [
+        key,
+        displayAnswer(forms.answers.get(s.task_id)?.get(a.field)),
+      ]),
+    ),
+  }));
+
+  return {
+    rows,
+    total: rows.length,
+    metrics: [
+      { key: 'total_reports', label: 'Total Reports', value: rows.length, type: 'number' },
+      // One branch per run today; the card is ready for an all-branches view.
+      { key: 'branches', label: 'Branches', value: rows.length > 0 ? 1 : 0, type: 'number' },
+      {
+        key: 'date_range',
+        label: 'Date Range',
+        value: `${windowDays(query.range.fromLocal, query.range.toLocal)}d`,
+        type: 'string',
+      },
+    ],
+  };
+}

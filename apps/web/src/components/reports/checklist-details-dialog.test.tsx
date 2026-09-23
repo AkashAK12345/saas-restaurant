@@ -75,6 +75,20 @@ describe('ChecklistDetailsDialog', () => {
     );
   });
 
+  it('colours a yes/no answer — yes green, no red — and leaves free text alone', async () => {
+    tasksApiMock.get.mockResolvedValue({
+      checklist: [
+        item({ id: 'a', position: 0, label: 'Q1. Is the hall clean and tidy?', kind: 'YES_NO', value: 'YES', section: 'Hall Cleanliness' }),
+        item({ id: 'b', position: 1, label: 'Q7. Are all TVs working?', kind: 'YES_NO', value: 'NO', section: 'AV Equipment' }),
+        item({ id: 'c', position: 2, label: 'Party bookings', value: 'yes', section: "Today's Bookings" }),
+      ],
+    });
+    const dialog = open();
+    expect((await within(dialog).findByText('Yes')).getAttribute('data-answer')).toBe('yes');
+    expect(within(dialog).getByText('No').getAttribute('data-answer')).toBe('no');
+    expect(within(dialog).getByText('yes').hasAttribute('data-answer')).toBe(false);
+  });
+
   it("reports the task's own refusal instead of showing an empty form", async () => {
     tasksApiMock.get.mockRejectedValue(new Error('You do not have permission to view tasks'));
     const dialog = open();

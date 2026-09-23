@@ -20,6 +20,7 @@ import {
 import { OPERATIONAL_LOG_METRIC_ICONS } from '@/lib/reports/operational-ui';
 import { KITCHEN_LOG_METRIC_ICONS } from '@/lib/reports/kitchen-ui';
 import {
+  BANQUET_OPENING_SECTION_LOOKS,
   OPENING_LOG_METRIC_ICONS,
   OPENING_SEARCHABLE_COLUMNS,
   OPENING_SECTION_LOOKS,
@@ -65,7 +66,13 @@ interface ReportUiHint {
   badges?: Readonly<Record<string, Readonly<Record<string, BadgeSpec>>>>;
   /** Numeric columns shown as a coloured pill, e.g. a compliance rate. */
   valuePills?: Readonly<Record<string, (value: number) => BadgeSpec['tone'] | undefined>>;
-  table?: { stickyFirstColumn?: boolean; wrapCells?: boolean; boldFirstColumn?: boolean };
+  table?: {
+    stickyFirstColumn?: boolean;
+    wrapCells?: boolean;
+    boldFirstColumn?: boolean;
+    /** Long text cut to one line with "…". */
+    clampColumns?: readonly string[];
+  };
   /** A pill after a cell, read from its row — e.g. "+1 filed" by Pending. */
   cellAddons?: Readonly<Record<string, (row: Record<string, unknown>) => BadgeSpec | undefined>>;
   /** Each row opens its submitted checklist in full (a "View" column). The
@@ -74,6 +81,7 @@ interface ReportUiHint {
     title: string;
     icon: AppIconName;
     subtitle: (row: Record<string, unknown>) => string;
+    tone?: 'amber' | 'red';
     sectionLooks?: Readonly<Record<string, SectionLook>>;
   };
   /** Any column's text coloured by its raw value, e.g. a missed count in red. */
@@ -196,6 +204,7 @@ const REPORT_UI_HINTS: Readonly<Record<string, ReportUiHint>> = {
     searchPlaceholder: 'Search...',
     searchableColumns: OPENING_SEARCHABLE_COLUMNS,
     metricIcons: () => OPENING_LOG_METRIC_ICONS,
+    table: { clampColumns: ['remarks'] },
     companion: 'tasks.opening_compliance',
     details: {
       title: 'Branch Head Opening Details',
@@ -206,6 +215,24 @@ const REPORT_UI_HINTS: Readonly<Record<string, ReportUiHint>> = {
   },
   'tasks.opening_compliance': complianceHint(
     'No Branch Head Opening Checklist was scheduled for anyone in this period',
+  ),
+  'tasks.banquet_opening': {
+    title: 'Checklist Log',
+    searchPlaceholder: 'Search...',
+    searchableColumns: [...OPENING_SEARCHABLE_COLUMNS, 'party_bookings'],
+    metricIcons: () => OPENING_LOG_METRIC_ICONS,
+    table: { clampColumns: ['party_bookings', 'remarks'] },
+    companion: 'tasks.banquet_opening_compliance',
+    details: {
+      title: 'Banquet Opening Checklist Details',
+      icon: 'party',
+      tone: 'red',
+      subtitle: (row) => [row.date, row.submitted_by].filter(Boolean).join(' - '),
+      sectionLooks: BANQUET_OPENING_SECTION_LOOKS,
+    },
+  },
+  'tasks.banquet_opening_compliance': complianceHint(
+    'No Banquet Opening Checklist was scheduled for anyone in this period',
   ),
 };
 
@@ -271,6 +298,7 @@ function ReportPanel({
         boldFirstColumn={hint.table?.boldFirstColumn}
         textTones={hint.textTones}
         cellAddons={hint.cellAddons}
+        clampColumns={hint.table?.clampColumns}
         rowAction={
           hint.details && onView
             ? {
@@ -704,6 +732,7 @@ export default function ReportPage() {
           title={hint.details.title}
           subtitle={hint.details.subtitle(viewing)}
           icon={hint.details.icon}
+          tone={hint.details.tone}
           sectionLooks={hint.details.sectionLooks}
           onClose={closeDetails}
         />

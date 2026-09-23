@@ -258,6 +258,16 @@
   background: currentColor;
 }
 
+/* Long free text on one line, cut with "…". */
+.clamp {
+  display: inline-block;
+  max-width: 20rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+
 /* A pill after a cell's own value ("0  ● +1 filed"). */
 .cellAddon {
   margin-left: 10px;

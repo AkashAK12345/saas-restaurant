@@ -44,6 +44,7 @@ export function ReportTable({
   textTones,
   cellAddons,
   rowAction,
+  clampColumns,
 }: {
   columns: readonly ReportColumn[];
   rows: ReadonlyArray<Record<string, unknown>>;
@@ -77,6 +78,9 @@ export function ReportTable({
   /** Column key -> a small pill after the cell's own value, read from the
    *  whole row — e.g. "+1 filed" beside a pending count. */
   cellAddons?: Readonly<Record<string, (row: Record<string, unknown>) => BadgeSpec | undefined>>;
+  /** Columns whose long text is cut to one line with "…" (the full text is
+   *  in the cell's title, and in the row's details). */
+  clampColumns?: readonly string[];
   /** A trailing column with one button per row, e.g. "View" to open the
    *  submission in full. The page decides what opening means. */
   rowAction?: {
@@ -178,7 +182,15 @@ export function ReportTable({
                       key={column.key}
                       className={isNumericType(column.type) ? styles.numeric : undefined}
                     >
-                      {href && columnIndex === 0 ? <Link href={href}>{content}</Link> : content}
+                      {href && columnIndex === 0 ? (
+                        <Link href={href}>{content}</Link>
+                      ) : clampColumns?.includes(column.key) ? (
+                        <span className={styles.clamp} title={text}>
+                          {content}
+                        </span>
+                      ) : (
+                        content
+                      )}
                       {addon ? (
                         <span className={`${styles.badge} ${styles.cellAddon}`} data-tone={addon.tone}>
                           <span className={styles.pillDot} aria-hidden="true" />

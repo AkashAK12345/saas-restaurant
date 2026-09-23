@@ -13,6 +13,7 @@ export const OPENING_LOG_METRIC_ICONS: Readonly<Record<string, MetricIcon>> = {
   date_range: { icon: 'calendar', tone: 'green' },
 };
 
+/** Both opening screens search the same who, where and remarks. */
 export const OPENING_SEARCHABLE_COLUMNS = ['date', 'submitted_by', 'branch_name', 'remarks'] as const;
 
 /**
@@ -22,5 +23,13 @@ export const OPENING_SEARCHABLE_COLUMNS = ['date', 'submitted_by', 'branch_name'
 export const OPENING_SECTION_LOOKS: Readonly<Record<string, SectionLook>> = {
   'Reception & Front Area': { icon: 'store', tone: 'red' },
   'Kitchen & Supplies': { icon: 'fridge', tone: 'amber' },
+  Remarks: { icon: 'notes', tone: 'neutral' },
+};
+
+/**
+ * The Banquet Opening screen shares the Branch Head Opening's cards and
+ * search; its dialog only greys its Remarks, as the reference does.
+ */
+export const BANQUET_OPENING_SECTION_LOOKS: Readonly<Record<string, SectionLook>> = {
   Remarks: { icon: 'notes', tone: 'neutral' },
 };

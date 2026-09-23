@@ -19,6 +19,7 @@ import { EodComplianceReport, EodLogReport } from './eod.report-provider.js';
 import { OperationalComplianceReport, OperationalLogReport } from './operational.report-provider.js';
 import { KitchenComplianceReport, KitchenLogReport } from './kitchen.report-provider.js';
 import { OpeningComplianceReport, OpeningLogReport } from './opening.report-provider.js';
+import { BanquetOpeningComplianceReport, BanquetOpeningLogReport } from './banquet-opening.report-provider.js';
 import type {
   DashboardWidgetDefinition,
   DashboardWidgetProvider,
@@ -612,6 +613,8 @@ export class TaskReportRegistrar implements OnModuleInit {
     private readonly kitchenCompliance: KitchenComplianceReport,
     private readonly opening: OpeningLogReport,
     private readonly openingCompliance: OpeningComplianceReport,
+    private readonly banquetOpening: BanquetOpeningLogReport,
+    private readonly banquetOpeningCompliance: BanquetOpeningComplianceReport,
     private readonly open: TasksOpenWidget,
   ) {}
 
@@ -628,6 +631,8 @@ export class TaskReportRegistrar implements OnModuleInit {
     this.registry.register(this.kitchenCompliance);
     this.registry.register(this.opening);
     this.registry.register(this.openingCompliance);
+    this.registry.register(this.banquetOpening);
+    this.registry.register(this.banquetOpeningCompliance);
     this.dashboard.register(this.open);
   }
 }

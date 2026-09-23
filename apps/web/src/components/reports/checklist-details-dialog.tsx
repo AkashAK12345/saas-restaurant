@@ -26,6 +26,7 @@ export function ChecklistDetailsDialog({
   title,
   subtitle,
   icon,
+  tone = 'amber',
   sectionLooks = {},
   onClose,
 }: {
@@ -34,6 +35,8 @@ export function ChecklistDetailsDialog({
   title: string;
   subtitle: string;
   icon: AppIconName;
+  /** The heading's colour — each checklist's dialog has its own. */
+  tone?: 'amber' | 'red';
   sectionLooks?: Readonly<Record<string, SectionLook>>;
   onClose: () => void;
 }) {
@@ -69,6 +72,7 @@ export function ChecklistDetailsDialog({
     <div className={styles.backdrop} onClick={onClose}>
       <div
         className={styles.dialog}
+        data-tone={tone}
         role="dialog"
         aria-modal="true"
         aria-labelledby="checklist-details-title"
@@ -119,7 +123,9 @@ export function ChecklistDetailsDialog({
                       ) : (
                         <div key={item.id} className={styles.answer}>
                           <dt>{item.label}</dt>
-                          <dd>{answerText(item) ?? <span className={styles.blank}>—</span>}</dd>
+                          <dd data-answer={verdict(item)}>
+                            {answerText(item) ?? <span className={styles.blank}>—</span>}
+                          </dd>
                         </div>
                       ),
                     )}
@@ -142,6 +148,13 @@ function answerText(item: ChecklistItem): string | null {
   if (item.kind === 'YES_NO') return value.toUpperCase() === 'YES' ? 'Yes' : 'No';
   if (item.kind === 'RATING') return `${value}/5`;
   return value;
+}
+
+/** A yes/no question's answer, for its colour; nothing for free text. */
+function verdict(item: ChecklistItem): 'yes' | 'no' | undefined {
+  if (item.kind === 'CHECK') return item.is_done ? 'yes' : 'no';
+  if (item.kind === 'YES_NO' && item.value) return item.value.toUpperCase() === 'YES' ? 'yes' : 'no';
+  return undefined;
 }
 
 /** Consecutive items sharing a section, in form order. */

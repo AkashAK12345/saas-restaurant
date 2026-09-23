@@ -36,8 +36,11 @@
 
 .headIcon {
   flex: none;
-  color: var(--accent-amber-fg);
+  color: var(--head-tone);
 }
+
+.dialog { --head-tone: var(--accent-amber-fg); }
+.dialog[data-tone='red'] { --head-tone: var(--accent-terracotta-fg); }
 
 .headText {
   flex: 1;
@@ -48,7 +51,7 @@
   margin: 0;
   font-size: 1.125rem;
   font-weight: 600;
-  color: var(--accent-amber-fg);
+  color: var(--head-tone);
 }
 
 .subtitle {
@@ -139,6 +142,10 @@
   white-space: pre-line;
   overflow-wrap: anywhere;
 }
+
+/* A yes/no answer reads at a glance: yes in green, no in red. */
+.answer dd[data-answer='yes'] { color: var(--color-success); font-weight: 600; }
+.answer dd[data-answer='no'] { color: var(--color-danger); font-weight: 600; }
 
 .photoAnswer dd {
   margin: 8px 0 0;

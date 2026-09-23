@@ -1,15 +1,13 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../core/database/prisma.service.js';
 import { PERMISSION_KEYS } from '../../common/authorization/permission-keys.js';
-import { toLocalDateString } from '../reports/report-values.js';
 import {
   COMPLIANCE_COLUMNS,
-  dayLabel,
-  displayAnswer,
-  instantLabel,
-  loadSubmissions,
   referenceForm,
   runCompliance,
+  runSubmissionLog,
+  submissionLogColumns,
+  type AnswerColumns,
 } from './checklist-report.js';
 import type { ReportDefinition, ReportProvider, ReportQuery, ReportResult } from '../reports/report-contract.js';
 
@@ -22,8 +20,7 @@ import type { ReportDefinition, ReportProvider, ReportQuery, ReportResult } from
  * the task's own checklist, so it is read from the task, not duplicated here).
  */
 
-/** Log column -> the form question it shows. */
-const ANSWERS = {
+const ANSWERS: AnswerColumns = {
   security: { label: 'Security', field: 'Security present as per roster?' },
   valet: { label: 'Valet', field: 'Valet drivers present as per roster?' },
   grooming: { label: 'Grooming', field: 'Security & valet staff grooming standard?' },
@@ -37,18 +34,12 @@ const ANSWERS = {
   manager: { label: 'Manager', field: 'Manager present on time?' },
   cctv: { label: 'CCTV', field: 'CCTV cameras working?' },
   remarks: { label: 'Remarks', field: 'Any additional remarks or observations' },
-} as const;
+};
 
 const OPENING = referenceForm(
   'opening-checklist',
   Object.values(ANSWERS).map((a) => a.field),
 );
-
-/** Calendar days in the window, both ends included — the "8d" card. */
-export function windowDays(fromLocal: string, toLocal: string): number {
-  const ms = Date.parse(`${toLocal}T00:00:00Z`) - Date.parse(`${fromLocal}T00:00:00Z`);
-  return Math.max(0, Math.round(ms / 86_400_000) + 1);
-}
 
 @Injectable()
 export class OpeningLogReport implements ReportProvider {
@@ -61,46 +52,14 @@ export class OpeningLogReport implements ReportProvider {
     // A branch files one a day, so a period's log is short enough to send whole.
     kind: 'summary',
     permission: PERMISSION_KEYS.TASKS_REPORTS_VIEW,
-    columns: [
-      { key: 'date', label: 'Date', type: 'string' },
-      { key: 'submitted_at', label: 'Submitted At', type: 'string' },
-      { key: 'submitted_by', label: 'Submitted By', type: 'string' },
-      { key: 'branch_name', label: 'Branch', type: 'string' },
-      ...Object.entries(ANSWERS).map(([key, a]) => ({ key, label: a.label, type: 'string' as const })),
-    ],
+    columns: submissionLogColumns(ANSWERS),
     exportable: true,
   };
 
   constructor(private readonly prisma: PrismaService) {}
 
-  async run(query: ReportQuery): Promise<ReportResult> {
-    const forms = await loadSubmissions(this.prisma, query, OPENING.name);
-    // Newest first, as the screen lists them.
-    const rows = [...forms.submissions].reverse().map((s) => ({
-      task_id: s.task_id,
-      date: dayLabel(toLocalDateString(s.report_date), true),
-      submitted_at: instantLabel(s.completed_at, query.ctx.timezone),
-      submitted_by: s.submitted_by,
-      ...Object.fromEntries(
-        Object.entries(ANSWERS).map(([key, a]) => [key, displayAnswer(forms.answers.get(s.task_id)?.get(a.field))]),
-      ),
-    }));
-
-    return {
-      rows,
-      total: rows.length,
-      metrics: [
-        { key: 'total_reports', label: 'Total Reports', value: rows.length, type: 'number' },
-        // One branch per run today; the card is ready for an all-branches view.
-        { key: 'branches', label: 'Branches', value: rows.length > 0 ? 1 : 0, type: 'number' },
-        {
-          key: 'date_range',
-          label: 'Date Range',
-          value: `${windowDays(query.range.fromLocal, query.range.toLocal)}d`,
-          type: 'string',
-        },
-      ],
-    };
+  run(query: ReportQuery): Promise<ReportResult> {
+    return runSubmissionLog(this.prisma, query, OPENING.name, ANSWERS);
   }
 }
 

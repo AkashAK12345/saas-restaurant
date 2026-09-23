@@ -1319,6 +1319,79 @@ describe('tasks.opening report screen', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
+// BANQUET OPENING — the Branch Head Opening layout, over the banquet halls
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('tasks.banquet_opening report screen', () => {
+  const REMARK = 'Mirage hall mens washroom leakage to be fixed before the evening party';
+
+  beforeEach(() => {
+    routeKey = 'tasks.banquet_opening';
+    apiMock.run.mockImplementation(async (_ctx: unknown, key: string) =>
+      key === 'tasks.banquet_opening_compliance'
+        ? { ...openingComplianceResponse(), key }
+        : reportResponse({
+            key: 'tasks.banquet_opening',
+            name: 'Banquet Opening',
+            kind: 'summary',
+            option_specs: [],
+            columns: [
+              { key: 'date', label: 'Date', type: 'string' },
+              { key: 'submitted_by', label: 'Submitted By', type: 'string' },
+              { key: 'party_bookings', label: 'Party Bookings', type: 'string' },
+              { key: 'tvs', label: 'TVs', type: 'string' },
+              { key: 'remarks', label: 'Remarks', type: 'string' },
+            ],
+            rows: [
+              {
+                task_id: 'cccccccc-0000-4000-8000-000000000001',
+                date: '23 Sep 2026',
+                submitted_by: 'pallavarambqt',
+                party_bookings: 'No party',
+                tvs: 'No',
+                remarks: REMARK,
+              },
+            ],
+            metrics: [
+              { key: 'total_reports', label: 'Total Reports', value: 30, type: 'number' },
+              { key: 'branches', label: 'Branches', value: 1, type: 'number' },
+              { key: 'date_range', label: 'Date Range', value: '8d', type: 'string' },
+            ],
+            meta: { total: 1, limit: 50, offset: 0 },
+          }),
+    );
+    tasksApiMock.get.mockReset();
+    tasksApiMock.get.mockResolvedValue({ checklist: [] });
+  });
+
+  it('RF-70. the log: a long remark cut to one line, its full text kept in the title', async () => {
+    render(<ReportPage />);
+    const table = (await screen.findAllByRole('table'))[0];
+    expect(screen.getByText('Checklist Log')).toBeTruthy();
+    expect(within(table).getAllByRole('columnheader').map((h) => h.textContent)).toEqual([
+      'Date',
+      'Submitted By',
+      'Party Bookings',
+      'TVs',
+      'Remarks',
+      'Details',
+    ]);
+    expect(within(table).getByText(REMARK).getAttribute('title')).toBe(REMARK);
+    expect(screen.getByPlaceholderText('Search...')).toBeTruthy();
+  });
+
+  it("RF-71. View opens the banquet checklist's own details, in its own colour", async () => {
+    render(<ReportPage />);
+    const table = (await screen.findAllByRole('table'))[0];
+    fireEvent.click(within(table).getByRole('button', { name: 'View 23 Sep 2026' }));
+    const dialog = screen.getByRole('dialog', { name: 'Banquet Opening Checklist Details' });
+    expect(dialog.getAttribute('data-tone')).toBe('red');
+    expect(within(dialog).getByText('23 Sep 2026 - pallavarambqt')).toBeTruthy();
+    expect(tasksApiMock.get).toHaveBeenCalledWith(expect.anything(), 'cccccccc-0000-4000-8000-000000000001');
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
 // EXPORT
 // ═══════════════════════════════════════════════════════════════════════════
 

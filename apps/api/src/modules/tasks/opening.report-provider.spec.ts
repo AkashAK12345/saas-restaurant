@@ -1,6 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { dayLabel } from './checklist-report.js';
-import { windowDays } from './opening.report-provider.js';
+import { dayLabel, windowDays } from './checklist-report.js';
 
 describe('Branch Head Opening report helpers', () => {
   it('counts the window in days, both ends included', () => {
