@@ -66,3 +66,61 @@ describe('Workspace — the Queue sheet', () => {
     expect(hrefs(['queue.view'], false)).not.toContain('/queue');
   });
 });
+
+describe('Workspace — the Reports sheet', () => {
+  const openReports = (permissions: string[] = ['reports.view']) => {
+    render(<WorkspaceGrid permissions={permissions} hasBranch />);
+    const card = screen.getByRole('button', { name: /Reports/ });
+    expect(card.getAttribute('aria-haspopup')).toBe('dialog');
+    fireEvent.click(card);
+    return { card, dialog: screen.getByRole('dialog', { name: 'Reports' }) };
+  };
+
+  const rows = (dialog: HTMLElement) =>
+    within(dialog)
+      .getAllByRole('button')
+      .filter((b) => b.textContent !== 'Close reports')
+      .map((b) => b.textContent);
+
+  it('lists every checklist report, titled and subtitled as the design sets out', () => {
+    const { dialog } = openReports();
+    expect(rows(dialog)).toEqual([
+      'Operational ChecklistChecklist reports',
+      'Kitchen ChecklistKitchen reports',
+      'Branch Head OpeningBranch head opening reports',
+      'Banquet OpeningBanquet opening reports',
+      'BM ChecklistBM reports',
+      'Kitchen BalanceBalance reports',
+      'Biryani SalesSales reports',
+      'Kitchen Stock RequestStock reports',
+    ]);
+  });
+
+  it('closes on Escape, on the close control, and when a report is chosen', () => {
+    const { card } = openReports();
+    expect(card.getAttribute('aria-expanded')).toBe('true');
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByRole('dialog')).toBeNull();
+
+    fireEvent.click(card);
+    fireEvent.click(screen.getByRole('button', { name: 'Close reports' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+
+    fireEvent.click(card);
+    fireEvent.click(rowButtons()[0]);
+    expect(screen.queryByRole('dialog')).toBeNull();
+
+    function rowButtons() {
+      return within(screen.getByRole('dialog'))
+        .getAllByRole('button')
+        .filter((b) => b.textContent !== 'Close reports');
+    }
+  });
+
+  it('needs the reports permission and a branch before the card appears', () => {
+    const hrefs = (p: string[], b = true) => workspaceItems(p, b).map((i) => i.href);
+    expect(hrefs(['reports.view'])).toContain('/reports');
+    expect(hrefs(['customers.view'])).not.toContain('/reports');
+    expect(hrefs(['reports.view'], false)).not.toContain('/reports');
+  });
+});

@@ -5,6 +5,8 @@ import { useCallback, useState } from 'react';
 import { hasAnyPermission } from '@/lib/auth/permissions';
 import { hasQueueAccess, visibleSurfaces } from '@/lib/queue/surfaces';
 import { QueueSheet } from '@/components/queue/queue-sheet';
+import { ReportsSheet } from '@/components/reports/reports-sheet';
+import { CHECKLIST_REPORTS } from '@/lib/reports/checklist-reports';
 import { NavIcon } from './nav-icons';
 import { NAV_ITEMS, type NavItem } from './nav-items';
 import styles from './workspace.module.css';
@@ -69,6 +71,8 @@ export function WorkspaceGrid({
 }) {
   const [sheetOpen, setSheetOpen] = useState(false);
   const closeSheet = useCallback(() => setSheetOpen(false), []);
+  const [reportsOpen, setReportsOpen] = useState(false);
+  const closeReports = useCallback(() => setReportsOpen(false), []);
   const items = workspaceItems(permissions, hasBranch);
   const surfaces = visibleSurfaces(permissions);
   if (items.length === 0) return null;
@@ -106,6 +110,17 @@ export function WorkspaceGrid({
               >
                 {body(item)}
               </button>
+            ) : item.href === '/reports' ? (
+              <button
+                type="button"
+                className={`${styles.card} ${styles.cardButton}`}
+                data-accent={item.accent}
+                aria-haspopup="dialog"
+                aria-expanded={reportsOpen}
+                onClick={() => setReportsOpen(true)}
+              >
+                {body(item)}
+              </button>
             ) : (
               <Link className={styles.card} href={item.href} data-accent={item.accent}>
                 {body(item)}
@@ -115,6 +130,9 @@ export function WorkspaceGrid({
         ))}
       </ul>
       {sheetOpen ? <QueueSheet surfaces={surfaces} onClose={closeSheet} /> : null}
+      {reportsOpen ? (
+        <ReportsSheet reports={CHECKLIST_REPORTS} onSelect={closeReports} onClose={closeReports} />
+      ) : null}
     </section>
   );
 }
