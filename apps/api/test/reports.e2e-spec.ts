@@ -471,6 +471,8 @@ describe('Phase 10 Reports & Dashboard (e2e)', () => {
         'queue.tokens',
         'tasks.assignee',
         'tasks.completion',
+        'tasks.eod',
+        'tasks.eod_compliance',
         'tasks.log',
         'tasks.routines',
       ]);
@@ -869,6 +871,197 @@ describe('Phase 10 Reports & Dashboard (e2e)', () => {
         branchA.id,
       ).query(logRange);
       expect(res.status).toBe(403);
+    });
+  });
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // EOD REPORTS — own days again, and cleaned up, for the same reason.
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  describe('EOD reports', () => {
+    const eodRange = { from: '2026-05-10', to: '2026-05-13' };
+    const FUTURE = new Date('2099-01-01T00:00:00.000Z');
+    const taskIds: string[] = [];
+    const routineIds: string[] = [];
+    let templateId: string;
+
+    const eodTask = async (
+      day: string,
+      status: TaskStatus,
+      extra: {
+        branchId?: string;
+        completedAt?: Date;
+        due?: Date;
+        answers?: Array<{ label: string; kind?: 'TEXT' | 'PHOTO'; value?: string | null }>;
+      } = {},
+    ) => {
+      const branchId = extra.branchId ?? branchA.id;
+      const routine = await prisma.taskRoutine.create({
+        data: {
+          company_id: companyA.id,
+          branch_id: branchId,
+          name: `EOD Report ${day} ${status} ${branchId.slice(0, 4)}`,
+          frequency: 'DAILY',
+          time_of_day: '00:00',
+          checklist_template_id: templateId,
+        },
+      });
+      routineIds.push(routine.id);
+      const task = await prisma.task.create({
+        data: {
+          company_id: companyA.id,
+          branch_id: branchId,
+          title: 'EOD Report',
+          status,
+          source: 'ROUTINE',
+          routine_id: routine.id,
+          routine_occurrence_date: new Date(`${day}T00:00:00.000Z`),
+          checklist_template_id: templateId,
+          assignee_id: analystA.id,
+          created_at: new Date(`${day}T01:00:00.000Z`),
+          due_at: extra.due ?? null,
+          completed_at: extra.completedAt ?? null,
+          completed_by: extra.completedAt ? analystA.id : null,
+        },
+      });
+      taskIds.push(task.id);
+      if (extra.answers) {
+        await prisma.taskChecklistItem.createMany({
+          data: extra.answers.map((a, position) => ({
+            task_id: task.id,
+            label: a.label,
+            position,
+            kind: a.kind ?? 'TEXT',
+            value: a.value ?? null,
+            is_done: a.value != null,
+          })),
+        });
+      }
+      return task;
+    };
+
+    const eod = (key: string) =>
+      asAnalyst(request(http).get(`/api/v1/reports/${key}/data`)).query(eodRange);
+
+    beforeAll(async () => {
+      const template = await prisma.checklistTemplate.create({
+        data: { company_id: companyA.id, name: 'EOD Report' },
+      });
+      templateId = template.id;
+
+      // Filed at 23:48 Kolkata on the 10th.
+      await eodTask('2026-05-10', TaskStatus.COMPLETED, {
+        completedAt: new Date('2026-05-10T18:18:00.000Z'),
+        answers: [
+          { label: 'Review for the day', value: 'REVIEWS 10' },
+          { label: 'Food Complaint', value: 'NIL' },
+          { label: 'Food Complaint Images', kind: 'PHOTO' },
+          { label: 'Service Complaints', value: 'nil' },
+          { label: 'Your name', value: 'Giji' },
+        ],
+      });
+      // The 11th's EOD, filed after midnight — still the 11th's.
+      await eodTask('2026-05-11', TaskStatus.COMPLETED, {
+        completedAt: new Date('2026-05-11T18:56:00.000Z'),
+        answers: [
+          { label: 'Review for the day', value: '20 reviews' },
+          { label: 'Food Complaint', value: 'B4 small piece of plastic found' },
+          { label: 'Food Complaint Images', kind: 'PHOTO' },
+          { label: 'Service Complaints', value: 'Nill' },
+          { label: 'Your name', value: 'Clinton' },
+        ],
+      });
+      // Never filed and past its deadline: missed.
+      await eodTask('2026-05-12', TaskStatus.PENDING, { due: new Date('2026-05-12T18:29:00.000Z') });
+      // Not filed yet, not late yet: pending.
+      await eodTask('2026-05-13', TaskStatus.PENDING, { due: FUTURE });
+      // Called off: expected by nobody.
+      await eodTask('2026-05-13', TaskStatus.CANCELLED, { due: new Date('2026-05-13T18:29:00.000Z') });
+      // Another branch's EOD must never appear.
+      await eodTask('2026-05-10', TaskStatus.COMPLETED, {
+        branchId: branchA2.id,
+        completedAt: new Date('2026-05-10T18:00:00.000Z'),
+        answers: [{ label: 'Food Complaint', value: 'Other branch complaint' }],
+      });
+    });
+
+    afterAll(async () => {
+      await prisma.taskChecklistItem.deleteMany({ where: { task_id: { in: taskIds } } });
+      await prisma.task.deleteMany({ where: { id: { in: taskIds } } });
+      await prisma.taskRoutine.deleteMany({ where: { id: { in: routineIds } } });
+      await prisma.checklistTemplate.delete({ where: { id: templateId } });
+    });
+
+    it('RP-EOD1. transposes the log: a column per submission, oldest first, a row per field', async () => {
+      const res = await eod('tasks.eod');
+      expect(res.status).toBe(200);
+      expect(res.body.name).toBe('EOD Reports');
+      expect(res.body.columns.map((c: any) => c.label)).toEqual(['Field', '10 May', '11 May']);
+      expect(res.body.meta.total).toBe(2);
+
+      const row = (field: string) => res.body.rows.find((r: any) => r.field === field);
+      // The branch's own clock, and a late filing keeps its own day's column.
+      expect(row('Submitted')).toMatchObject({ c0: '10 May, 11:48 PM', c1: '12 May, 12:26 AM' });
+      expect(row('Submitted by')).toMatchObject({ c0: 'Ana Lyst', c1: 'Ana Lyst' });
+      expect(row('Food Complaint')).toMatchObject({ c0: 'NIL', c1: 'B4 small piece of plastic found' });
+      expect(row('Your name')).toMatchObject({ c0: 'Giji', c1: 'Clinton' });
+      // A photo has no text for a grid.
+      expect(row('Food Complaint Images')).toBeUndefined();
+      expect(JSON.stringify(res.body)).not.toContain('Other branch complaint');
+    });
+
+    it('RP-EOD2. counts complaints only when something was actually reported', async () => {
+      const res = await eod('tasks.eod');
+      const metric = (key: string) => res.body.metrics.find((m: any) => m.key === key).value;
+      expect(metric('total_reports')).toBe(2);
+      // "NIL" / "nil" / "Nill" are nothing to report.
+      expect(metric('with_complaints')).toBe(1);
+      expect(metric('food_complaints')).toBe(1);
+      expect(metric('service_issues')).toBe(0);
+    });
+
+    it('RP-EOD3. compliance: missed is past its deadline, pending is not yet, cancelled is neither', async () => {
+      const res = await eod('tasks.eod_compliance');
+      expect(res.status).toBe(200);
+      expect(res.body.rows).toEqual([
+        {
+          staff: 'Ana Lyst',
+          branch_name: 'Alpha Main',
+          submitted: '2 of 3',
+          missed: 1,
+          pending: 1,
+          compliance: 67,
+          missed_dates: '12 May',
+        },
+      ]);
+      const metric = (key: string) => res.body.metrics.find((m: any) => m.key === key).value;
+      expect(metric('compliance')).toBe(67);
+      expect(metric('submitted')).toBe('2 of 3');
+      expect(metric('missed')).toBe(1);
+      expect(metric('pending')).toBe(1);
+      expect(metric('staff_count')).toBe(1);
+      expect(metric('due_days')).toBe(3);
+    });
+
+    it('RP-EOD4. an empty window says so rather than inventing a compliance rate', async () => {
+      const res = await asAnalyst(request(http).get('/api/v1/reports/tasks.eod_compliance/data')).query({
+        from: '2026-06-01',
+        to: '2026-06-02',
+      });
+      expect(res.body.rows).toEqual([]);
+      expect(res.body.metrics.find((m: any) => m.key === 'compliance').value).toBeNull();
+    });
+
+    it('RP-EOD5. both need tasks.reports.view', async () => {
+      for (const key of ['tasks.eod', 'tasks.eod_compliance']) {
+        const res = await as(
+          request(http).get(`/api/v1/reports/${key}/data`),
+          tokenQueueOnlyA,
+          companyA.id,
+          branchA.id,
+        ).query(eodRange);
+        expect(res.status).toBe(403);
+      }
     });
   });
 

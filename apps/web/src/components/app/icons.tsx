@@ -84,7 +84,12 @@ export type AppIconName =
   | 'lock'
   | 'scale'
   | 'warning'
-  | 'inbox';
+  | 'inbox'
+  | 'document'
+  | 'headset'
+  | 'badgeCheck'
+  | 'calendarX'
+  | 'hourglass';
 
 const FILLED: Partial<Record<AppIconName, ReactNode>> = {
   people: (
@@ -511,6 +516,38 @@ const STROKED: Record<AppIconName, ReactNode> = {
     <>
       <rect x="3.5" y="4.5" width="17" height="15" rx="2.5" />
       <path d="M3.5 13.5h4.5l1.5 2.5h5l1.5-2.5h4.5" />
+    </>
+  ),
+  document: (
+    <>
+      <path d="M6.5 3h8l4 4v12.5A1.5 1.5 0 0 1 17 21H6.5A1.5 1.5 0 0 1 5 19.5v-15A1.5 1.5 0 0 1 6.5 3z" />
+      <path d="M14.5 3v4h4M8.5 12h7M8.5 15.5h7" />
+    </>
+  ),
+  headset: (
+    <>
+      <path d="M4.5 14v-2a7.5 7.5 0 0 1 15 0v2" />
+      <rect x="3.5" y="13" width="4" height="6" rx="1.5" />
+      <rect x="16.5" y="13" width="4" height="6" rx="1.5" />
+      <path d="M18.5 19a3 3 0 0 1-3 2.5H13" />
+    </>
+  ),
+  badgeCheck: (
+    <>
+      <path d="M12 2.8l2.2 1.6 2.7-.2.9 2.6 2.3 1.5-.8 2.6.8 2.6-2.3 1.5-.9 2.6-2.7-.2L12 21.2l-2.2-1.6-2.7.2-.9-2.6-2.3-1.5.8-2.6-.8-2.6 2.3-1.5.9-2.6 2.7.2z" />
+      <path d="m8.8 12 2.2 2.2 4.2-4.4" />
+    </>
+  ),
+  calendarX: (
+    <>
+      <rect x="3.5" y="5" width="17" height="15.5" rx="2" />
+      <path d="M8 3v4M16 3v4M3.5 10h17M9.8 13.2l4.4 4.4M14.2 13.2l-4.4 4.4" />
+    </>
+  ),
+  hourglass: (
+    <>
+      <path d="M6.5 3h11M6.5 21h11" />
+      <path d="M7.5 3v3.5a4.5 4.5 0 0 0 9 0V3M7.5 21v-3.5a4.5 4.5 0 0 1 9 0V21" />
     </>
   ),
   snowflake: (

@@ -268,6 +268,7 @@
 
 .panelHead {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 10px;
 }
@@ -290,6 +291,9 @@
 }
 
 .panelCount {
+  /* A short fact ("1 staff · 7 days") reads as one piece — on a narrow
+     phone it moves below the title rather than breaking in half. */
+  white-space: nowrap;
   padding: 2px 10px;
   border-radius: 999px;
   background: var(--color-surface-muted);
@@ -445,6 +449,43 @@
 .numeric {
   text-align: right;
   font-variant-numeric: tabular-nums;
+}
+
+/* A transposed grid: the first column names each row and stays put while
+   the submissions scroll past it. */
+.stickyFirst th:first-child,
+.stickyFirst td:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--color-surface);
+  box-shadow: 1px 0 0 var(--color-border);
+}
+
+.stickyFirst td:first-child {
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
+.stickyFirst th:first-child {
+  z-index: 2;
+  background: var(--color-surface-muted);
+}
+
+/* Free-text answers: wrap within a fixed width and keep the writer's own line
+   breaks ("REVIEWS 10 / 5*_8 / 4*_2"). */
+.wrapCells td {
+  min-width: 13rem;
+  max-width: 17rem;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+  vertical-align: top;
+  line-height: 1.45;
+}
+
+.wrapCells.stickyFirst td:first-child {
+  min-width: 9rem;
+  max-width: 11rem;
 }
 
 .empty {

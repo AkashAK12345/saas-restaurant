@@ -35,7 +35,10 @@ export function ReportTable({
   drilldown,
   badges,
   amountTones,
+  valuePills,
   emptyVariant = 'plain',
+  stickyFirstColumn = false,
+  wrapCells = false,
 }: {
   columns: readonly ReportColumn[];
   rows: ReadonlyArray<Record<string, unknown>>;
@@ -47,9 +50,18 @@ export function ReportTable({
   /** Column key -> a money value's colour by sign — e.g. a balance still
    *  owed in red, overpaid in green. Plain black for anything unmapped. */
   amountTones?: Readonly<Record<string, (value: number) => 'success' | 'danger' | undefined>>;
+  /** Column key -> a numeric value shown as a coloured pill, e.g. a
+   *  compliance rate. */
+  valuePills?: Readonly<Record<string, (value: number) => BadgeSpec['tone'] | undefined>>;
   /** 'panel' when the table sits inside a titled panel that already frames
    *  it — an icon and a line instead of a second bordered box. */
   emptyVariant?: 'plain' | 'panel';
+  /** Keep the first column in view while the rest scroll sideways — for a
+   *  transposed grid, whose first column names each row. */
+  stickyFirstColumn?: boolean;
+  /** Let long free text wrap (and keep its line breaks) in fixed-width
+   *  columns, instead of one line per cell. */
+  wrapCells?: boolean;
 }) {
   if (rows.length === 0) {
     return emptyVariant === 'panel' ? (
@@ -74,7 +86,13 @@ export function ReportTable({
 
   return (
     <div className={styles.tableWrap}>
-      <table className={styles.table}>
+      <table
+        className={[
+          styles.table,
+          stickyFirstColumn ? styles.stickyFirst : '',
+          wrapCells ? styles.wrapCells : '',
+        ].join(' ')}
+      >
         <caption className="sr-only">{caption}</caption>
         <thead>
           <tr>
@@ -110,9 +128,14 @@ export function ReportTable({
                     column.type === 'money' && typeof raw === 'number'
                       ? amountTones?.[column.key]?.(raw)
                       : undefined;
+                  const pillTone = typeof raw === 'number' ? valuePills?.[column.key]?.(raw) : undefined;
                   const content = badge ? (
                     <span className={styles.badge} data-tone={badge.tone}>
                       {badge.label}
+                    </span>
+                  ) : pillTone ? (
+                    <span className={styles.badge} data-tone={pillTone}>
+                      {text}
                     </span>
                   ) : amountTone ? (
                     <span className={styles.amountText} data-tone={amountTone}>

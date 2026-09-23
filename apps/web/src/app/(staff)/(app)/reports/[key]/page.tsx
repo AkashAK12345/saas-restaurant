@@ -9,7 +9,14 @@ import { reportsApi, saveFile, type ReportQuery } from '@/lib/reports/api';
 import { MetricGrid } from '@/components/reports/metric-grid';
 import { ReportTable } from '@/components/reports/report-table';
 import { formatDateLabel } from '@/lib/reports/format';
-import { AppIcon } from '@/components/app/icons';
+import { AppIcon, type AppIconName } from '@/components/app/icons';
+import {
+  EOD_COMPLIANCE_CARDS,
+  EOD_COMPLIANCE_METRIC_ICONS,
+  EOD_LOG_METRIC_ICONS,
+  complianceCountLabel,
+  complianceTone,
+} from '@/lib/reports/eod-ui';
 import { QUEUE_METRIC_ICONS, QUEUE_STATUS_BADGES, QUEUE_SEARCHABLE_COLUMNS } from '@/lib/reports/queue-tokens-ui';
 import {
   BANQUET_METRIC_ICONS,
@@ -40,9 +47,21 @@ const PAGE_SIZE = 50;
  */
 interface ReportUiHint {
   title: string;
-  searchPlaceholder: string;
-  searchableColumns: readonly string[];
+  /** The glyph beside the panel title; a table by default. */
+  panelIcon?: AppIconName;
+  /** The badge beside the title; "N entries" by default. */
+  countLabel?: (report: ReportResponse) => string;
+  /** Omitted: no search box. */
+  searchPlaceholder?: string;
+  searchableColumns?: readonly string[];
   badges?: Readonly<Record<string, Readonly<Record<string, BadgeSpec>>>>;
+  /** Numeric columns shown as a coloured pill, e.g. a compliance rate. */
+  valuePills?: Readonly<Record<string, (value: number) => BadgeSpec['tone'] | undefined>>;
+  table?: { stickyFirstColumn?: boolean; wrapCells?: boolean };
+  /** Another report rendered beneath this one over the SAME dates — one
+   *  screen answering two questions, as the EOD screen does (what was
+   *  filed, and whether it was filed). It keeps its own hint. */
+  companion?: string;
   /** Icons per metric key; may also derive one from a dynamic key (e.g. a
    *  per-currency "revenue_INR"). */
   metricIcons: (metrics: readonly ReportMetric[]) => Record<string, MetricIcon>;
@@ -101,7 +120,90 @@ const REPORT_UI_HINTS: Readonly<Record<string, ReportUiHint>> = {
     metricIcons: () => TASK_METRIC_ICONS,
     chips: { optionKey: 'view', values: TASK_VIEW_CHIPS },
   },
+  'tasks.eod': {
+    title: 'EOD Log (Transposed)',
+    metricIcons: () => EOD_LOG_METRIC_ICONS,
+    table: { stickyFirstColumn: true, wrapCells: true },
+    companion: 'tasks.eod_compliance',
+  },
+  'tasks.eod_compliance': {
+    title: 'Submission Compliance',
+    panelIcon: 'clipboardCheck',
+    countLabel: (report) => complianceCountLabel(report.metrics),
+    metricIcons: () => EOD_COMPLIANCE_METRIC_ICONS,
+    visibleMetricKeys: () => EOD_COMPLIANCE_CARDS,
+    valuePills: { compliance: complianceTone },
+  },
 };
+
+/**
+ * One hinted report's cards and titled panel. The primary report passes its
+ * search box state; a companion shows no search.
+ */
+function ReportPanel({
+  report,
+  hint,
+  rows,
+  search,
+  onSearch,
+}: {
+  report: ReportResponse;
+  hint: ReportUiHint;
+  rows: ReadonlyArray<Record<string, unknown>>;
+  search?: string;
+  onSearch?: (value: string) => void;
+}) {
+  return (
+    <div className={styles.panel}>
+      <div className={styles.panelHead}>
+        <span className={styles.panelIcon} aria-hidden="true">
+          <AppIcon name={hint.panelIcon ?? 'columns'} size={22} />
+        </span>
+        <h2 className={styles.panelTitle}>{hint.title}</h2>
+        <span className={styles.panelCount}>
+          {hint.countLabel
+            ? hint.countLabel(report)
+            : `${report.meta.total} ${report.meta.total === 1 ? 'entry' : 'entries'}`}
+        </span>
+      </div>
+      {hint.searchPlaceholder && onSearch ? (
+        <label className={styles.searchBox}>
+          <span className="sr-only">{hint.searchPlaceholder}</span>
+          <AppIcon name="search" size={18} />
+          <input
+            className={styles.searchInput}
+            type="search"
+            placeholder={hint.searchPlaceholder}
+            value={search ?? ''}
+            onChange={(event) => onSearch(event.target.value)}
+          />
+        </label>
+      ) : null}
+      <ReportTable
+        columns={report.columns}
+        rows={rows}
+        timezone={report.timezone}
+        caption={`${report.name}, ${formatDateLabel(report.filters.from)} to ${formatDateLabel(report.filters.to)}`}
+        drilldown={report.drilldown}
+        badges={hint.badges}
+        amountTones={hint.amountTones}
+        valuePills={hint.valuePills}
+        emptyVariant="panel"
+        stickyFirstColumn={hint.table?.stickyFirstColumn}
+        wrapCells={hint.table?.wrapCells}
+      />
+    </div>
+  );
+}
+
+/** The cards a hint chooses to show, with their icons. */
+function hintedMetrics(report: ReportResponse, hint: ReportUiHint) {
+  const keys = hint.visibleMetricKeys?.(report.metrics);
+  return {
+    metrics: keys ? report.metrics.filter((m) => keys.includes(m.key)) : report.metrics,
+    icons: hint.metricIcons(report.metrics),
+  };
+}
 
 /**
  * One report.
@@ -188,6 +290,42 @@ export default function ReportPage() {
     };
   }, [ctx, reportKey, query, runs]);
 
+  // A companion report runs over the SAME dates and is re-run by the same
+  // Run button, so the two halves of the screen can never disagree on period.
+  const companionKey = reportKey ? REPORT_UI_HINTS[reportKey]?.companion : undefined;
+  const [companion, setCompanion] = useState<ReportResponse | null>(null);
+  const [companionError, setCompanionError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!ctx || !companionKey) {
+      setCompanion(null);
+      return;
+    }
+    void runs; // a dependency on purpose: see `runs` above
+    let cancelled = false;
+    void (async () => {
+      setCompanionError(null);
+      try {
+        const res = await reportsApi.run(ctx, companionKey, {
+          from,
+          to,
+          limit: PAGE_SIZE,
+          offset: 0,
+          options: {},
+        });
+        if (!cancelled) setCompanion(res);
+      } catch (e) {
+        if (!cancelled) {
+          setCompanion(null);
+          setCompanionError((e as Error).message);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [ctx, companionKey, from, to, runs]);
+
   const runExport = useCallback(
     async (format: ExportFormat) => {
       if (!ctx || !reportKey) return;
@@ -224,18 +362,18 @@ export default function ReportPage() {
   const shown = report?.rows.length ?? 0;
 
   const hint = reportKey ? REPORT_UI_HINTS[reportKey] : undefined;
-  const metricIcons = report && hint ? hint.metricIcons(report.metrics) : undefined;
-  const visibleMetrics =
-    report && hint?.visibleMetricKeys
-      ? report.metrics.filter((m) => hint.visibleMetricKeys!(report.metrics).includes(m.key))
-      : report?.metrics ?? [];
+  const cards = report && hint ? hintedMetrics(report, hint) : undefined;
 
   const needle = search.trim().toLowerCase();
-  const visibleRows = !report || !needle || !hint
+  const searchable = hint?.searchableColumns ?? [];
+  const visibleRows = !report || !needle || searchable.length === 0
     ? report?.rows ?? []
     : report.rows.filter((row) =>
-        hint.searchableColumns.some((key) => String(row[key] ?? '').toLowerCase().includes(needle)),
+        searchable.some((key) => String(row[key] ?? '').toLowerCase().includes(needle)),
       );
+
+  const companionHint = companionKey ? REPORT_UI_HINTS[companionKey] : undefined;
+  const companionCards = companion && companionHint ? hintedMetrics(companion, companionHint) : undefined;
 
   return (
     <section className={styles.page}>
@@ -372,7 +510,7 @@ export default function ReportPage() {
 
       {report ? (
         <>
-          <MetricGrid metrics={visibleMetrics} timezone={timezone} icons={metricIcons} />
+          <MetricGrid metrics={cards?.metrics ?? report.metrics} timezone={timezone} icons={cards?.icons} />
 
           {hint?.chips ? (
             <div className={styles.chips} role="group" aria-label="Filter the log">
@@ -403,36 +541,7 @@ export default function ReportPage() {
           ) : null}
 
           {hint ? (
-            <div className={styles.panel}>
-              <div className={styles.panelHead}>
-                <span className={styles.panelIcon} aria-hidden="true">
-                  <AppIcon name="columns" size={22} />
-                </span>
-                <h2 className={styles.panelTitle}>{hint.title}</h2>
-                <span className={styles.panelCount}>{total} entries</span>
-              </div>
-              <label className={styles.searchBox}>
-                <span className="sr-only">{hint.searchPlaceholder}</span>
-                <AppIcon name="search" size={18} />
-                <input
-                  className={styles.searchInput}
-                  type="search"
-                  placeholder={hint.searchPlaceholder}
-                  value={search}
-                  onChange={(event) => setSearch(event.target.value)}
-                />
-              </label>
-              <ReportTable
-                columns={report.columns}
-                rows={visibleRows}
-                timezone={timezone}
-                caption={`${report.name}, ${formatDateLabel(report.filters.from)} to ${formatDateLabel(report.filters.to)}`}
-                drilldown={report.drilldown}
-                badges={hint.badges}
-                amountTones={hint.amountTones}
-                emptyVariant="panel"
-              />
-            </div>
+            <ReportPanel report={report} hint={hint} rows={visibleRows} search={search} onSearch={setSearch} />
           ) : (
             <ReportTable
               columns={report.columns}
@@ -469,6 +578,22 @@ export default function ReportPage() {
                 </button>
               </div>
             </div>
+          ) : null}
+
+          {companionError ? (
+            <p className={styles.error} role="alert">
+              {companionError}
+            </p>
+          ) : null}
+          {companion && companionHint ? (
+            <>
+              <MetricGrid
+                metrics={companionCards?.metrics ?? companion.metrics}
+                timezone={companion.timezone}
+                icons={companionCards?.icons}
+              />
+              <ReportPanel report={companion} hint={companionHint} rows={companion.rows} />
+            </>
           ) : null}
         </>
       ) : null}

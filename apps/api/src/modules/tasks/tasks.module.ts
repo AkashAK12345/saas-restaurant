@@ -17,6 +17,7 @@ import {
   TaskRoutineReport,
   TasksOpenWidget,
 } from './tasks.report-provider.js';
+import { EodComplianceReport, EodLogReport } from './eod.report-provider.js';
 
 /** How often the process wakes to look for due routine occurrences. */
 export const ROUTINE_JOB_NAME = 'tasks.routines.materialize';
@@ -79,6 +80,8 @@ export class RoutineScheduler implements OnModuleInit {
     TaskAssigneeReport,
     TaskRoutineReport,
     TaskLogReport,
+    EodLogReport,
+    EodComplianceReport,
     TasksOpenWidget,
     TaskReportRegistrar,
   ],

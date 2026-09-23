@@ -728,6 +728,14 @@ describe('tasks.log report panel', () => {
     expect(within(rows[1]).getByText('—')).toBeTruthy();
   });
 
+  it('RF-54a. keeps the chip row off reports that declare none', async () => {
+    routeKey = 'queue.tokens';
+    apiMock.run.mockImplementation(async () => reportResponse());
+    render(<ReportPage />);
+    await screen.findByRole('table');
+    expect(screen.queryByRole('group', { name: 'Filter the log' })).toBeNull();
+  });
+
   it('RF-54. an empty log says so inside the panel, with 0 entries', async () => {
     apiMock.run.mockImplementation(async () =>
       tasksLogResponse({ rows: [], meta: { total: 0, limit: 50, offset: 0 } }),
@@ -738,6 +746,160 @@ describe('tasks.log report panel', () => {
     expect(screen.getByText('Task Log')).toBeTruthy();
     expect(screen.getByText('0 entries')).toBeTruthy();
     expect(screen.getByPlaceholderText('Search task…')).toBeTruthy();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// EOD REPORTS — a transposed log, and its compliance beneath it
+// ═══════════════════════════════════════════════════════════════════════════
+
+function eodLogResponse(overrides: Partial<ReportResponse> = {}): ReportResponse {
+  return reportResponse({
+    key: 'tasks.eod',
+    name: 'EOD Reports',
+    kind: 'summary',
+    option_specs: [],
+    columns: [
+      { key: 'field', label: 'Field', type: 'string' },
+      { key: 'c0', label: '18 Sep', type: 'string' },
+      { key: 'c1', label: '19 Sep', type: 'string' },
+    ],
+    rows: [
+      { field: 'Submitted', c0: '18 Sep, 11:48 PM', c1: '20 Sep, 12:26 AM' },
+      { field: 'Review for the day', c0: 'REVIEWS 10\n5*_8\n4*_2', c1: '20reviews' },
+      { field: 'Food Complaint', c0: 'NIL', c1: 'B4 small piece of plastic found' },
+    ],
+    metrics: [
+      { key: 'total_reports', label: 'Total Reports', value: 2, type: 'number' },
+      { key: 'with_complaints', label: 'With Complaints', value: 1, type: 'number' },
+      { key: 'food_complaints', label: 'Food Complaints', value: 1, type: 'number' },
+      { key: 'service_issues', label: 'Service Issues', value: 0, type: 'number' },
+    ],
+    meta: { total: 2, limit: 50, offset: 0 },
+    ...overrides,
+  });
+}
+
+function eodComplianceResponse(compliance = 100): ReportResponse {
+  return reportResponse({
+    key: 'tasks.eod_compliance',
+    name: 'EOD Submission Compliance',
+    kind: 'summary',
+    option_specs: [],
+    columns: [
+      { key: 'staff', label: 'Staff', type: 'string' },
+      { key: 'submitted', label: 'Submitted', type: 'string' },
+      { key: 'compliance', label: 'Compliance', type: 'percent' },
+      { key: 'missed_dates', label: 'Missed Dates', type: 'string' },
+    ],
+    rows: [{ staff: 'annanagarrm', submitted: '7 of 7', compliance, missed_dates: null }],
+    metrics: [
+      { key: 'compliance', label: 'Compliance', value: compliance, type: 'percent' },
+      { key: 'submitted', label: 'Submitted', value: '7 of 7', type: 'string' },
+      { key: 'missed', label: 'Missed', value: 0, type: 'number' },
+      { key: 'pending', label: 'Pending', value: 1, type: 'number' },
+      { key: 'staff_count', label: 'Staff', value: 1, type: 'number' },
+      { key: 'due_days', label: 'Days due', value: 7, type: 'number' },
+    ],
+    meta: { total: 1, limit: 50, offset: 0 },
+  });
+}
+
+describe('tasks.eod report screen', () => {
+  beforeEach(() => {
+    routeKey = 'tasks.eod';
+    apiMock.run.mockImplementation(async (_ctx: unknown, key: string) =>
+      key === 'tasks.eod_compliance' ? eodComplianceResponse() : eodLogResponse(),
+    );
+  });
+
+  it('RF-55. shows the log and its compliance on one screen, each with its own four cards', async () => {
+    const { container } = render(<ReportPage />);
+    await screen.findByText('Submission Compliance');
+
+    expect([...container.querySelectorAll('dt')].map((dt) => dt.textContent)).toEqual([
+      'Total Reports',
+      'With Complaints',
+      'Food Complaints',
+      'Service Issues',
+      // staff_count and due_days feed the badge, not cards of their own.
+      'Compliance',
+      'Submitted',
+      'Missed',
+      'Pending',
+    ]);
+    expect(screen.getByText('EOD Log (Transposed)')).toBeTruthy();
+    expect(screen.getByText('2 entries')).toBeTruthy();
+    expect(screen.getByText('1 staff · 7 days')).toBeTruthy();
+    expect(screen.getByText('7 of 7', { selector: 'dd' })).toBeTruthy();
+  });
+
+  it('RF-56. runs the compliance over the SAME dates, and Run refreshes both', async () => {
+    render(<ReportPage />);
+    await screen.findByText('Submission Compliance');
+
+    const keys = () => apiMock.run.mock.calls.map((c) => c[1]);
+    expect(keys()).toContain('tasks.eod');
+    expect(keys()).toContain('tasks.eod_compliance');
+
+    apiMock.run.mockClear();
+    fireEvent.change(screen.getByLabelText('From'), { target: { value: '2026-09-16' } });
+    await waitFor(() => expect(keys()).toEqual(expect.arrayContaining(['tasks.eod', 'tasks.eod_compliance'])));
+    const byKey = (k: string) => apiMock.run.mock.calls.filter((c) => c[1] === k).at(-1)?.[2];
+    expect(byKey('tasks.eod_compliance')).toMatchObject({ from: '2026-09-16' });
+    expect(byKey('tasks.eod')).toMatchObject({ from: '2026-09-16' });
+  });
+
+  it('RF-57. the transposed log: dates across the top, the field names down the side, text kept as written', async () => {
+    render(<ReportPage />);
+    const table = (await screen.findAllByRole('table'))[0];
+
+    expect(within(table).getAllByRole('columnheader').map((h) => h.textContent)).toEqual([
+      'Field',
+      '18 Sep',
+      '19 Sep',
+    ]);
+    const firstCells = within(table)
+      .getAllByRole('row')
+      .slice(1)
+      .map((r) => r.querySelector('td')?.textContent);
+    expect(firstCells).toEqual(['Submitted', 'Review for the day', 'Food Complaint']);
+    // The writer's own line breaks survive.
+    expect(within(table).getByText(/REVIEWS 10\s+5\*_8\s+4\*_2/).textContent).toContain('\n');
+  });
+
+  it('RF-58. no search box on the EOD screen', async () => {
+    render(<ReportPage />);
+    await screen.findByText('Submission Compliance');
+    expect(screen.queryByRole('searchbox')).toBeNull();
+  });
+
+  it('RF-59. colours the compliance rate: full is green, poor is red', async () => {
+    const { unmount } = render(<ReportPage />);
+    const tables = await screen.findAllByRole('table');
+    await waitFor(() => expect(screen.getAllByRole('table')).toHaveLength(2));
+    const compliance = within(screen.getAllByRole('table')[1]).getByText('100%');
+    expect(compliance.getAttribute('data-tone')).toBe('success');
+    expect(tables.length).toBeGreaterThan(0);
+    unmount();
+
+    apiMock.run.mockImplementation(async (_ctx: unknown, key: string) =>
+      key === 'tasks.eod_compliance' ? eodComplianceResponse(40) : eodLogResponse(),
+    );
+    render(<ReportPage />);
+    await waitFor(() => expect(screen.getAllByRole('table')).toHaveLength(2));
+    expect(within(screen.getAllByRole('table')[1]).getByText('40%').getAttribute('data-tone')).toBe('danger');
+  });
+
+  it('RF-60. a compliance failure is reported without losing the log above it', async () => {
+    apiMock.run.mockImplementation(async (_ctx: unknown, key: string) => {
+      if (key === 'tasks.eod_compliance') throw new Error('Compliance is unavailable');
+      return eodLogResponse();
+    });
+    render(<ReportPage />);
+    expect((await screen.findByRole('alert')).textContent).toMatch('Compliance is unavailable');
+    expect(screen.getByText('EOD Log (Transposed)')).toBeTruthy();
+    expect(screen.queryByText('Submission Compliance')).toBeNull();
   });
 });
 
