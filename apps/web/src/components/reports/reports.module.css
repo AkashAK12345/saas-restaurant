@@ -243,6 +243,11 @@
 .badge[data-tone='primary'] { background: color-mix(in srgb, var(--color-primary) 18%, transparent); color: var(--color-primary); }
 .badge[data-tone='neutral'] { background: var(--color-surface-muted); color: var(--color-text-muted); }
 
+/* A money cell coloured by sign, e.g. a balance still owed vs. overpaid —
+   plain text, not a pill, since it is a number in a numeric column. */
+.amountText[data-tone='success'] { color: var(--color-success); font-weight: 600; }
+.amountText[data-tone='danger'] { color: var(--color-danger); font-weight: 600; }
+
 /* ── Table panel ─────────────────────────────────────────────────────────── */
 
 /* Opt-in: wraps the metrics + table for a report whose page requests it

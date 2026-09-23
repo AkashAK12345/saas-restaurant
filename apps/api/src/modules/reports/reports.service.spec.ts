@@ -311,8 +311,8 @@ describe('ReportsService', () => {
       await service.run(COMPANY, BRANCH, USER, { reportKey: 'queue.tokens' });
 
       const { ctx } = run.mock.calls[0][0];
-      expect(ctx.permissions.has(PERMISSION_KEYS.CUSTOMERS_VIEW)).toBe(true);
-      expect(ctx.permissions.has(PERMISSION_KEYS.BANQUET_VIEW)).toBe(false);
+      expect(ctx.permissions?.has(PERMISSION_KEYS.CUSTOMERS_VIEW)).toBe(true);
+      expect(ctx.permissions?.has(PERMISSION_KEYS.BANQUET_VIEW)).toBe(false);
     });
 
     it('lets a provider narrow its own columns for this caller, without touching the definition', async () => {
@@ -325,7 +325,7 @@ describe('ReportsService', () => {
       provider.run = vi.fn(async () => ({
         rows: [{ token_number: 1 }],
         total: 1,
-        columns: [{ key: 'token_number', label: 'Token', type: 'number' }],
+        columns: [{ key: 'token_number', label: 'Token', type: 'number' as const }],
       }));
       registry.register(provider);
 

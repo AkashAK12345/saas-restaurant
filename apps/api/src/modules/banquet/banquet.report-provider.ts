@@ -4,7 +4,8 @@ import { PrismaService } from '../../core/database/prisma.service.js';
 import { ReportRegistry } from '../reports/report-registry.service.js';
 import { DashboardService } from '../reports/dashboard.service.js';
 import { PERMISSION_KEYS } from '../../common/authorization/permission-keys.js';
-import { toReportNumber } from '../reports/report-values.js';
+import { toLocalDateString, toReportNumber } from '../reports/report-values.js';
+import { activeAdjustments, priceBooking, type PricingAdjustment } from './banquet-money.js';
 import type {
   ReportDefinition,
   ReportMetric,
@@ -38,16 +39,22 @@ import type {
  */
 
 const BOOKING_COLUMNS = [
-  { key: 'starts_at', label: 'Event', type: 'datetime' },
-  { key: 'hall_name', label: 'Hall', type: 'string' },
+  { key: 'event_date', label: 'Date', type: 'date' },
   { key: 'customer_name', label: 'Customer', type: 'string' },
-  { key: 'package_name', label: 'Package', type: 'string' },
+  { key: 'notes', label: 'Event Mgmt', type: 'string' },
+  { key: 'hall_name', label: 'Hall', type: 'string' },
   { key: 'guest_count', label: 'Guests', type: 'number' },
-  { key: 'status', label: 'Status', type: 'string' },
+  { key: 'package_name', label: 'Menu', type: 'string' },
   { key: 'currency', label: 'Currency', type: 'string' },
-  { key: 'total_amount_minor', label: 'Total', type: 'money' },
-  { key: 'paid_amount_minor', label: 'Paid', type: 'money' },
+  // gross/discount are computed from the SAME pricing function the booking
+  // itself is priced with (see below) — never re-derived by hand here, so a
+  // report figure can never disagree with the actual invoice.
+  { key: 'gross_minor', label: 'Total Amt', type: 'money' },
+  { key: 'discount_minor', label: 'Discount', type: 'money' },
+  { key: 'total_amount_minor', label: 'Final Amt', type: 'money' },
+  { key: 'paid_amount_minor', label: 'Total Paid', type: 'money' },
   { key: 'balance_minor', label: 'Balance', type: 'money' },
+  { key: 'status', label: 'Status', type: 'badge' },
 ] as const;
 
 const PAYMENT_COLUMNS = [
@@ -66,7 +73,8 @@ const OWING_STATUSES = Prisma.sql`('CONFIRMED', 'COMPLETED')`;
 
 interface BookingRow {
   booking_id: string;
-  starts_at: Date;
+  event_date: Date;
+  notes: string | null;
   hall_name: string;
   customer_name: string;
   package_name: string;
@@ -75,6 +83,15 @@ interface BookingRow {
   currency: string;
   total_amount_minor: number;
   paid_amount_minor: bigint | null;
+  // Pricing inputs, carried through only to compute gross/discount below —
+  // never displayed themselves.
+  price_per_guest_minor: number;
+  extra_pax: number;
+  gst_rate_bps: number;
+}
+
+interface AdjustmentRow extends PricingAdjustment {
+  booking_id: string;
 }
 
 interface PaymentRow {
@@ -91,7 +108,7 @@ interface PaymentRow {
 export class BanquetBookingsReport implements ReportProvider {
   readonly definition: ReportDefinition = {
     key: 'banquet.bookings',
-    name: 'Banquet bookings',
+    name: 'Banquet Reports',
     description: 'Events held in the period, with guests, value, amount paid and balance due.',
     domain: 'banquet',
     scope: 'branch',
@@ -118,11 +135,12 @@ export class BanquetBookingsReport implements ReportProvider {
         ${statusFilter}
     `;
 
-    const [rows, counted, totals] = await Promise.all([
+    const [rows, counted, totals, statusCounts] = await Promise.all([
       this.prisma.$queryRaw<BookingRow[]>(Prisma.sql`
         SELECT
           b."id" AS "booking_id",
-          b."starts_at",
+          (b."starts_at" AT TIME ZONE ${ctx.timezone})::date AS "event_date",
+          b."notes",
           COALESCE(b."hall_name", h."name") AS "hall_name",
           c."name"  AS "customer_name",
           b."package_name",
@@ -130,6 +148,9 @@ export class BanquetBookingsReport implements ReportProvider {
           b."status"::text AS "status",
           b."currency",
           b."total_amount_minor",
+          b."price_per_guest_minor",
+          b."extra_pax",
+          b."gst_rate_bps",
           COALESCE((
             SELECT SUM(p."amount_minor") FROM "banquet_payments" p
             WHERE p."booking_id" = b."id"
@@ -163,7 +184,32 @@ export class BanquetBookingsReport implements ReportProvider {
         GROUP BY b."currency"
         ORDER BY b."currency"
       `),
+      this.prisma.$queryRaw<Array<{ confirmed: bigint; drafts: bigint }>>(Prisma.sql`
+        SELECT
+          COUNT(*) FILTER (WHERE b."status" = 'CONFIRMED') AS "confirmed",
+          COUNT(*) FILTER (WHERE b."status" = 'DRAFT')     AS "drafts"
+        FROM "banquet_bookings" b
+        ${where}
+      `),
     ]);
+
+    // Gross and discount for exactly the bookings on this page, priced by the
+    // SAME pure function the booking itself is priced with — never re-derived
+    // by hand here, so a report figure can never disagree with the invoice.
+    const bookingIds = rows.map((r) => r.booking_id);
+    const adjustmentRows = bookingIds.length
+      ? await this.prisma.$queryRaw<AdjustmentRow[]>(Prisma.sql`
+          SELECT "booking_id", "id", "kind"::text AS "kind", "amount_minor", "reverses_id"
+          FROM "banquet_booking_adjustments"
+          WHERE "booking_id" = ANY(${bookingIds}::uuid[])
+        `)
+      : [];
+    const adjustmentsByBooking = new Map<string, PricingAdjustment[]>();
+    for (const a of adjustmentRows) {
+      const list = adjustmentsByBooking.get(a.booking_id) ?? [];
+      list.push(a);
+      adjustmentsByBooking.set(a.booking_id, list);
+    }
 
     const metrics: ReportMetric[] = [
       {
@@ -178,6 +224,9 @@ export class BanquetBookingsReport implements ReportProvider {
         value: totals.reduce((sum, t) => sum + toReportNumber(t.guests), 0),
         type: 'number',
       },
+      { key: 'total_bookings', label: 'Total Bookings', value: toReportNumber(counted[0]?.total), type: 'number' },
+      { key: 'confirmed', label: 'Confirmed', value: toReportNumber(statusCounts[0]?.confirmed), type: 'number' },
+      { key: 'drafts', label: 'Drafts', value: toReportNumber(statusCounts[0]?.drafts), type: 'number' },
     ];
     for (const total of totals) {
       metrics.push(
@@ -202,14 +251,31 @@ export class BanquetBookingsReport implements ReportProvider {
           type: 'money',
           currency: total.currency,
         },
+        {
+          key: `revenue_${total.currency}`,
+          label: `Revenue (${total.currency})`,
+          value: toReportNumber(total.paid),
+          type: 'money',
+          currency: total.currency,
+        },
       );
     }
 
     return {
       rows: rows.map((row) => {
         const paid = toReportNumber(row.paid_amount_minor);
+        const invoice = priceBooking({
+          price_per_guest_minor: row.price_per_guest_minor,
+          guest_count: row.guest_count,
+          extra_pax: row.extra_pax,
+          gst_rate_bps: row.gst_rate_bps,
+          adjustments: activeAdjustments(adjustmentsByBooking.get(row.booking_id) ?? []),
+        });
         return {
           ...row,
+          event_date: toLocalDateString(row.event_date),
+          gross_minor: invoice.gross_minor,
+          discount_minor: invoice.discount_minor,
           paid_amount_minor: paid,
           balance_minor: row.total_amount_minor - paid,
         };

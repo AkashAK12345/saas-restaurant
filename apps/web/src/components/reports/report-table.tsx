@@ -33,6 +33,7 @@ export function ReportTable({
   caption,
   drilldown,
   badges,
+  amountTones,
 }: {
   columns: readonly ReportColumn[];
   rows: ReadonlyArray<Record<string, unknown>>;
@@ -41,6 +42,9 @@ export function ReportTable({
   drilldown?: ReportDrilldown | null;
   /** Column key -> raw value -> how to show it, for any 'badge' column. */
   badges?: Readonly<Record<string, Readonly<Record<string, BadgeSpec>>>>;
+  /** Column key -> a money value's colour by sign — e.g. a balance still
+   *  owed in red, overpaid in green. Plain black for anything unmapped. */
+  amountTones?: Readonly<Record<string, (value: number) => 'success' | 'danger' | undefined>>;
 }) {
   if (rows.length === 0) {
     return (
@@ -90,9 +94,17 @@ export function ReportTable({
                     timezone,
                     currency: typeof row.currency === 'string' ? row.currency : undefined,
                   });
+                  const amountTone =
+                    column.type === 'money' && typeof raw === 'number'
+                      ? amountTones?.[column.key]?.(raw)
+                      : undefined;
                   const content = badge ? (
                     <span className={styles.badge} data-tone={badge.tone}>
                       {badge.label}
+                    </span>
+                  ) : amountTone ? (
+                    <span className={styles.amountText} data-tone={amountTone}>
+                      {text}
                     </span>
                   ) : (
                     text

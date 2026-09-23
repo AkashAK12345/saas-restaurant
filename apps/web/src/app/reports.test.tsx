@@ -508,14 +508,14 @@ describe('queue.tokens report panel', () => {
     expect(apiMock.run).not.toHaveBeenCalled();
   });
 
-  it('RF-45. a report other than queue.tokens gets the plain layout, with no panel or icons', async () => {
-    routeKey = 'banquet.bookings';
+  it('RF-45. a report with no UI hint gets the plain layout, with no panel or icons', async () => {
+    routeKey = 'banquet.payments';
     apiMock.run.mockImplementation(async () =>
       reportResponse({
-        key: 'banquet.bookings',
-        columns: [{ key: 'customer_name', label: 'Customer', type: 'string' }],
+        key: 'banquet.payments',
+        columns: [{ key: 'method', label: 'Method', type: 'string' }],
         metrics: [{ key: 'total_pax', label: 'Total PAX', value: 4, type: 'number' }],
-        rows: [{ customer_name: 'Priya' }],
+        rows: [{ method: 'cash' }],
         option_specs: [],
       }),
     );
@@ -524,6 +524,90 @@ describe('queue.tokens report panel', () => {
 
     expect(screen.queryByPlaceholderText(/Search/)).toBeNull();
     expect(screen.queryByText(/entries$/)).toBeNull();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// BANQUET REPORTS — the four headline cards, and a balance coloured by sign
+// ═══════════════════════════════════════════════════════════════════════════
+
+function banquetBookingsResponse(overrides: Partial<ReportResponse> = {}): ReportResponse {
+  return reportResponse({
+    key: 'banquet.bookings',
+    name: 'Banquet Reports',
+    columns: [
+      { key: 'event_date', label: 'Date', type: 'date' },
+      { key: 'customer_name', label: 'Customer', type: 'string' },
+      { key: 'hall_name', label: 'Hall', type: 'string' },
+      { key: 'balance_minor', label: 'Balance', type: 'money' },
+      { key: 'status', label: 'Status', type: 'badge' },
+    ],
+    // The full, unfiltered set the backend actually emits — the page must
+    // narrow this to four cards on its own, not rely on the server having
+    // sent exactly four.
+    metrics: [
+      { key: 'bookings', label: 'Events', value: 146, type: 'number' },
+      { key: 'total_bookings', label: 'Total Bookings', value: 146, type: 'number' },
+      { key: 'confirmed', label: 'Confirmed', value: 98, type: 'number' },
+      { key: 'drafts', label: 'Drafts', value: 48, type: 'number' },
+      { key: 'balance_INR', label: 'Balance due (INR)', value: 500, type: 'money', currency: 'INR' },
+      { key: 'revenue_INR', label: 'Revenue (INR)', value: 5_755_662_00, type: 'money', currency: 'INR' },
+    ],
+    rows: [
+      {
+        event_date: '2026-09-23',
+        customer_name: 'test1',
+        hall_name: 'D hall',
+        balance_minor: 3196000,
+        status: 'CONFIRMED',
+      },
+      {
+        event_date: '2026-09-22',
+        customer_name: 'button garments',
+        hall_name: '3rd FLOOR',
+        balance_minor: -494000,
+        status: 'CONFIRMED',
+      },
+    ],
+    ...overrides,
+  });
+}
+
+describe('banquet.bookings report panel', () => {
+  it('RF-46. shows only the four headline cards, not the full metric set the server sent', async () => {
+    routeKey = 'banquet.bookings';
+    apiMock.run.mockImplementation(async () => banquetBookingsResponse());
+    const { container } = render(<ReportPage />);
+    await screen.findByRole('table');
+
+    const cardLabels = [...container.querySelectorAll('dt')].map((dt) => dt.textContent);
+    expect(cardLabels).toEqual(['Total Bookings', 'Confirmed', 'Drafts', 'Revenue (INR)']);
+  });
+
+  it('RF-47. colours a balance still owed differently from one that is overpaid', async () => {
+    routeKey = 'banquet.bookings';
+    apiMock.run.mockImplementation(async () => banquetBookingsResponse());
+    render(<ReportPage />);
+
+    const table = await screen.findByRole('table');
+    const rows = within(table).getAllByRole('row').slice(1);
+    // Owed (positive balance_minor) reads as a warning; overpaid (negative) as fine.
+    expect(rows[0].querySelector('[data-tone]')?.getAttribute('data-tone')).toBe('danger');
+    expect(rows[1].querySelector('[data-tone]')?.getAttribute('data-tone')).toBe('success');
+  });
+
+  it('RF-48. titles the table "Bookings" and its search box matches the hall too', async () => {
+    routeKey = 'banquet.bookings';
+    apiMock.run.mockImplementation(async () => banquetBookingsResponse());
+    render(<ReportPage />);
+    await screen.findByRole('table');
+    expect(screen.getByText('Bookings')).toBeTruthy();
+    expect(screen.getByText('2 entries')).toBeTruthy();
+
+    fireEvent.change(screen.getByPlaceholderText('Search…'), { target: { value: 'FLOOR' } });
+    await waitFor(() => expect(screen.getAllByRole('row')).toHaveLength(2));
+    expect(screen.getByText('button garments')).toBeTruthy();
+    expect(screen.queryByText('test1')).toBeNull();
   });
 });
 

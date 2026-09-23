@@ -11,18 +11,75 @@ import { ReportTable } from '@/components/reports/report-table';
 import { formatDateLabel } from '@/lib/reports/format';
 import { AppIcon } from '@/components/app/icons';
 import { QUEUE_METRIC_ICONS, QUEUE_STATUS_BADGES, QUEUE_SEARCHABLE_COLUMNS } from '@/lib/reports/queue-tokens-ui';
-import type { ExportFormat, ReportResponse } from '@/lib/reports/types';
+import {
+  BANQUET_METRIC_ICONS,
+  BANQUET_STATUS_BADGES,
+  BANQUET_SEARCHABLE_COLUMNS,
+  banquetRevenueIcon,
+} from '@/lib/reports/banquet-bookings-ui';
+import type { MetricIcon } from '@/components/reports/metric-grid';
+import type { BadgeSpec } from '@/components/reports/report-table';
+import type { ExportFormat, ReportMetric, ReportResponse } from '@/lib/reports/types';
 import styles from '@/components/reports/reports.module.css';
 
 const PAGE_SIZE = 50;
 
 /**
- * Reports whose page wraps the table in a titled, searchable panel rather
- * than the plain metrics-then-table layout every other report gets. Adding a
- * key here is the ONLY frontend change a report needs for this treatment.
+ * Reports whose page wraps the table in a titled, searchable panel with
+ * icon-badged headline metrics and coloured status pills, rather than the
+ * plain metrics-then-table layout every other report gets. Adding a key
+ * here is the ONLY frontend change a report needs for this treatment — the
+ * table and metric grid components themselves stay fully generic.
  */
-const PANEL_REPORTS: Readonly<Record<string, { title: string; searchPlaceholder: string }>> = {
-  'queue.tokens': { title: 'Queue Log', searchPlaceholder: 'Search customer…' },
+interface ReportUiHint {
+  title: string;
+  searchPlaceholder: string;
+  searchableColumns: readonly string[];
+  badges?: Readonly<Record<string, Readonly<Record<string, BadgeSpec>>>>;
+  /** Icons per metric key; may also derive one from a dynamic key (e.g. a
+   *  per-currency "revenue_INR"). */
+  metricIcons: (metrics: readonly ReportMetric[]) => Record<string, MetricIcon>;
+  /** When set, only these metric keys render as headline cards — the API
+   *  response (and export) still carries the rest. */
+  visibleMetricKeys?: (metrics: readonly ReportMetric[]) => readonly string[];
+  /** Money columns whose sign gets coloured text (e.g. an overpaid balance
+   *  in green, still-owed in red/amber) rather than the plain black number
+   *  every other money column gets. */
+  amountTones?: Readonly<Record<string, (value: number) => 'success' | 'danger' | undefined>>;
+}
+
+const REPORT_UI_HINTS: Readonly<Record<string, ReportUiHint>> = {
+  'queue.tokens': {
+    title: 'Queue Log',
+    searchPlaceholder: 'Search customer…',
+    searchableColumns: QUEUE_SEARCHABLE_COLUMNS,
+    badges: { status: QUEUE_STATUS_BADGES },
+    metricIcons: () => QUEUE_METRIC_ICONS,
+  },
+  'banquet.bookings': {
+    title: 'Bookings',
+    searchPlaceholder: 'Search…',
+    searchableColumns: BANQUET_SEARCHABLE_COLUMNS,
+    badges: { status: BANQUET_STATUS_BADGES },
+    metricIcons: (metrics) => {
+      const icons: Record<string, MetricIcon> = { ...BANQUET_METRIC_ICONS };
+      for (const m of metrics) {
+        const icon = banquetRevenueIcon(m.key);
+        if (icon) icons[m.key] = icon;
+      }
+      return icons;
+    },
+    // Four cards, matching the reference design — the full per-currency
+    // breakdown (booked/collected/balance) stays in the response for export.
+    visibleMetricKeys: (metrics) => {
+      const revenueKey = metrics.find((m) => m.key.startsWith('revenue_'))?.key;
+      return ['total_bookings', 'confirmed', 'drafts', ...(revenueKey ? [revenueKey] : [])];
+    },
+    amountTones: {
+      // Owing (positive) reads as a warning; overpaid (negative) as fine.
+      balance_minor: (value) => (value > 0 ? 'danger' : value < 0 ? 'success' : undefined),
+    },
+  },
 };
 
 /**
@@ -145,15 +202,18 @@ export default function ReportPage() {
   const paginated = report?.kind === 'rows';
   const shown = report?.rows.length ?? 0;
 
-  const panelHint = reportKey ? PANEL_REPORTS[reportKey] : undefined;
-  const metricIcons = reportKey === 'queue.tokens' ? QUEUE_METRIC_ICONS : undefined;
-  const badges = reportKey === 'queue.tokens' ? { status: QUEUE_STATUS_BADGES } : undefined;
+  const hint = reportKey ? REPORT_UI_HINTS[reportKey] : undefined;
+  const metricIcons = report && hint ? hint.metricIcons(report.metrics) : undefined;
+  const visibleMetrics =
+    report && hint?.visibleMetricKeys
+      ? report.metrics.filter((m) => hint.visibleMetricKeys!(report.metrics).includes(m.key))
+      : report?.metrics ?? [];
 
   const needle = search.trim().toLowerCase();
-  const visibleRows = !report || !needle
+  const visibleRows = !report || !needle || !hint
     ? report?.rows ?? []
     : report.rows.filter((row) =>
-        QUEUE_SEARCHABLE_COLUMNS.some((key) => String(row[key] ?? '').toLowerCase().includes(needle)),
+        hint.searchableColumns.some((key) => String(row[key] ?? '').toLowerCase().includes(needle)),
       );
 
   return (
@@ -290,24 +350,24 @@ export default function ReportPage() {
 
       {report ? (
         <>
-          <MetricGrid metrics={report.metrics} timezone={timezone} icons={metricIcons} />
+          <MetricGrid metrics={visibleMetrics} timezone={timezone} icons={metricIcons} />
 
-          {panelHint ? (
+          {hint ? (
             <div className={styles.panel}>
               <div className={styles.panelHead}>
                 <span className={styles.panelIcon} aria-hidden="true">
                   <AppIcon name="columns" size={22} />
                 </span>
-                <h2 className={styles.panelTitle}>{panelHint.title}</h2>
+                <h2 className={styles.panelTitle}>{hint.title}</h2>
                 <span className={styles.panelCount}>{total} entries</span>
               </div>
               <label className={styles.searchBox}>
-                <span className="sr-only">{panelHint.searchPlaceholder}</span>
+                <span className="sr-only">{hint.searchPlaceholder}</span>
                 <AppIcon name="search" size={18} />
                 <input
                   className={styles.searchInput}
                   type="search"
-                  placeholder={panelHint.searchPlaceholder}
+                  placeholder={hint.searchPlaceholder}
                   value={search}
                   onChange={(event) => setSearch(event.target.value)}
                 />
@@ -318,7 +378,8 @@ export default function ReportPage() {
                 timezone={timezone}
                 caption={`${report.name}, ${formatDateLabel(report.filters.from)} to ${formatDateLabel(report.filters.to)}`}
                 drilldown={report.drilldown}
-                badges={badges}
+                badges={hint.badges}
+                amountTones={hint.amountTones}
               />
             </div>
           ) : (
