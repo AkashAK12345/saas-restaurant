@@ -26,6 +26,14 @@ import {
   OPENING_SECTION_LOOKS,
 } from '@/lib/reports/opening-ui';
 import { ChecklistDetailsDialog, type SectionLook } from '@/components/reports/checklist-details-dialog';
+import {
+  BM_LOG_CARDS,
+  BM_LOG_METRIC_ICONS,
+  BM_SEARCHABLE_COLUMNS,
+  BM_YES_NO_COLUMNS,
+  scoreTone,
+  yesNoTone,
+} from '@/lib/reports/bm-ui';
 import { QUEUE_METRIC_ICONS, QUEUE_STATUS_BADGES, QUEUE_SEARCHABLE_COLUMNS } from '@/lib/reports/queue-tokens-ui';
 import {
   BANQUET_METRIC_ICONS,
@@ -73,6 +81,8 @@ interface ReportUiHint {
     /** Long text cut to one line with "…". */
     clampColumns?: readonly string[];
   };
+  /** Any column's value shown as a coloured pill, e.g. Yes/No or "5/6". */
+  textPills?: Readonly<Record<string, (value: unknown) => BadgeSpec['tone'] | undefined>>;
   /** A pill after a cell, read from its row — e.g. "+1 filed" by Pending. */
   cellAddons?: Readonly<Record<string, (row: Record<string, unknown>) => BadgeSpec | undefined>>;
   /** Each row opens its submitted checklist in full (a "View" column). The
@@ -234,6 +244,27 @@ const REPORT_UI_HINTS: Readonly<Record<string, ReportUiHint>> = {
   'tasks.banquet_opening_compliance': complianceHint(
     'No Banquet Opening Checklist was scheduled for anyone in this period',
   ),
+  'tasks.bm': {
+    title: 'BM Checklist Log',
+    searchPlaceholder: 'Search...',
+    searchableColumns: BM_SEARCHABLE_COLUMNS,
+    metricIcons: () => BM_LOG_METRIC_ICONS,
+    visibleMetricKeys: () => BM_LOG_CARDS,
+    textPills: {
+      daily_score: scoreTone,
+      briefing_score: scoreTone,
+      ...Object.fromEntries(BM_YES_NO_COLUMNS.map((key) => [key, yesNoTone])),
+    },
+    table: { clampColumns: ['remarks'] },
+    companion: 'tasks.bm_compliance',
+    details: {
+      title: 'BM Checklist Details',
+      icon: 'notes',
+      tone: 'red',
+      subtitle: (row) => [row.date, row.manager ?? row.submitted_by].filter(Boolean).join(' - '),
+    },
+  },
+  'tasks.bm_compliance': complianceHint('No BM Checklist was scheduled for anyone in this period'),
 };
 
 /**
@@ -299,6 +330,7 @@ function ReportPanel({
         textTones={hint.textTones}
         cellAddons={hint.cellAddons}
         clampColumns={hint.table?.clampColumns}
+        textPills={hint.textPills}
         rowAction={
           hint.details && onView
             ? {

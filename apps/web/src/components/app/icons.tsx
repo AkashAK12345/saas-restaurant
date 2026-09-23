@@ -91,9 +91,23 @@ export type AppIconName =
   | 'calendarX'
   | 'hourglass'
   | 'star'
-  | 'checkRing';
+  | 'checkRing'
+  | 'speaking';
 
 const FILLED: Partial<Record<AppIconName, ReactNode>> = {
+  speaking: (
+    <>
+      <circle cx="9" cy="8" r="3.6" />
+      <path d="M2 20c0-3.9 3.1-6.4 7-6.4s7 2.5 7 6.4z" />
+      <path
+        d="M16.5 5.5a4 4 0 0 1 0 5.5M19 3a7.5 7.5 0 0 1 0 10.5"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        fill="none"
+      />
+    </>
+  ),
   star: <path d="m12 2.8 2.8 5.8 6.3.8-4.6 4.4 1.2 6.3L12 17.1l-5.7 3 1.2-6.3-4.6-4.4 6.3-.8z" />,
   people: (
     <>
@@ -300,6 +314,7 @@ const STROKED: Record<AppIconName, ReactNode> = {
   ),
   checkCircle: null,
   star: null,
+  speaking: null,
   noEntry: null,
   share: (
     <>

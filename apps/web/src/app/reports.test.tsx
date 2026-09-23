@@ -1392,6 +1392,91 @@ describe('tasks.banquet_opening report screen', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
+// BM CHECKLIST — scores and yes/no as pills, averaged on the cards
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('tasks.bm report screen', () => {
+  beforeEach(() => {
+    routeKey = 'tasks.bm';
+    apiMock.run.mockImplementation(async (_ctx: unknown, key: string) =>
+      key === 'tasks.bm_compliance'
+        ? { ...openingComplianceResponse(), key }
+        : reportResponse({
+            key: 'tasks.bm',
+            name: 'BM Checklist',
+            kind: 'summary',
+            option_specs: [],
+            columns: [
+              { key: 'date', label: 'Date', type: 'string' },
+              { key: 'manager', label: 'Manager', type: 'string' },
+              { key: 'daily_score', label: 'Daily Score', type: 'string' },
+              { key: 'briefing_score', label: 'Briefing Score', type: 'string' },
+              { key: 'tv_music', label: 'TV/Music', type: 'string' },
+              { key: 'equipment', label: 'Equipment', type: 'string' },
+              { key: 'remarks', label: 'Remarks', type: 'string' },
+            ],
+            rows: [
+              {
+                task_id: 'dddddddd-0000-4000-8000-000000000001',
+                date: '23 Sep 2026',
+                submitted_by: 'alwarpetrm',
+                manager: 'Mr Vasu',
+                daily_score: '5/6',
+                briefing_score: '2/6',
+                tv_music: 'No',
+                equipment: 'Yes',
+                remarks: 'manageable',
+              },
+            ],
+            metrics: [
+              { key: 'total_reports', label: 'Total Reports', value: 47, type: 'number' },
+              { key: 'branches', label: 'Branches', value: 1, type: 'number' },
+              { key: 'date_range', label: 'Date Range', value: '8d', type: 'string' },
+              { key: 'avg_daily', label: 'Avg Daily', value: '5.6/6', type: 'string' },
+              { key: 'avg_briefing', label: 'Avg Briefing', value: '5.8/6', type: 'string' },
+            ],
+            meta: { total: 1, limit: 50, offset: 0 },
+          }),
+    );
+    tasksApiMock.get.mockReset();
+    tasksApiMock.get.mockResolvedValue({ checklist: [] });
+  });
+
+  it('RF-72. three cards: reports and the two average scores', async () => {
+    const { container } = render(<ReportPage />);
+    await screen.findByText('Submission Compliance');
+    const cards = [...container.querySelectorAll('dt')].map((dt) => [
+      dt.textContent,
+      dt.parentElement?.querySelector('dd')?.textContent,
+    ]);
+    expect(cards.slice(0, 3)).toEqual([
+      ['Total Reports', '47'],
+      ['Avg Daily', '5.6/6'],
+      ['Avg Briefing', '5.8/6'],
+    ]);
+    expect(screen.getByText('BM Checklist Log')).toBeTruthy();
+  });
+
+  it('RF-73. scores and yes/no answers as coloured pills; free text stays plain', async () => {
+    render(<ReportPage />);
+    const table = (await screen.findAllByRole('table'))[0];
+    expect(within(table).getByText('5/6').getAttribute('data-tone')).toBe('success');
+    expect(within(table).getByText('2/6').getAttribute('data-tone')).toBe('danger');
+    expect(within(table).getByText('No').getAttribute('data-tone')).toBe('danger');
+    expect(within(table).getByText('Yes').getAttribute('data-tone')).toBe('success');
+    expect(within(table).getByText('Mr Vasu').hasAttribute('data-tone')).toBe(false);
+  });
+
+  it("RF-74. View names the submission by its day and manager", async () => {
+    render(<ReportPage />);
+    const table = (await screen.findAllByRole('table'))[0];
+    fireEvent.click(within(table).getByRole('button', { name: 'View 23 Sep 2026' }));
+    const dialog = screen.getByRole('dialog', { name: 'BM Checklist Details' });
+    expect(within(dialog).getByText('23 Sep 2026 - Mr Vasu')).toBeTruthy();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
 // EXPORT
 // ═══════════════════════════════════════════════════════════════════════════
 

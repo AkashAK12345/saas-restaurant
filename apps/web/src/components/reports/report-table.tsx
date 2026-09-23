@@ -45,6 +45,7 @@ export function ReportTable({
   cellAddons,
   rowAction,
   clampColumns,
+  textPills,
 }: {
   columns: readonly ReportColumn[];
   rows: ReadonlyArray<Record<string, unknown>>;
@@ -81,6 +82,9 @@ export function ReportTable({
   /** Columns whose long text is cut to one line with "…" (the full text is
    *  in the cell's title, and in the row's details). */
   clampColumns?: readonly string[];
+  /** Column key -> any value shown as a coloured pill, by its raw value —
+   *  e.g. "Yes" in green and "No" in red, or a "5/6" score. */
+  textPills?: Readonly<Record<string, (value: unknown) => BadgeSpec['tone'] | undefined>>;
   /** A trailing column with one button per row, e.g. "View" to open the
    *  submission in full. The page decides what opening means. */
   rowAction?: {
@@ -160,6 +164,7 @@ export function ReportTable({
                       : undefined;
                   const pillTone = typeof raw === 'number' ? valuePills?.[column.key]?.(raw) : undefined;
                   const textTone = amountTone ?? textTones?.[column.key]?.(raw);
+                  const textPill = raw === null || raw === undefined ? undefined : textPills?.[column.key]?.(raw);
                   const content = badge ? (
                     <span className={styles.badge} data-tone={badge.tone}>
                       {badge.label}
@@ -167,6 +172,10 @@ export function ReportTable({
                   ) : pillTone ? (
                     <span className={styles.badge} data-tone={pillTone}>
                       <span className={styles.pillDot} aria-hidden="true" />
+                      {text}
+                    </span>
+                  ) : textPill ? (
+                    <span className={styles.badge} data-tone={textPill}>
                       {text}
                     </span>
                   ) : textTone ? (

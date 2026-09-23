@@ -3,6 +3,7 @@ import { PrismaService } from '../../core/database/prisma.service.js';
 import { PERMISSION_KEYS } from '../../common/authorization/permission-keys.js';
 import {
   COMPLIANCE_COLUMNS,
+  fieldsRead,
   referenceForm,
   runCompliance,
   runSubmissionLog,
@@ -35,7 +36,7 @@ const ANSWERS: AnswerColumns = {
 
 const BANQUET_OPENING = referenceForm(
   'banquet-opening',
-  Object.values(ANSWERS).map((a) => a.field),
+  fieldsRead(ANSWERS),
 );
 
 @Injectable()

@@ -472,6 +472,8 @@ describe('Phase 10 Reports & Dashboard (e2e)', () => {
         'tasks.assignee',
         'tasks.banquet_opening',
         'tasks.banquet_opening_compliance',
+        'tasks.bm',
+        'tasks.bm_compliance',
         'tasks.completion',
         'tasks.eod',
         'tasks.eod_compliance',
@@ -1732,6 +1734,144 @@ describe('Phase 10 Reports & Dashboard (e2e)', () => {
 
     it('RP-BQO3. both need tasks.reports.view', async () => {
       for (const key of ['tasks.banquet_opening', 'tasks.banquet_opening_compliance']) {
+        const res = await as(
+          request(http).get(`/api/v1/reports/${key}/data`),
+          tokenQueueOnlyA,
+          companyA.id,
+          branchA.id,
+        ).query(range);
+        expect(res.status).toBe(403);
+      }
+    });
+  });
+
+  describe('BM Checklist reports', () => {
+    const range = { from: '2026-08-25', to: '2026-08-26' };
+    const taskIds: string[] = [];
+    const routineIds: string[] = [];
+    let templateId: string;
+
+    const GROOMED =
+      'Are all the staff well-groomed as per the Samco standards? (clean and ironed uniform, with name badge, well-polished shoes)';
+    const DAILY = [
+      GROOMED,
+      'TV & Music is on?',
+      'Is the scheduled staff present and on time?',
+      'Is the dining area clean and presentable? (Tables, chairs, floors, windows, etc.)',
+      'Are all equipment and appliances functioning properly? (Lights, air conditioning, POS system)',
+      'Has the restroom been cleaned & sanitized properly and checklist has been filled?',
+    ];
+    const BRIEFING = ['Grooming', 'Cleanliness', "Yesterday's Feedback", "Day's Special", 'Menu Knowledge', 'Staff Concern'];
+
+    const bmTask = async (day: string, completedAt: Date, answers: Array<[string, 'TEXT' | 'YES_NO', string | null]>) => {
+      const routine = await prisma.taskRoutine.create({
+        data: {
+          company_id: companyA.id,
+          branch_id: branchA.id,
+          name: `BM Checklist ${day} ${taskIds.length}`,
+          frequency: 'DAILY',
+          time_of_day: '00:00',
+          checklist_template_id: templateId,
+        },
+      });
+      routineIds.push(routine.id);
+      const task = await prisma.task.create({
+        data: {
+          company_id: companyA.id,
+          branch_id: branchA.id,
+          title: 'BM Checklist',
+          status: TaskStatus.COMPLETED,
+          source: 'ROUTINE',
+          routine_id: routine.id,
+          routine_occurrence_date: new Date(`${day}T00:00:00.000Z`),
+          checklist_template_id: templateId,
+          assignee_id: analystA.id,
+          created_at: new Date(`${day}T01:00:00.000Z`),
+          completed_at: completedAt,
+          completed_by: analystA.id,
+        },
+      });
+      taskIds.push(task.id);
+      await prisma.taskChecklistItem.createMany({
+        data: answers.map(([label, kind, value], position) => ({
+          task_id: task.id,
+          label,
+          position,
+          kind,
+          value,
+          is_done: value != null,
+        })),
+      });
+    };
+
+    const run = (key: string) => asAnalyst(request(http).get(`/api/v1/reports/${key}/data`)).query(range);
+
+    beforeAll(async () => {
+      const template = await prisma.checklistTemplate.create({
+        data: { company_id: companyA.id, name: 'BM Checklist' },
+      });
+      templateId = template.id;
+
+      // Every daily check Yes; five of six briefing points.
+      await bmTask('2026-08-25', new Date('2026-08-25T06:02:00.000Z'), [
+        ['Manager Name', 'TEXT', 'Rajendiran'],
+        ...DAILY.map((f): [string, 'YES_NO', string] => [f, 'YES_NO', 'YES']),
+        ...BRIEFING.map((f, i): [string, 'YES_NO', string] => [f, 'YES_NO', i === 5 ? 'NO' : 'YES']),
+        ['Remarks/Comments', 'TEXT', 'sofa works still ongoing'],
+      ]);
+      // TV & Music off; one briefing point skipped.
+      await bmTask('2026-08-26', new Date('2026-08-26T05:58:00.000Z'), [
+        ['Manager Name', 'TEXT', 'Mr Vasu'],
+        ...DAILY.map((f): [string, 'YES_NO', string] => [f, 'YES_NO', f === 'TV & Music is on?' ? 'NO' : 'YES']),
+        ...BRIEFING.map((f, i): [string, 'YES_NO', string | null] => [f, 'YES_NO', i === 0 ? null : 'YES']),
+        ['Remarks/Comments', 'TEXT', 'manageable'],
+      ]);
+    });
+
+    afterAll(async () => {
+      await prisma.taskChecklistItem.deleteMany({ where: { task_id: { in: taskIds } } });
+      await prisma.task.deleteMany({ where: { id: { in: taskIds } } });
+      await prisma.taskRoutine.deleteMany({ where: { id: { in: routineIds } } });
+      await prisma.checklistTemplate.delete({ where: { id: templateId } });
+    });
+
+    it('RP-BM1. a row per submission with its daily and briefing scores', async () => {
+      const res = await run('tasks.bm');
+      expect(res.status).toBe(200);
+      expect(res.body.name).toBe('BM Checklist');
+      expect(res.body.columns.map((c: any) => c.label)).toEqual([
+        'Date',
+        'Submitted At',
+        'Submitted By',
+        'Branch',
+        'Manager',
+        'Daily Score',
+        'Briefing Score',
+        'Staff Groomed',
+        'TV/Music',
+        'Staff On Time',
+        'Dining Clean',
+        'Equipment',
+        'Restroom',
+        'Remarks',
+      ]);
+      expect(res.body.rows.map((r: any) => [r.date, r.manager, r.daily_score, r.briefing_score, r.tv_music])).toEqual([
+        ['26 Aug 2026', 'Mr Vasu', '5/6', '5/6', 'No'],
+        ['25 Aug 2026', 'Rajendiran', '6/6', '5/6', 'Yes'],
+      ]);
+      expect(res.body.rows[1]).toMatchObject({ staff_groomed: 'Yes', remarks: 'sofa works still ongoing' });
+    });
+
+    it('RP-BM2. the cards average each score over the period', async () => {
+      const res = await run('tasks.bm');
+      const metric = (key: string) => res.body.metrics.find((m: any) => m.key === key).value;
+      expect(metric('total_reports')).toBe(2);
+      expect(metric('avg_daily')).toBe('5.5/6');
+      expect(metric('avg_briefing')).toBe('5/6');
+    });
+
+    it('RP-BM3. both need tasks.reports.view', async () => {
+      for (const key of ['tasks.bm', 'tasks.bm_compliance']) {
         const res = await as(
           request(http).get(`/api/v1/reports/${key}/data`),
           tokenQueueOnlyA,

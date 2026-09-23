@@ -7,6 +7,7 @@ import {
 } from './reference-checklists.js';
 import type {
   ReportColumn,
+  ReportMetric,
   ReportQuery,
   ReportResult,
 } from '../reports/report-contract.js';
@@ -451,8 +452,22 @@ export function windowDays(fromLocal: string, toLocal: string): number {
   return Math.max(0, Math.round(ms / 86_400_000) + 1);
 }
 
-/** Log column key -> its heading and the form question it shows. */
-export type AnswerColumns = Readonly<Record<string, { label: string; field: string }>>;
+/**
+ * Log column key -> its heading and either the form question it shows, or a
+ * value worked out from the submission's answers (e.g. a "5/6" score).
+ */
+export type AnswerColumns = Readonly<
+  Record<
+    string,
+    | { label: string; field: string }
+    | { label: string; compute: (answerOf: (field: string) => ChecklistAnswer | undefined) => string | null }
+  >
+>;
+
+/** Every form question an answer spec reads directly, for referenceForm(). */
+export function fieldsRead(answers: AnswerColumns): string[] {
+  return Object.values(answers).flatMap((a) => ('field' in a ? [a.field] : []));
+}
 
 /** The columns of a submission log: who and when, then the chosen answers. */
 export function submissionLogColumns(answers: AnswerColumns): ReportColumn[] {
@@ -475,20 +490,24 @@ export async function runSubmissionLog(
   query: ReportQuery,
   templateName: string,
   answers: AnswerColumns,
+  extraMetrics: (forms: SubmittedForms) => ReportMetric[] = () => [],
 ): Promise<ReportResult> {
   const forms = await loadSubmissions(prisma, query, templateName);
-  const rows = [...forms.submissions].reverse().map((s) => ({
-    task_id: s.task_id,
-    date: dayLabel(toLocalDateString(s.report_date), true),
-    submitted_at: instantLabel(s.completed_at, query.ctx.timezone),
-    submitted_by: s.submitted_by,
-    ...Object.fromEntries(
-      Object.entries(answers).map(([key, a]) => [
-        key,
-        displayAnswer(forms.answers.get(s.task_id)?.get(a.field)),
-      ]),
-    ),
-  }));
+  const rows = [...forms.submissions].reverse().map((s) => {
+    const answerOf = (field: string) => forms.answers.get(s.task_id)?.get(field);
+    return {
+      task_id: s.task_id,
+      date: dayLabel(toLocalDateString(s.report_date), true),
+      submitted_at: instantLabel(s.completed_at, query.ctx.timezone),
+      submitted_by: s.submitted_by,
+      ...Object.fromEntries(
+        Object.entries(answers).map(([key, a]) => [
+          key,
+          'field' in a ? displayAnswer(answerOf(a.field)) : a.compute(answerOf),
+        ]),
+      ),
+    };
+  });
 
   return {
     rows,
@@ -503,6 +522,7 @@ export async function runSubmissionLog(
         value: `${windowDays(query.range.fromLocal, query.range.toLocal)}d`,
         type: 'string',
       },
+      ...extraMetrics(forms),
     ],
   };
 }
