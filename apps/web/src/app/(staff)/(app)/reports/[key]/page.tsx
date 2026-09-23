@@ -17,6 +17,7 @@ import {
   complianceCountLabel,
   complianceTone,
 } from '@/lib/reports/eod-ui';
+import { OPERATIONAL_COMPLIANCE_METRIC_ICONS, OPERATIONAL_LOG_METRIC_ICONS } from '@/lib/reports/operational-ui';
 import { QUEUE_METRIC_ICONS, QUEUE_STATUS_BADGES, QUEUE_SEARCHABLE_COLUMNS } from '@/lib/reports/queue-tokens-ui';
 import {
   BANQUET_METRIC_ICONS,
@@ -58,6 +59,8 @@ interface ReportUiHint {
   /** Numeric columns shown as a coloured pill, e.g. a compliance rate. */
   valuePills?: Readonly<Record<string, (value: number) => BadgeSpec['tone'] | undefined>>;
   table?: { stickyFirstColumn?: boolean; wrapCells?: boolean };
+  /** The empty panel's line, when "No data found" would not say why. */
+  emptyText?: string;
   /** Another report rendered beneath this one over the SAME dates — one
    *  screen answering two questions, as the EOD screen does (what was
    *  filed, and whether it was filed). It keeps its own hint. */
@@ -133,6 +136,22 @@ const REPORT_UI_HINTS: Readonly<Record<string, ReportUiHint>> = {
     metricIcons: () => EOD_COMPLIANCE_METRIC_ICONS,
     visibleMetricKeys: () => EOD_COMPLIANCE_CARDS,
     valuePills: { compliance: complianceTone },
+    emptyText: 'No EOD Report was scheduled for anyone in this period',
+  },
+  'tasks.operational': {
+    title: 'Checklist Log (Transposed)',
+    metricIcons: () => OPERATIONAL_LOG_METRIC_ICONS,
+    table: { stickyFirstColumn: true, wrapCells: true },
+    companion: 'tasks.operational_compliance',
+  },
+  'tasks.operational_compliance': {
+    title: 'Submission Compliance',
+    panelIcon: 'clipboardCheck',
+    countLabel: (report) => complianceCountLabel(report.metrics),
+    metricIcons: () => OPERATIONAL_COMPLIANCE_METRIC_ICONS,
+    visibleMetricKeys: () => EOD_COMPLIANCE_CARDS,
+    valuePills: { compliance: complianceTone },
+    emptyText: 'No Operational Checklist was scheduled for anyone in this period',
   },
 };
 
@@ -189,6 +208,7 @@ function ReportPanel({
         amountTones={hint.amountTones}
         valuePills={hint.valuePills}
         emptyVariant="panel"
+        emptyText={hint.emptyText}
         stickyFirstColumn={hint.table?.stickyFirstColumn}
         wrapCells={hint.table?.wrapCells}
       />

@@ -19,10 +19,19 @@ export interface ChecklistReport {
   title: string;
   subtitle: string;
   icon: AppIconName;
+  /** The report screen the row opens. Rows without one only close the sheet
+   *  until their report is built. */
+  reportKey?: string;
 }
 
 export const CHECKLIST_REPORTS: readonly ChecklistReport[] = [
-  { key: 'operational-checklist', title: 'Operational Checklist', subtitle: 'Checklist reports', icon: 'checklist' },
+  {
+    key: 'operational-checklist',
+    title: 'Operational Checklist',
+    subtitle: 'Checklist reports',
+    icon: 'checklist',
+    reportKey: 'tasks.operational',
+  },
   { key: 'kitchen-checklist', title: 'Kitchen Checklist', subtitle: 'Kitchen reports', icon: 'fork' },
   { key: 'opening-checklist', title: 'Branch Head Opening', subtitle: 'Branch head opening reports', icon: 'lock' },
   { key: 'banquet-opening', title: 'Banquet Opening', subtitle: 'Banquet opening reports', icon: 'party' },

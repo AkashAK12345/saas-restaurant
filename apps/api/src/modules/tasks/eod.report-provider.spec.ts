@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { dayLabel, instantLabel, isReported } from './eod.report-provider.js';
+import { dayLabel, instantLabel } from './checklist-report.js';
+import { isReported } from './eod.report-provider.js';
 
 describe('EOD report helpers', () => {
   it('treats the ways staff write "nothing to report" as nothing', () => {

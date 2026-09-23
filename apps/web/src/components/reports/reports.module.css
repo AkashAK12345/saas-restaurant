@@ -680,4 +680,28 @@
     flex-direction: column;
     align-items: stretch;
   }
+
+  /* Keep a panel's title and its count on one line on a phone, as the
+     design has them; the badge still wraps below if it truly cannot fit. */
+  .panel {
+    padding: var(--gap);
+  }
+
+  .panelHead {
+    gap: 8px;
+  }
+
+  .panelIcon {
+    width: 24px;
+    height: 24px;
+  }
+
+  .panelTitle {
+    font-size: 1rem;
+  }
+
+  .panelCount {
+    padding: 2px 8px;
+    font-size: 0.75rem;
+  }
 }

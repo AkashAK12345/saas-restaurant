@@ -1,7 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent, within } from '@testing-library/react';
 
-vi.mock('next/navigation', () => ({ usePathname: () => '/' }));
+const { push } = vi.hoisted(() => ({ push: vi.fn() }));
+vi.mock('next/navigation', () => ({ usePathname: () => '/', useRouter: () => ({ push }) }));
 
 import { WorkspaceGrid, workspaceItems } from './workspace-grid';
 
@@ -115,6 +116,19 @@ describe('Workspace — the Reports sheet', () => {
         .getAllByRole('button')
         .filter((b) => b.textContent !== 'Close reports');
     }
+  });
+
+  it('opens the report behind a row, and only closes the sheet for one not built yet', () => {
+    push.mockClear();
+    const { card } = openReports();
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: /Operational Checklist/ }));
+    expect(push).toHaveBeenCalledWith('/reports/tasks.operational');
+
+    push.mockClear();
+    fireEvent.click(card);
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: /Kitchen Balance/ }));
+    expect(push).not.toHaveBeenCalled();
+    expect(screen.queryByRole('dialog')).toBeNull();
   });
 
   it('needs the reports permission and a branch before the card appears', () => {

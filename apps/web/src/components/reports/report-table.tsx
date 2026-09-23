@@ -37,6 +37,7 @@ export function ReportTable({
   amountTones,
   valuePills,
   emptyVariant = 'plain',
+  emptyText = 'No data found',
   stickyFirstColumn = false,
   wrapCells = false,
 }: {
@@ -56,6 +57,8 @@ export function ReportTable({
   /** 'panel' when the table sits inside a titled panel that already frames
    *  it — an icon and a line instead of a second bordered box. */
   emptyVariant?: 'plain' | 'panel';
+  /** The panel empty state's line, when "No data found" would not say why. */
+  emptyText?: string;
   /** Keep the first column in view while the rest scroll sideways — for a
    *  transposed grid, whose first column names each row. */
   stickyFirstColumn?: boolean;
@@ -69,7 +72,7 @@ export function ReportTable({
         <span className={styles.panelEmptyIcon} aria-hidden="true">
           <AppIcon name="inbox" size={30} />
         </span>
-        <p>No data found</p>
+        <p>{emptyText}</p>
       </div>
     ) : (
       <p className={styles.empty} role="status">

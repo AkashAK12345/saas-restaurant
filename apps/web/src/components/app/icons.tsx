@@ -89,9 +89,12 @@ export type AppIconName =
   | 'headset'
   | 'badgeCheck'
   | 'calendarX'
-  | 'hourglass';
+  | 'hourglass'
+  | 'star'
+  | 'checkRing';
 
 const FILLED: Partial<Record<AppIconName, ReactNode>> = {
+  star: <path d="m12 2.8 2.8 5.8 6.3.8-4.6 4.4 1.2 6.3L12 17.1l-5.7 3 1.2-6.3-4.6-4.4 6.3-.8z" />,
   people: (
     <>
       <circle cx="8.5" cy="8" r="3.2" />
@@ -296,6 +299,7 @@ const STROKED: Record<AppIconName, ReactNode> = {
     </>
   ),
   checkCircle: null,
+  star: null,
   noEntry: null,
   share: (
     <>
@@ -542,6 +546,12 @@ const STROKED: Record<AppIconName, ReactNode> = {
     <>
       <rect x="3.5" y="5" width="17" height="15.5" rx="2" />
       <path d="M8 3v4M16 3v4M3.5 10h17M9.8 13.2l4.4 4.4M14.2 13.2l-4.4 4.4" />
+    </>
+  ),
+  checkRing: (
+    <>
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="m8.3 12.2 2.5 2.5 4.9-5.2" />
     </>
   ),
   hourglass: (

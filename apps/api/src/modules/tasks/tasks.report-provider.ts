@@ -16,6 +16,7 @@ import type {
   ReportResult,
 } from '../reports/report-contract.js';
 import { EodComplianceReport, EodLogReport } from './eod.report-provider.js';
+import { OperationalComplianceReport, OperationalLogReport } from './operational.report-provider.js';
 import type {
   DashboardWidgetDefinition,
   DashboardWidgetProvider,
@@ -603,6 +604,8 @@ export class TaskReportRegistrar implements OnModuleInit {
     private readonly log: TaskLogReport,
     private readonly eod: EodLogReport,
     private readonly eodCompliance: EodComplianceReport,
+    private readonly operational: OperationalLogReport,
+    private readonly operationalCompliance: OperationalComplianceReport,
     private readonly open: TasksOpenWidget,
   ) {}
 
@@ -613,6 +616,8 @@ export class TaskReportRegistrar implements OnModuleInit {
     this.registry.register(this.log);
     this.registry.register(this.eod);
     this.registry.register(this.eodCompliance);
+    this.registry.register(this.operational);
+    this.registry.register(this.operationalCompliance);
     this.dashboard.register(this.open);
   }
 }

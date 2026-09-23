@@ -15,7 +15,7 @@ export const EOD_LOG_METRIC_ICONS: Readonly<Record<string, MetricIcon>> = {
 
 export const EOD_COMPLIANCE_METRIC_ICONS: Readonly<Record<string, MetricIcon>> = {
   compliance: { icon: 'badgeCheck', tone: 'green' },
-  submitted: { icon: 'checkCircle', tone: 'green' },
+  submitted: { icon: 'checkRing', tone: 'green' },
   missed: { icon: 'calendarX', tone: 'red' },
   pending: { icon: 'hourglass', tone: 'amber' },
 };

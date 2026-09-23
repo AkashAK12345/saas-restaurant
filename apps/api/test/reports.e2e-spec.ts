@@ -474,6 +474,8 @@ describe('Phase 10 Reports & Dashboard (e2e)', () => {
         'tasks.eod',
         'tasks.eod_compliance',
         'tasks.log',
+        'tasks.operational',
+        'tasks.operational_compliance',
         'tasks.routines',
       ]);
       expect(res.body.meta.total).toBe(keys.length);
@@ -1040,7 +1042,8 @@ describe('Phase 10 Reports & Dashboard (e2e)', () => {
       expect(metric('missed')).toBe(1);
       expect(metric('pending')).toBe(1);
       expect(metric('staff_count')).toBe(1);
-      expect(metric('due_days')).toBe(3);
+      // The window's days that are over — all four, whoever was scheduled.
+      expect(metric('due_days')).toBe(4);
     });
 
     it('RP-EOD4. an empty window says so rather than inventing a compliance rate', async () => {
@@ -1050,6 +1053,8 @@ describe('Phase 10 Reports & Dashboard (e2e)', () => {
       });
       expect(res.body.rows).toEqual([]);
       expect(res.body.metrics.find((m: any) => m.key === 'compliance').value).toBeNull();
+      expect(res.body.metrics.find((m: any) => m.key === 'submitted').value).toBeNull();
+      expect(res.body.metrics.find((m: any) => m.key === 'due_days').value).toBe(2);
     });
 
     it('RP-EOD5. both need tasks.reports.view', async () => {
@@ -1060,6 +1065,181 @@ describe('Phase 10 Reports & Dashboard (e2e)', () => {
           companyA.id,
           branchA.id,
         ).query(eodRange);
+        expect(res.status).toBe(403);
+      }
+    });
+  });
+
+  describe('Operational Checklist reports', () => {
+    const range = { from: '2026-06-10', to: '2026-06-12' };
+    const taskIds: string[] = [];
+    const routineIds: string[] = [];
+    let templateId: string;
+
+    const SECURITY = 'Overall Rating for security (scale 1-5)';
+    const READINESS = 'Rate the overall Readiness of the Restaurant';
+    const OPERATION = 'Rate the overall operation of the restaurant';
+
+    const opsTask = async (
+      day: string,
+      status: TaskStatus,
+      extra: {
+        completedAt?: Date;
+        due?: Date;
+        answers?: Array<{
+          label: string;
+          kind: 'TEXT' | 'CHECK' | 'RATING' | 'PHOTO';
+          value?: string | null;
+          done?: boolean;
+        }>;
+      } = {},
+    ) => {
+      const routine = await prisma.taskRoutine.create({
+        data: {
+          company_id: companyA.id,
+          branch_id: branchA.id,
+          name: `Operational Checklist ${day} ${status}`,
+          frequency: 'DAILY',
+          time_of_day: '00:00',
+          checklist_template_id: templateId,
+        },
+      });
+      routineIds.push(routine.id);
+      const task = await prisma.task.create({
+        data: {
+          company_id: companyA.id,
+          branch_id: branchA.id,
+          title: 'Operational Checklist',
+          status,
+          source: 'ROUTINE',
+          routine_id: routine.id,
+          routine_occurrence_date: new Date(`${day}T00:00:00.000Z`),
+          checklist_template_id: templateId,
+          assignee_id: analystA.id,
+          created_at: new Date(`${day}T01:00:00.000Z`),
+          due_at: extra.due ?? null,
+          completed_at: extra.completedAt ?? null,
+          completed_by: extra.completedAt ? analystA.id : null,
+        },
+      });
+      taskIds.push(task.id);
+      if (extra.answers) {
+        await prisma.taskChecklistItem.createMany({
+          data: extra.answers.map((a, position) => ({
+            task_id: task.id,
+            label: a.label,
+            position,
+            kind: a.kind,
+            value: a.value ?? null,
+            is_done: a.done ?? a.value != null,
+          })),
+        });
+      }
+      return task;
+    };
+
+    const run = (key: string, window = range) =>
+      asAnalyst(request(http).get(`/api/v1/reports/${key}/data`)).query(window);
+
+    beforeAll(async () => {
+      const template = await prisma.checklistTemplate.create({
+        data: { company_id: companyA.id, name: 'Operational Checklist' },
+      });
+      templateId = template.id;
+
+      await opsTask('2026-06-10', TaskStatus.COMPLETED, {
+        completedAt: new Date('2026-06-10T06:30:00.000Z'),
+        answers: [
+          { label: 'Was security present at the entrance?', kind: 'CHECK', done: true },
+          { label: SECURITY, kind: 'RATING', value: '4' },
+          { label: 'Picture of the parking area', kind: 'PHOTO' },
+          { label: READINESS, kind: 'RATING', value: '5' },
+          { label: OPERATION, kind: 'RATING', value: '3' },
+          { label: 'Remarks', kind: 'TEXT', value: 'Lift light flickering' },
+        ],
+      });
+      await opsTask('2026-06-11', TaskStatus.COMPLETED, {
+        completedAt: new Date('2026-06-11T07:00:00.000Z'),
+        answers: [
+          { label: 'Was security present at the entrance?', kind: 'CHECK', done: false },
+          { label: SECURITY, kind: 'RATING', value: '5' },
+          { label: 'Picture of the parking area', kind: 'PHOTO' },
+          // Readiness skipped: not a zero.
+          { label: READINESS, kind: 'RATING', value: null },
+          { label: OPERATION, kind: 'RATING', value: '4' },
+          { label: 'Remarks', kind: 'TEXT', value: null },
+        ],
+      });
+      // Never filed, past its deadline: missed.
+      await opsTask('2026-06-12', TaskStatus.PENDING, { due: new Date('2026-06-12T12:00:00.000Z') });
+    });
+
+    afterAll(async () => {
+      await prisma.taskChecklistItem.deleteMany({ where: { task_id: { in: taskIds } } });
+      await prisma.task.deleteMany({ where: { id: { in: taskIds } } });
+      await prisma.taskRoutine.deleteMany({ where: { id: { in: routineIds } } });
+      await prisma.checklistTemplate.delete({ where: { id: templateId } });
+    });
+
+    it('RP-OPS1. transposes the log and reads ticks and ratings as the form means them', async () => {
+      const res = await run('tasks.operational');
+      expect(res.status).toBe(200);
+      expect(res.body.name).toBe('Operational Checklist');
+      expect(res.body.columns.map((c: any) => c.label)).toEqual(['Field', '10 Jun', '11 Jun']);
+      expect(res.body.meta.total).toBe(2);
+      const row = (field: string) => res.body.rows.find((r: any) => r.field === field);
+      expect(row('Submitted')).toMatchObject({ c0: '10 Jun, 12:00 PM', c1: '11 Jun, 12:30 PM' });
+      expect(row('Was security present at the entrance?')).toMatchObject({ c0: 'Yes', c1: 'No' });
+      expect(row(SECURITY)).toMatchObject({ c0: '4/5', c1: '5/5' });
+      expect(row('Remarks')).toMatchObject({ c0: 'Lift light flickering', c1: null });
+      // A photo has no text for a grid.
+      expect(row('Picture of the parking area')).toBeUndefined();
+    });
+
+    it('RP-OPS2. averages each rating over the submissions that gave it', async () => {
+      const res = await run('tasks.operational');
+      const metric = (key: string) => res.body.metrics.find((m: any) => m.key === key).value;
+      expect(metric('total_checklists')).toBe(2);
+      expect(metric('avg_security')).toBe(4.5);
+      expect(metric('avg_readiness')).toBe(5);
+      expect(metric('avg_operation')).toBe(3.5);
+    });
+
+    it('RP-OPS3. an empty window reads zeros, as the reference screen does', async () => {
+      const res = await run('tasks.operational', { from: '2026-07-01', to: '2026-07-02' });
+      expect(res.body.meta.total).toBe(0);
+      // No grid of bare field names: the screen says there is no data.
+      expect(res.body.rows).toEqual([]);
+      for (const key of ['total_checklists', 'avg_security', 'avg_readiness', 'avg_operation']) {
+        expect(res.body.metrics.find((m: any) => m.key === key).value).toBe(0);
+      }
+    });
+
+    it('RP-OPS4. compliance counts this form only, not the EOD', async () => {
+      const res = await run('tasks.operational_compliance');
+      expect(res.status).toBe(200);
+      expect(res.body.rows).toEqual([
+        {
+          staff: 'Ana Lyst',
+          branch_name: 'Alpha Main',
+          submitted: '2 of 3',
+          missed: 1,
+          pending: 0,
+          compliance: 67,
+          missed_dates: '12 Jun',
+        },
+      ]);
+      expect(res.body.metrics.find((m: any) => m.key === 'due_days').value).toBe(3);
+    });
+
+    it('RP-OPS5. both need tasks.reports.view', async () => {
+      for (const key of ['tasks.operational', 'tasks.operational_compliance']) {
+        const res = await as(
+          request(http).get(`/api/v1/reports/${key}/data`),
+          tokenQueueOnlyA,
+          companyA.id,
+          branchA.id,
+        ).query(range);
         expect(res.status).toBe(403);
       }
     });

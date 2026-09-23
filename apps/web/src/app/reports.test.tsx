@@ -904,6 +904,104 @@ describe('tasks.eod report screen', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
+// OPERATIONAL CHECKLIST — the same two-part screen, with average ratings
+// ═══════════════════════════════════════════════════════════════════════════
+
+function operationalLogResponse(submitted: boolean): ReportResponse {
+  return reportResponse({
+    key: 'tasks.operational',
+    name: 'Operational Checklist',
+    kind: 'summary',
+    option_specs: [],
+    columns: [
+      { key: 'field', label: 'Field', type: 'string' },
+      ...(submitted ? [{ key: 'c0', label: '18 Sep', type: 'string' as const }] : []),
+    ],
+    rows: submitted
+      ? [
+          { field: 'Submitted', c0: '18 Sep, 11:02 AM' },
+          { field: 'Overall Rating for security (scale 1-5)', c0: '4/5' },
+        ]
+      : [],
+    metrics: [
+      { key: 'total_checklists', label: 'Total Checklists', value: submitted ? 1 : 0, type: 'number' },
+      { key: 'avg_security', label: 'Avg Security', value: submitted ? 4 : 0, type: 'number' },
+      { key: 'avg_readiness', label: 'Avg Readiness', value: submitted ? 4.5 : 0, type: 'number' },
+      { key: 'avg_operation', label: 'Avg Operation', value: submitted ? 3 : 0, type: 'number' },
+    ],
+    meta: { total: submitted ? 1 : 0, limit: 50, offset: 0 },
+  });
+}
+
+function operationalComplianceEmpty(): ReportResponse {
+  return reportResponse({
+    key: 'tasks.operational_compliance',
+    name: 'Operational Checklist Submission Compliance',
+    kind: 'summary',
+    option_specs: [],
+    columns: [
+      { key: 'staff', label: 'Staff', type: 'string' },
+      { key: 'compliance', label: 'Compliance', type: 'percent' },
+    ],
+    rows: [],
+    metrics: [
+      { key: 'compliance', label: 'Compliance', value: null, type: 'percent' },
+      { key: 'submitted', label: 'Submitted', value: null, type: 'string' },
+      { key: 'missed', label: 'Missed', value: 0, type: 'number' },
+      { key: 'pending', label: 'Pending', value: 0, type: 'number' },
+      { key: 'staff_count', label: 'Staff', value: 0, type: 'number' },
+      { key: 'due_days', label: 'Days due', value: 7, type: 'number' },
+    ],
+    meta: { total: 0, limit: 50, offset: 0 },
+  });
+}
+
+describe('tasks.operational report screen', () => {
+  const mount = (submitted: boolean) => {
+    routeKey = 'tasks.operational';
+    apiMock.run.mockImplementation(async (_ctx: unknown, key: string) =>
+      key === 'tasks.operational_compliance' ? operationalComplianceEmpty() : operationalLogResponse(submitted),
+    );
+    return render(<ReportPage />);
+  };
+
+  it('RF-61. an empty week reads as the reference does: zero averages, dashes for compliance, and why it is empty', async () => {
+    const { container } = mount(false);
+    await screen.findByText('Submission Compliance');
+
+    const cards = [...container.querySelectorAll('dt')].map((dt) => [
+      dt.textContent,
+      dt.parentElement?.querySelector('dd')?.textContent,
+    ]);
+    expect(cards).toEqual([
+      ['Total Checklists', '0'],
+      ['Avg Security', '0'],
+      ['Avg Readiness', '0'],
+      ['Avg Operation', '0'],
+      ['Compliance', '—'],
+      ['Submitted', '—'],
+      ['Missed', '0'],
+      ['Pending', '0'],
+    ]);
+    expect(screen.getByText('Checklist Log (Transposed)')).toBeTruthy();
+    expect(screen.getByText('0 entries')).toBeTruthy();
+    expect(screen.getByText('No data found')).toBeTruthy();
+    expect(screen.getByText('0 staff · 7 days')).toBeTruthy();
+    expect(screen.getByText('No Operational Checklist was scheduled for anyone in this period')).toBeTruthy();
+    expect(screen.queryByRole('searchbox')).toBeNull();
+  });
+
+  it('RF-62. a filed checklist: the transposed log with its rating, and its averages to one decimal', async () => {
+    mount(true);
+    const table = (await screen.findAllByRole('table'))[0];
+    expect(within(table).getAllByRole('columnheader').map((h) => h.textContent)).toEqual(['Field', '18 Sep']);
+    expect(within(table).getByText('4/5')).toBeTruthy();
+    expect(screen.getByText('4.5', { selector: 'dd' })).toBeTruthy();
+    expect(screen.getByText('1 entry')).toBeTruthy();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
 // EXPORT
 // ═══════════════════════════════════════════════════════════════════════════
 

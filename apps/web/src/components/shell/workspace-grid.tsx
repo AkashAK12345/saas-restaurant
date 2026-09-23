@@ -2,11 +2,12 @@
 
 import Link from 'next/link';
 import { useCallback, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { hasAnyPermission } from '@/lib/auth/permissions';
 import { hasQueueAccess, visibleSurfaces } from '@/lib/queue/surfaces';
 import { QueueSheet } from '@/components/queue/queue-sheet';
 import { ReportsSheet } from '@/components/reports/reports-sheet';
-import { CHECKLIST_REPORTS } from '@/lib/reports/checklist-reports';
+import { CHECKLIST_REPORTS, type ChecklistReport } from '@/lib/reports/checklist-reports';
 import { NavIcon } from './nav-icons';
 import { NAV_ITEMS, type NavItem } from './nav-items';
 import styles from './workspace.module.css';
@@ -73,6 +74,14 @@ export function WorkspaceGrid({
   const closeSheet = useCallback(() => setSheetOpen(false), []);
   const [reportsOpen, setReportsOpen] = useState(false);
   const closeReports = useCallback(() => setReportsOpen(false), []);
+  const router = useRouter();
+  const openReport = useCallback(
+    (report: ChecklistReport) => {
+      setReportsOpen(false);
+      if (report.reportKey) router.push(`/reports/${report.reportKey}`);
+    },
+    [router],
+  );
   const items = workspaceItems(permissions, hasBranch);
   const surfaces = visibleSurfaces(permissions);
   if (items.length === 0) return null;
@@ -131,7 +140,7 @@ export function WorkspaceGrid({
       </ul>
       {sheetOpen ? <QueueSheet surfaces={surfaces} onClose={closeSheet} /> : null}
       {reportsOpen ? (
-        <ReportsSheet reports={CHECKLIST_REPORTS} onSelect={closeReports} onClose={closeReports} />
+        <ReportsSheet reports={CHECKLIST_REPORTS} onSelect={openReport} onClose={closeReports} />
       ) : null}
     </section>
   );
