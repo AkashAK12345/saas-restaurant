@@ -30,7 +30,9 @@ export type ReportValueType =
   | 'money'
   | 'duration'
   | 'date'
-  | 'datetime';
+  | 'datetime'
+  /** A short state word, styled as a coloured pill rather than plain text. */
+  | 'badge';
 
 export interface ReportColumn {
   key: string;
@@ -86,6 +88,18 @@ export interface ReportContext {
   actorUserId: string;
   /** The branch's IANA timezone — the authority for every date in a report. */
   timezone: string;
+  /**
+   * The caller's resolved branch permissions, beyond the report's own
+   * `reports.view` + domain check. Only set for a report run — a dashboard
+   * widget's context has none.
+   *
+   * For a provider that reads a permission NOT declared as its own
+   * `definition.permission` — the way the queue's token report only shows a
+   * customer's name and phone number to someone who also holds
+   * `customers.view`, the same rule the Podium screen already applies to a
+   * phone number. Most providers never look at this.
+   */
+  permissions?: ReadonlySet<string>;
 }
 
 /**
@@ -134,6 +148,16 @@ export interface ReportResult {
   /** Total rows matching the filters, for pagination. */
   total: number;
   metrics?: ReportMetric[];
+  /**
+   * Overrides `definition.columns` for THIS response only.
+   *
+   * `definition.columns` is fixed at startup on a singleton provider, so it
+   * cannot vary per caller — a provider that needs to drop a column for a
+   * caller lacking some permission (see `ReportContext.permissions`) returns
+   * the narrowed list here instead. Omitted, the definition's own columns are
+   * used, which is every provider's behaviour today.
+   */
+  columns?: readonly ReportColumn[];
 }
 
 export interface ReportProvider {

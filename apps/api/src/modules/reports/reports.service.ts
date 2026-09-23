@@ -54,12 +54,18 @@ export class ReportsService {
     private readonly authorization: AuthorizationService,
   ) {}
 
-  /** The branch's timezone — the authority for every date in a report. */
+  /**
+   * The branch's timezone — the authority for every date in a report.
+   *
+   * Deliberately NOT a `ReportContext`: `permissions` is only resolved inside
+   * `run()`, where a provider can actually use it — `describe()` and
+   * `listAvailable()` never need it.
+   */
   private async contextFor(
     companyId: string,
     branchId: string,
     actorUserId: string,
-  ): Promise<ReportContext & { branchName: string }> {
+  ): Promise<{ companyId: string; branchId: string; actorUserId: string; timezone: string; branchName: string }> {
     const branch = await this.prisma.branch.findFirst({
       where: { id: branchId, company_id: companyId },
       select: { timezone: true, name: true },
@@ -68,7 +74,10 @@ export class ReportsService {
     return { companyId, branchId, actorUserId, timezone: branch.timezone, branchName: branch.name ?? '' };
   }
 
-  private async mayRun(ctx: ReportContext, definition: ReportDefinition): Promise<boolean> {
+  private async mayRun(
+    ctx: Pick<ReportContext, 'companyId' | 'branchId' | 'actorUserId'>,
+    definition: ReportDefinition,
+  ): Promise<boolean> {
     return this.authorization.hasBranchPermission(
       ctx.actorUserId,
       ctx.companyId,
@@ -112,11 +121,15 @@ export class ReportsService {
     input: RunReportInput,
     pageCap = REPORT_MAX_PAGE_SIZE,
   ): Promise<ReportResponse> {
-    // The branch name is for the response envelope only; providers get the
-    // ReportContext contract and nothing more.
-    const { branchName, ...ctx } = await this.contextFor(companyId, branchId, actorUserId);
+    const { branchName, ...resolved } = await this.contextFor(companyId, branchId, actorUserId);
     const provider = this.providerOrThrow(input.reportKey);
-    await this.assertMayRun(ctx, provider);
+    await this.assertMayRun(resolved, provider);
+
+    // Resolved ONCE per run, same as listAvailable — a provider that needs to
+    // know about a permission beyond its own reads it from here rather than
+    // asking AuthorizationService itself.
+    const permissions = await this.authorization.branchPermissionsFor(actorUserId, companyId, branchId);
+    const ctx: ReportContext = { ...resolved, permissions: permissions ?? new Set() };
 
     const range = resolveReportRange(ctx.timezone, input.from, input.to);
     const options = this.validateOptions(provider.definition, input.options ?? {});
@@ -132,6 +145,8 @@ export class ReportsService {
 
     const query: ReportQuery = { ctx, range, options, page };
     const result = await provider.run(query);
+    const columns = result.columns ?? provider.definition.columns;
+    const hasBranchColumn = columns.some((c) => c.key === 'branch_name');
 
     return {
       key: provider.definition.key,
@@ -148,12 +163,19 @@ export class ReportsService {
         to: range.toLocal,
         options,
       },
-      columns: provider.definition.columns,
+      columns,
       drilldown: provider.definition.drilldown ?? null,
       option_specs: provider.definition.options ?? [],
       exportable: provider.definition.exportable,
       metrics: result.metrics ?? [],
-      rows: result.rows,
+      // Every report is single-branch (see ReportScope), so a row's own
+      // "Branch" is always this same name — filled in here rather than by
+      // each provider, but ONLY for a report that actually declares the
+      // column. Adding it to every row regardless would silently change the
+      // shape of every OTHER report's rows too.
+      rows: hasBranchColumn
+        ? result.rows.map((row) => ({ branch_name: branchName, ...row }))
+        : result.rows,
       meta: { total: result.total, limit: page.limit, offset: page.offset },
     };
   }
@@ -166,7 +188,10 @@ export class ReportsService {
     return provider;
   }
 
-  private async assertMayRun(ctx: ReportContext, provider: ReportProvider): Promise<void> {
+  private async assertMayRun(
+    ctx: Pick<ReportContext, 'companyId' | 'branchId' | 'actorUserId'>,
+    provider: ReportProvider,
+  ): Promise<void> {
     if (!(await this.mayRun(ctx, provider.definition))) {
       throw new ForbiddenException(
         `You do not have access to the ${provider.definition.domain} data this report is built from`,

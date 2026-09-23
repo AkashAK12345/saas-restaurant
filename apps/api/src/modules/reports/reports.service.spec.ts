@@ -293,11 +293,68 @@ describe('ReportsService', () => {
         branchId: BRANCH,
         actorUserId: USER,
         timezone: 'Asia/Kolkata',
+        permissions: new Set(),
       });
       // A single Kolkata day, half-open, starting 18:30 UTC the day before.
       expect(range.from.toISOString()).toBe('2026-02-28T18:30:00.000Z');
       expect(range.to.toISOString()).toBe('2026-03-01T18:30:00.000Z');
       expect(range.days).toBe(1);
+    });
+
+    it('gives the provider the caller’s resolved permission set, for a provider that needs one beyond its own', async () => {
+      const { provider, run } = makeProvider();
+      registry.register(provider);
+      authorization.branchPermissionsFor.mockResolvedValue(
+        new Set([PERMISSION_KEYS.QUEUE_VIEW, PERMISSION_KEYS.CUSTOMERS_VIEW]),
+      );
+
+      await service.run(COMPANY, BRANCH, USER, { reportKey: 'queue.tokens' });
+
+      const { ctx } = run.mock.calls[0][0];
+      expect(ctx.permissions.has(PERMISSION_KEYS.CUSTOMERS_VIEW)).toBe(true);
+      expect(ctx.permissions.has(PERMISSION_KEYS.BANQUET_VIEW)).toBe(false);
+    });
+
+    it('lets a provider narrow its own columns for this caller, without touching the definition', async () => {
+      const { provider, definition } = makeProvider({
+        columns: [
+          { key: 'token_number', label: 'Token', type: 'number' },
+          { key: 'phone', label: 'Phone', type: 'string' },
+        ],
+      });
+      provider.run = vi.fn(async () => ({
+        rows: [{ token_number: 1 }],
+        total: 1,
+        columns: [{ key: 'token_number', label: 'Token', type: 'number' }],
+      }));
+      registry.register(provider);
+
+      const response = await service.run(COMPANY, BRANCH, USER, { reportKey: 'queue.tokens' });
+
+      expect(response.columns).toEqual([{ key: 'token_number', label: 'Token', type: 'number' }]);
+      // The singleton provider's own definition is untouched by one caller's result.
+      expect(definition.columns).toHaveLength(2);
+    });
+
+    it('fills in a row’s Branch column, for a report that declares one — and never for one that does not', async () => {
+      prisma.branch.findFirst.mockResolvedValue({ timezone: 'Asia/Kolkata', name: 'Alwarpet' });
+
+      const withBranch = makeProvider({
+        key: 'queue.tokens',
+        columns: [{ key: 'branch_name', label: 'Branch', type: 'string' }],
+      });
+      const withoutBranch = makeProvider({
+        key: 'queue.summary',
+        columns: [{ key: 'token_number', label: 'Token', type: 'number' }],
+      });
+      registry.register(withBranch.provider);
+      registry.register(withoutBranch.provider);
+
+      const a = await service.run(COMPANY, BRANCH, USER, { reportKey: 'queue.tokens' });
+      expect(a.rows[0]).toMatchObject({ branch_name: 'Alwarpet' });
+
+      const b = await service.run(COMPANY, BRANCH, USER, { reportKey: 'queue.summary' });
+      expect(b.rows[0]).not.toHaveProperty('branch_name');
     });
   });
 

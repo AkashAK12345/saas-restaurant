@@ -49,19 +49,34 @@ const SUMMARY_COLUMNS = [
   { key: 'avg_wait_seconds', label: 'Average wait', type: 'duration' },
 ] as const;
 
+/**
+ * Every column the report can show. Fixed and public — `describe()` lists all
+ * of these regardless of caller, because naming a column is not exposing a
+ * row. The DATA behind `customer_name` and `phone` is what is actually
+ * gated, in `run()` below, by narrowing `ReportResult.columns` per caller.
+ */
 const TOKEN_COLUMNS = [
-  { key: 'service_date', label: 'Date', type: 'date' },
   { key: 'token_number', label: 'Token', type: 'number' },
-  { key: 'status', label: 'Status', type: 'string' },
-  { key: 'party_size', label: 'Party', type: 'number' },
+  { key: 'customer_name', label: 'Customer', type: 'string' },
+  { key: 'phone', label: 'Phone', type: 'string' },
+  { key: 'branch_name', label: 'Branch', type: 'string' },
   { key: 'adults', label: 'Adults', type: 'number' },
   { key: 'kids', label: 'Kids', type: 'number' },
-  { key: 'table_label', label: 'Table', type: 'string' },
+  { key: 'party_size', label: 'PAX', type: 'number' },
   { key: 'registered_at', label: 'Registered', type: 'datetime' },
-  { key: 'called_at', label: 'Called', type: 'datetime' },
-  { key: 'seated_at', label: 'Seated', type: 'datetime' },
-  { key: 'wait_seconds', label: 'Wait', type: 'duration' },
+  { key: 'status', label: 'Status', type: 'badge' },
+  { key: 'outcome_at', label: 'Outcome', type: 'datetime' },
+  { key: 'wait_seconds', label: 'Wait/Reason', type: 'duration' },
+  { key: 'operator_email', label: 'Operator', type: 'string' },
+  { key: 'table_label', label: 'Table', type: 'string' },
+  { key: 'floor', label: 'Floor', type: 'string' },
+  { key: 'source', label: 'Source', type: 'string' },
 ] as const;
+
+/** `TOKEN_COLUMNS` minus the two columns `customers.view` gates. */
+const PUBLIC_TOKEN_COLUMNS = TOKEN_COLUMNS.filter(
+  (c) => c.key !== 'customer_name' && c.key !== 'phone',
+);
 
 const QUEUE_STATUSES = ['SCHEDULED', 'WAITING', 'CALLED', 'SEATED', 'NO_SHOW', 'CANCELLED'] as const;
 
@@ -75,17 +90,26 @@ interface SummaryRow {
 }
 
 interface TokenRow {
-  service_date: Date;
   token_number: number;
+  customer_name?: string;
+  phone?: string;
   status: string;
   party_size: number;
   adults: number;
   kids: number;
-  table_label: string | null;
   registered_at: Date;
-  called_at: Date | null;
-  seated_at: Date | null;
+  outcome_at: Date | null;
   wait_seconds: number | null;
+  operator_email: string | null;
+  table_label: string | null;
+  floor: string | null;
+  source: string;
+}
+
+interface TokenAggregateRow {
+  total: bigint;
+  total_pax: bigint | number;
+  avg_wait_seconds: number | null;
 }
 
 @Injectable()
@@ -189,8 +213,8 @@ export class QueueSummaryReport implements ReportProvider {
 export class QueueTokensReport implements ReportProvider {
   readonly definition: ReportDefinition = {
     key: 'queue.tokens',
-    name: 'Queue tokens',
-    description: 'Every token issued in the period, with its outcome and how long it waited.',
+    name: 'Queue Reports',
+    description: 'Every token issued in the period, with its outcome, wait and who handled it.',
     domain: 'queue',
     scope: 'branch',
     kind: 'rows',
@@ -217,38 +241,85 @@ export class QueueTokensReport implements ReportProvider {
         ${statusFilter}
     `;
 
-    const [rows, counted] = await Promise.all([
+    // The same rule the Podium screen already applies to a phone number: a
+    // customer's name and phone show only alongside customers.view. Built as
+    // a JOIN that is simply never made otherwise, so an ungated caller's
+    // query never reads the customers table at all — not a value withheld
+    // after the fact, but data that never left Postgres.
+    const hasCustomers = ctx.permissions?.has(PERMISSION_KEYS.CUSTOMERS_VIEW) ?? false;
+    const customerJoin = hasCustomers
+      ? Prisma.sql`LEFT JOIN "customers" c ON c."id" = t."customer_id"`
+      : Prisma.empty;
+    const customerSelect = hasCustomers
+      ? Prisma.sql`COALESCE(c."name", 'Walk-in') AS "customer_name", COALESCE(c."phone", 'N/A') AS "phone",`
+      : Prisma.empty;
+
+    const [rows, aggregate] = await Promise.all([
       this.prisma.$queryRaw<TokenRow[]>(Prisma.sql`
         SELECT
-          t."service_date",
           t."token_number",
+          ${customerSelect}
           t."status"::text AS "status",
           t."party_size",
           t."adults",
           t."kids",
-          tbl."label"      AS "table_label",
-          t."created_at"   AS "registered_at",
-          t."called_at",
-          t."seated_at",
-          EXTRACT(EPOCH FROM (t."seated_at" - t."created_at")) AS "wait_seconds"
+          t."created_at"    AS "registered_at",
+          COALESCE(t."seated_at", t."no_show_at", t."cancelled_at") AS "outcome_at",
+          EXTRACT(EPOCH FROM (t."seated_at" - t."created_at")) AS "wait_seconds",
+          u."email"         AS "operator_email",
+          tbl."label"       AS "table_label",
+          tbl."zone"        AS "floor",
+          -- No distinct entry point is tracked yet, so everything that is not
+          -- an advance booking is attributed to the Podium — the walk-in path
+          -- every visible sample row in the reference design also shows.
+          CASE WHEN t."advance_booking_at" IS NOT NULL THEN 'Advance booking' ELSE 'Podium' END AS "source"
         FROM "queue_tokens" t
         LEFT JOIN "tables" tbl ON tbl."id" = t."assigned_table_id"
+        LEFT JOIN "queue_token_events" e
+          ON e."queue_token_id" = t."id" AND e."event_type" = 'REGISTERED'
+        LEFT JOIN "users" u ON u."id" = e."actor_user_id"
+        ${customerJoin}
         ${where}
         ORDER BY t."service_date" DESC, t."token_number" DESC
         LIMIT ${page.limit} OFFSET ${page.offset}
       `),
-      this.prisma.$queryRaw<Array<{ total: bigint }>>(Prisma.sql`
-        SELECT COUNT(*) AS "total" FROM "queue_tokens" t ${where}
+      this.prisma.$queryRaw<TokenAggregateRow[]>(Prisma.sql`
+        SELECT
+          COUNT(*)                        AS "total",
+          COALESCE(SUM(t."party_size"), 0) AS "total_pax",
+          AVG(EXTRACT(EPOCH FROM (t."seated_at" - t."created_at")))
+            FILTER (WHERE t."seated_at" IS NOT NULL) AS "avg_wait_seconds"
+        FROM "queue_tokens" t
+        ${where}
       `),
     ]);
 
+    const total = toReportNumber(aggregate[0]?.total);
+    const totalPax = toReportNumber(aggregate[0]?.total_pax);
+
     return {
+      columns: hasCustomers ? TOKEN_COLUMNS : PUBLIC_TOKEN_COLUMNS,
       rows: rows.map((row) => ({
         ...row,
-        service_date: toLocalDateString(row.service_date),
         wait_seconds: toDurationSeconds(row.wait_seconds),
       })),
-      total: toReportNumber(counted[0]?.total),
+      total,
+      metrics: [
+        { key: 'total_customers', label: 'Total Customers', value: total, type: 'number' },
+        {
+          key: 'avg_wait_seconds',
+          label: 'Avg Wait Time',
+          value: toDurationSeconds(aggregate[0]?.avg_wait_seconds),
+          type: 'duration',
+        },
+        { key: 'total_pax', label: 'Total PAX', value: totalPax, type: 'number' },
+        {
+          key: 'avg_pax',
+          label: 'Avg PAX',
+          value: total === 0 ? 0 : Math.round(totalPax / total),
+          type: 'number',
+        },
+      ],
     };
   }
 }

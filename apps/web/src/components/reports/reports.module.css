@@ -198,6 +198,128 @@
   color: var(--color-success);
 }
 
+/* A metric that declares an icon gets the coloured-badge treatment; one that
+   doesn't (every metric before this) renders exactly as above, unchanged. */
+.metricWithIcon {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--gap);
+}
+
+.metricIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  background: var(--tone-bg, var(--color-surface-muted));
+  color: var(--tone-fg, var(--color-text-muted));
+}
+
+.metricIcon[data-tone='blue'] { --tone-bg: var(--accent-blue-bg); --tone-fg: var(--accent-blue-fg); }
+.metricIcon[data-tone='amber'] { --tone-bg: var(--accent-amber-bg); --tone-fg: var(--accent-amber-fg); }
+.metricIcon[data-tone='green'] { --tone-bg: var(--accent-green-bg); --tone-fg: var(--accent-green-fg); }
+.metricIcon[data-tone='terracotta'] { --tone-bg: var(--accent-terracotta-bg); --tone-fg: var(--accent-terracotta-fg); }
+.metricIcon[data-tone='purple'] { --tone-bg: var(--accent-purple-bg); --tone-fg: var(--accent-purple-fg); }
+
+/* A 'badge' column's cell — status and similar short state words. */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.badge[data-tone='success'] { background: color-mix(in srgb, var(--color-success) 18%, transparent); color: var(--color-success); }
+.badge[data-tone='warning'] { background: var(--color-warning-bg); color: var(--color-text); }
+.badge[data-tone='danger'] { background: var(--color-danger-bg); color: var(--color-danger); }
+.badge[data-tone='primary'] { background: color-mix(in srgb, var(--color-primary) 18%, transparent); color: var(--color-primary); }
+.badge[data-tone='neutral'] { background: var(--color-surface-muted); color: var(--color-text-muted); }
+
+/* ── Table panel ─────────────────────────────────────────────────────────── */
+
+/* Opt-in: wraps the metrics + table for a report whose page requests it
+   (queue.tokens today), with a titled header and a client-side search box.
+   A report that doesn't ask for this renders MetricGrid/ReportTable exactly
+   as before, outside any .panel. */
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap);
+  padding: var(--gap-lg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+}
+
+.panelHead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.panelIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 32px;
+  height: 32px;
+  color: var(--color-primary);
+}
+
+.panelTitle {
+  margin: 0;
+  font-size: var(--text-lg);
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.panelCount {
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: var(--color-surface-muted);
+  color: var(--color-text-muted);
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+
+.searchBox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: var(--tap-min);
+  padding: 0 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface-muted);
+  color: var(--color-text-muted);
+}
+
+.searchBox svg {
+  flex: none;
+}
+
+.searchInput {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: none;
+  color: var(--color-text);
+  font: inherit;
+}
+
+.searchInput:focus-visible {
+  outline: none;
+}
+
 /* ── Table ───────────────────────────────────────────────────────────────── */
 
 .tableWrap {

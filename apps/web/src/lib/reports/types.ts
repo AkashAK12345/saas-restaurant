@@ -15,7 +15,9 @@ export type ReportValueType =
   | 'money'
   | 'duration'
   | 'date'
-  | 'datetime';
+  | 'datetime'
+  /** A short state word, styled as a coloured pill rather than plain text. */
+  | 'badge';
 
 export interface ReportColumn {
   key: string;

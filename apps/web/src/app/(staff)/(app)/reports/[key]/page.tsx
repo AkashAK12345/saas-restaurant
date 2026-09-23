@@ -9,10 +9,21 @@ import { reportsApi, saveFile, type ReportQuery } from '@/lib/reports/api';
 import { MetricGrid } from '@/components/reports/metric-grid';
 import { ReportTable } from '@/components/reports/report-table';
 import { formatDateLabel } from '@/lib/reports/format';
+import { AppIcon } from '@/components/app/icons';
+import { QUEUE_METRIC_ICONS, QUEUE_STATUS_BADGES, QUEUE_SEARCHABLE_COLUMNS } from '@/lib/reports/queue-tokens-ui';
 import type { ExportFormat, ReportResponse } from '@/lib/reports/types';
 import styles from '@/components/reports/reports.module.css';
 
 const PAGE_SIZE = 50;
+
+/**
+ * Reports whose page wraps the table in a titled, searchable panel rather
+ * than the plain metrics-then-table layout every other report gets. Adding a
+ * key here is the ONLY frontend change a report needs for this treatment.
+ */
+const PANEL_REPORTS: Readonly<Record<string, { title: string; searchPlaceholder: string }>> = {
+  'queue.tokens': { title: 'Queue Log', searchPlaceholder: 'Search customer…' },
+};
 
 /**
  * One report.
@@ -58,6 +69,9 @@ export default function ReportPage() {
   // nothing in the form changed and the page is already on the first page.
   // Without it the button did nothing at all in that state.
   const [runs, setRuns] = useState(0);
+  // Filters the page already on screen — the server still holds every row
+  // beyond it, same as the "never more than the page on screen" rule above.
+  const [search, setSearch] = useState('');
 
   const [report, setReport] = useState<ReportResponse | null>(null);
   const [loading, setLoading] = useState(false);
@@ -130,6 +144,17 @@ export default function ReportPage() {
   const total = report?.meta.total ?? 0;
   const paginated = report?.kind === 'rows';
   const shown = report?.rows.length ?? 0;
+
+  const panelHint = reportKey ? PANEL_REPORTS[reportKey] : undefined;
+  const metricIcons = reportKey === 'queue.tokens' ? QUEUE_METRIC_ICONS : undefined;
+  const badges = reportKey === 'queue.tokens' ? { status: QUEUE_STATUS_BADGES } : undefined;
+
+  const needle = search.trim().toLowerCase();
+  const visibleRows = !report || !needle
+    ? report?.rows ?? []
+    : report.rows.filter((row) =>
+        QUEUE_SEARCHABLE_COLUMNS.some((key) => String(row[key] ?? '').toLowerCase().includes(needle)),
+      );
 
   return (
     <section className={styles.page}>
@@ -265,14 +290,46 @@ export default function ReportPage() {
 
       {report ? (
         <>
-          <MetricGrid metrics={report.metrics} timezone={timezone} />
-          <ReportTable
-            columns={report.columns}
-            rows={report.rows}
-            timezone={timezone}
-            caption={`${report.name}, ${formatDateLabel(report.filters.from)} to ${formatDateLabel(report.filters.to)}`}
-            drilldown={report.drilldown}
-          />
+          <MetricGrid metrics={report.metrics} timezone={timezone} icons={metricIcons} />
+
+          {panelHint ? (
+            <div className={styles.panel}>
+              <div className={styles.panelHead}>
+                <span className={styles.panelIcon} aria-hidden="true">
+                  <AppIcon name="columns" size={22} />
+                </span>
+                <h2 className={styles.panelTitle}>{panelHint.title}</h2>
+                <span className={styles.panelCount}>{total} entries</span>
+              </div>
+              <label className={styles.searchBox}>
+                <span className="sr-only">{panelHint.searchPlaceholder}</span>
+                <AppIcon name="search" size={18} />
+                <input
+                  className={styles.searchInput}
+                  type="search"
+                  placeholder={panelHint.searchPlaceholder}
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                />
+              </label>
+              <ReportTable
+                columns={report.columns}
+                rows={visibleRows}
+                timezone={timezone}
+                caption={`${report.name}, ${formatDateLabel(report.filters.from)} to ${formatDateLabel(report.filters.to)}`}
+                drilldown={report.drilldown}
+                badges={badges}
+              />
+            </div>
+          ) : (
+            <ReportTable
+              columns={report.columns}
+              rows={report.rows}
+              timezone={timezone}
+              caption={`${report.name}, ${formatDateLabel(report.filters.from)} to ${formatDateLabel(report.filters.to)}`}
+              drilldown={report.drilldown}
+            />
+          )}
 
           {paginated ? (
             <div className={styles.pagination}>

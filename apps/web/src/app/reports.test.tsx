@@ -411,6 +411,123 @@ describe('report view', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
+// QUEUE REPORTS — the titled, searchable panel and its status pills
+// ═══════════════════════════════════════════════════════════════════════════
+
+function queueTokensResponse(overrides: Partial<ReportResponse> = {}): ReportResponse {
+  return reportResponse({
+    name: 'Queue Reports',
+    columns: [
+      { key: 'token_number', label: 'Token', type: 'number' },
+      { key: 'customer_name', label: 'Customer', type: 'string' },
+      { key: 'status', label: 'Status', type: 'badge' },
+      { key: 'wait_seconds', label: 'Wait/Reason', type: 'duration' },
+      { key: 'operator_email', label: 'Operator', type: 'string' },
+    ],
+    metrics: [
+      { key: 'total_customers', label: 'Total Customers', value: 2, type: 'number' },
+      { key: 'avg_wait_seconds', label: 'Avg Wait Time', value: 1800, type: 'duration' },
+      { key: 'total_pax', label: 'Total PAX', value: 4, type: 'number' },
+      { key: 'avg_pax', label: 'Avg PAX', value: 2, type: 'number' },
+    ],
+    rows: [
+      {
+        token_number: 1,
+        customer_name: 'srinivasan',
+        status: 'SEATED',
+        wait_seconds: 1800,
+        operator_email: 'pallavaramba@gmail.com',
+      },
+      {
+        token_number: 2,
+        customer_name: 'jenitha',
+        status: 'NO_SHOW',
+        wait_seconds: null,
+        operator_email: 'pallavaramba@gmail.com',
+      },
+    ],
+    ...overrides,
+  });
+}
+
+describe('queue.tokens report panel', () => {
+  it('RF-40. titles the table "Queue Log" with its entry count, inside a panel', async () => {
+    apiMock.run.mockImplementation(async () => queueTokensResponse());
+    render(<ReportPage />);
+
+    await screen.findByRole('table');
+    expect(screen.getByText('Queue Log')).toBeTruthy();
+    expect(screen.getByText('2 entries')).toBeTruthy();
+  });
+
+  it('RF-41. shows each status as a coloured pill, not the raw enum text', async () => {
+    apiMock.run.mockImplementation(async () => queueTokensResponse());
+    render(<ReportPage />);
+
+    const table = await screen.findByRole('table');
+    const rows = within(table).getAllByRole('row').slice(1);
+    expect(within(rows[0]).getByText('Seated').getAttribute('data-tone')).toBe('success');
+    expect(within(rows[1]).getByText('No show').getAttribute('data-tone')).toBe('danger');
+    // The raw enum value never reaches the TABLE (the Status filter
+    // dropdown legitimately lists it as a choice — see RF-14).
+    expect(within(table).queryByText('SEATED')).toBeNull();
+    expect(within(table).queryByText('NO_SHOW')).toBeNull();
+  });
+
+  it('RF-42. an unrecognised status still shows as text rather than vanishing', async () => {
+    apiMock.run.mockImplementation(async () =>
+      queueTokensResponse({ rows: [{ token_number: 9, status: 'SOMETHING_NEW', customer_name: 'x' }] }),
+    );
+    render(<ReportPage />);
+    expect(await screen.findByText('SOMETHING_NEW')).toBeTruthy();
+  });
+
+  it('RF-43. gives each headline metric its own coloured icon', async () => {
+    apiMock.run.mockImplementation(async () => queueTokensResponse());
+    const { container } = render(<ReportPage />);
+    await screen.findByRole('table');
+
+    const icons = container.querySelectorAll('[data-tone="blue"], [data-tone="amber"], [data-tone="green"], [data-tone="terracotta"]');
+    // Four metrics, four tones — one icon badge per headline figure.
+    expect(icons.length).toBeGreaterThanOrEqual(4);
+  });
+
+  it('RF-44. the search box filters the rows already on screen by customer, without asking the server again', async () => {
+    apiMock.run.mockImplementation(async () => queueTokensResponse());
+    render(<ReportPage />);
+    await screen.findByRole('table');
+    apiMock.run.mockClear();
+
+    fireEvent.change(screen.getByPlaceholderText('Search customer…'), { target: { value: 'jeni' } });
+
+    await waitFor(() => {
+      expect(screen.getAllByRole('row')).toHaveLength(2); // header + one match
+    });
+    expect(screen.getByText('jenitha')).toBeTruthy();
+    expect(screen.queryByText('srinivasan')).toBeNull();
+    expect(apiMock.run).not.toHaveBeenCalled();
+  });
+
+  it('RF-45. a report other than queue.tokens gets the plain layout, with no panel or icons', async () => {
+    routeKey = 'banquet.bookings';
+    apiMock.run.mockImplementation(async () =>
+      reportResponse({
+        key: 'banquet.bookings',
+        columns: [{ key: 'customer_name', label: 'Customer', type: 'string' }],
+        metrics: [{ key: 'total_pax', label: 'Total PAX', value: 4, type: 'number' }],
+        rows: [{ customer_name: 'Priya' }],
+        option_specs: [],
+      }),
+    );
+    render(<ReportPage />);
+    await screen.findByRole('table');
+
+    expect(screen.queryByPlaceholderText(/Search/)).toBeNull();
+    expect(screen.queryByText(/entries$/)).toBeNull();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
 // EXPORT
 // ═══════════════════════════════════════════════════════════════════════════
 

@@ -743,13 +743,19 @@ describe('Phase 10 Reports & Dashboard (e2e)', () => {
   // ═══════════════════════════════════════════════════════════════════════════
 
   describe('Data minimisation', () => {
-    it('RP-34. queue reports carry no customer identity at all', async () => {
+    it('RP-34. queue reports carry no customer identity at all, for a caller without customers.view', async () => {
       const res = await data('queue.tokens');
       const body = JSON.stringify(res.body);
 
       expect(body).not.toContain('Priya');
       expect(body).not.toContain('+9190');
-      expect(body).not.toMatch(/customer/i);
+      // "Total Customers" (a headcount metric, not an identity) legitimately
+      // says "customer" — what must never appear is the COLUMN that would
+      // carry one, in the declared columns or in an actual row.
+      expect(res.body.columns.map((c: { key: string }) => c.key)).not.toContain('customer_name');
+      expect(res.body.columns.map((c: { key: string }) => c.key)).not.toContain('phone');
+      expect(res.body.rows[0]).not.toHaveProperty('customer_name');
+      expect(res.body.rows[0]).not.toHaveProperty('phone');
       expect(Object.keys(res.body.rows[0])).toEqual(
         expect.arrayContaining(['token_number', 'status', 'party_size']),
       );

@@ -3,6 +3,14 @@ import { formatValue, isNumericType } from '@/lib/reports/format';
 import type { ReportColumn, ReportDrilldown } from '@/lib/reports/types';
 import styles from './reports.module.css';
 
+/** A 'badge' column's raw value mapped to display text and a colour, per
+ *  report and column — e.g. queue.tokens' `status` maps 'SEATED' to Seated /
+ *  success. Absent for every column that isn't typed 'badge'. */
+export interface BadgeSpec {
+  label: string;
+  tone: 'success' | 'warning' | 'danger' | 'primary' | 'neutral';
+}
+
 /**
  * A report's rows.
  *
@@ -24,12 +32,15 @@ export function ReportTable({
   timezone,
   caption,
   drilldown,
+  badges,
 }: {
   columns: readonly ReportColumn[];
   rows: ReadonlyArray<Record<string, unknown>>;
   timezone: string;
   caption: string;
   drilldown?: ReportDrilldown | null;
+  /** Column key -> raw value -> how to show it, for any 'badge' column. */
+  badges?: Readonly<Record<string, Readonly<Record<string, BadgeSpec>>>>;
 }) {
   if (rows.length === 0) {
     return (
@@ -70,16 +81,28 @@ export function ReportTable({
               // their own; the row's position in this result IS its identity.
               <tr key={index}>
                 {columns.map((column, columnIndex) => {
-                  const text = formatValue(row[column.key], column.type, {
+                  const raw = row[column.key];
+                  const badge = column.type === 'badge' ? badges?.[column.key]?.[String(raw)] : undefined;
+                  // An unmapped badge value still shows as plain text rather
+                  // than vanishing — a report gaining a new state word is a
+                  // missing colour, not missing data.
+                  const text = formatValue(raw, column.type, {
                     timezone,
                     currency: typeof row.currency === 'string' ? row.currency : undefined,
                   });
+                  const content = badge ? (
+                    <span className={styles.badge} data-tone={badge.tone}>
+                      {badge.label}
+                    </span>
+                  ) : (
+                    text
+                  );
                   return (
                     <td
                       key={column.key}
                       className={isNumericType(column.type) ? styles.numeric : undefined}
                     >
-                      {href && columnIndex === 0 ? <Link href={href}>{text}</Link> : text}
+                      {href && columnIndex === 0 ? <Link href={href}>{content}</Link> : content}
                     </td>
                   );
                 })}
