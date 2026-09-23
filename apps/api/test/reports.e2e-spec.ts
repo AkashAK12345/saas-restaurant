@@ -473,6 +473,8 @@ describe('Phase 10 Reports & Dashboard (e2e)', () => {
         'tasks.completion',
         'tasks.eod',
         'tasks.eod_compliance',
+        'tasks.kitchen',
+        'tasks.kitchen_compliance',
         'tasks.log',
         'tasks.operational',
         'tasks.operational_compliance',
@@ -1234,6 +1236,194 @@ describe('Phase 10 Reports & Dashboard (e2e)', () => {
 
     it('RP-OPS5. both need tasks.reports.view', async () => {
       for (const key of ['tasks.operational', 'tasks.operational_compliance']) {
+        const res = await as(
+          request(http).get(`/api/v1/reports/${key}/data`),
+          tokenQueueOnlyA,
+          companyA.id,
+          branchA.id,
+        ).query(range);
+        expect(res.status).toBe(403);
+      }
+    });
+  });
+
+  describe('Kitchen Checklist reports', () => {
+    const range = { from: '2026-07-10', to: '2026-07-12' };
+    const taskIds: string[] = [];
+    const routineIds: string[] = [];
+    let templateId: string;
+    // Today on the branch's clock: a checklist filed today is not settled yet.
+    const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date());
+
+    const HYGIENE = 'Has the kitchen been cleaned & hygiene maintained after service?';
+    const FIFO = 'Is the FIFO process being followed for short-expiry items?';
+    const SUPPLIES = 'Have you received the meat, vegetables, dairy products and other supplies on time?';
+    const PHOTOS = 'Pictures of the Food Packing area';
+
+    const kitchenTask = async (
+      day: string,
+      status: TaskStatus,
+      extra: {
+        completedAt?: Date;
+        due?: Date;
+        answers?: Array<{ label: string; value: string | null }>;
+        photos?: number;
+      } = {},
+    ) => {
+      const routine = await prisma.taskRoutine.create({
+        data: {
+          company_id: companyA.id,
+          branch_id: branchA.id,
+          name: `Kitchen Checklist ${day} ${status} ${taskIds.length}`,
+          frequency: 'DAILY',
+          time_of_day: '00:00',
+          checklist_template_id: templateId,
+        },
+      });
+      routineIds.push(routine.id);
+      const task = await prisma.task.create({
+        data: {
+          company_id: companyA.id,
+          branch_id: branchA.id,
+          title: 'Kitchen Checklist',
+          status,
+          source: 'ROUTINE',
+          routine_id: routine.id,
+          routine_occurrence_date: new Date(`${day}T00:00:00.000Z`),
+          checklist_template_id: templateId,
+          assignee_id: analystA.id,
+          created_at: new Date(`${day}T01:00:00.000Z`),
+          due_at: extra.due ?? null,
+          completed_at: extra.completedAt ?? null,
+          completed_by: extra.completedAt ? analystA.id : null,
+        },
+      });
+      taskIds.push(task.id);
+      let position = 0;
+      for (const a of extra.answers ?? []) {
+        await prisma.taskChecklistItem.create({
+          data: { task_id: task.id, label: a.label, position: position++, kind: 'TEXT', value: a.value, is_done: a.value != null },
+        });
+      }
+      if (extra.photos !== undefined) {
+        const item = await prisma.taskChecklistItem.create({
+          data: { task_id: task.id, label: PHOTOS, position: position++, kind: 'PHOTO', is_done: extra.photos > 0 },
+        });
+        for (let i = 0; i < extra.photos; i += 1) {
+          await prisma.taskChecklistItemPhoto.create({
+            data: { checklist_item_id: item.id, data: Buffer.from([0xff, 0xd8, 0xff]), mime_type: 'image/jpeg', position: i },
+          });
+        }
+      }
+      return task;
+    };
+
+    const run = (key: string, window: { from: string; to: string } = range) =>
+      asAnalyst(request(http).get(`/api/v1/reports/${key}/data`)).query(window);
+
+    beforeAll(async () => {
+      const template = await prisma.checklistTemplate.create({
+        data: { company_id: companyA.id, name: 'Kitchen Checklist' },
+      });
+      templateId = template.id;
+
+      await kitchenTask('2026-07-10', TaskStatus.COMPLETED, {
+        completedAt: new Date('2026-07-10T06:22:00.000Z'),
+        answers: [
+          { label: SUPPLIES, value: 'yes' },
+          { label: HYGIENE, value: 'No - drain blocked' },
+          { label: FIFO, value: 'Yes' },
+        ],
+        photos: 3,
+      });
+      await kitchenTask('2026-07-11', TaskStatus.COMPLETED, {
+        completedAt: new Date('2026-07-11T06:07:00.000Z'),
+        answers: [
+          { label: SUPPLIES, value: 'Yes' },
+          { label: HYGIENE, value: 'N/A' },
+          { label: FIFO, value: 'N/A' },
+        ],
+        photos: 0,
+      });
+      // Never filed, past its deadline: missed.
+      await kitchenTask('2026-07-12', TaskStatus.PENDING, { due: new Date('2026-07-12T12:00:00.000Z') });
+      // Filed today, and another of today's still open, even past its deadline.
+      await kitchenTask(today, TaskStatus.COMPLETED, { completedAt: new Date(), photos: 1 });
+      await kitchenTask(today, TaskStatus.PENDING, { due: new Date(Date.now() - 60_000) });
+    });
+
+    afterAll(async () => {
+      await prisma.taskChecklistItem.deleteMany({ where: { task_id: { in: taskIds } } });
+      await prisma.task.deleteMany({ where: { id: { in: taskIds } } });
+      await prisma.taskRoutine.deleteMany({ where: { id: { in: routineIds } } });
+      await prisma.checklistTemplate.delete({ where: { id: templateId } });
+    });
+
+    it('RP-KIT1. one row per submission, newest first, with its answers and photo count', async () => {
+      const res = await run('tasks.kitchen');
+      expect(res.status).toBe(200);
+      expect(res.body.name).toBe('Kitchen Checklist');
+      expect(res.body.columns.map((c: any) => c.label)).toEqual([
+        'Date',
+        'Submitted By',
+        'Submitted At',
+        'Branch',
+        'Meat/Veg/Dairy',
+        'Equipment',
+        'Depts Ready',
+        'Hygiene',
+        'FIFO',
+        'Images',
+      ]);
+      expect(res.body.drilldown).toEqual({ id_key: 'task_id', path: '/tasks/:id' });
+      expect(res.body.rows).toHaveLength(2);
+      expect(res.body.rows[0]).toMatchObject({
+        date: '11 Jul',
+        submitted_by: 'Ana Lyst',
+        submitted_at: '11 Jul, 11:37 AM',
+        branch_name: 'Alpha Main',
+        meat_veg_dairy: 'Yes',
+        equipment: null,
+        hygiene: 'N/A',
+        fifo: 'N/A',
+        images: '0 imgs',
+      });
+      expect(res.body.rows[1]).toMatchObject({ date: '10 Jul', hygiene: 'No - drain blocked', images: '3 imgs' });
+      expect(taskIds).toContain(res.body.rows[0].task_id);
+    });
+
+    it('RP-KIT2. the cards: photos attached, a "no" on hygiene, a "yes" on FIFO', async () => {
+      const res = await run('tasks.kitchen');
+      const metric = (key: string) => res.body.metrics.find((m: any) => m.key === key).value;
+      expect(metric('total_checklists')).toBe(2);
+      expect(metric('with_images')).toBe(1);
+      expect(metric('hygiene_issues')).toBe(1);
+      // "N/A" is neither followed nor an issue.
+      expect(metric('fifo_followed')).toBe(1);
+    });
+
+    it("RP-KIT3. compliance settles past days only: today's filing shows as \"Pending (1 filed)\"", async () => {
+      const res = await run('tasks.kitchen_compliance', { from: range.from, to: today });
+      expect(res.status).toBe(200);
+      expect(res.body.rows).toEqual([
+        {
+          staff: 'Ana Lyst',
+          branch_name: 'Alpha Main',
+          submitted: '2 of 3',
+          missed: 1,
+          pending: 1,
+          compliance: 67,
+          missed_dates: '12 Jul',
+        },
+      ]);
+      const metric = (key: string) => res.body.metrics.find((m: any) => m.key === key);
+      expect(metric('submitted').value).toBe('2 of 3');
+      expect(metric('pending')).toMatchObject({ label: 'Pending (1 filed)', value: 1 });
+      expect(metric('filed_today').value).toBe(1);
+    });
+
+    it('RP-KIT4. both need tasks.reports.view', async () => {
+      for (const key of ['tasks.kitchen', 'tasks.kitchen_compliance']) {
         const res = await as(
           request(http).get(`/api/v1/reports/${key}/data`),
           tokenQueueOnlyA,

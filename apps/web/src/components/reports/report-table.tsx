@@ -40,6 +40,8 @@ export function ReportTable({
   emptyText = 'No data found',
   stickyFirstColumn = false,
   wrapCells = false,
+  boldFirstColumn = false,
+  textTones,
 }: {
   columns: readonly ReportColumn[];
   rows: ReadonlyArray<Record<string, unknown>>;
@@ -65,6 +67,11 @@ export function ReportTable({
   /** Let long free text wrap (and keep its line breaks) in fixed-width
    *  columns, instead of one line per cell. */
   wrapCells?: boolean;
+  /** Set the first column in bold — a row's name, e.g. the staff member. */
+  boldFirstColumn?: boolean;
+  /** Column key -> a colour for any cell's text by its raw value, e.g. a
+   *  missed count in red once it is above zero. */
+  textTones?: Readonly<Record<string, (value: unknown) => 'success' | 'danger' | undefined>>;
 }) {
   if (rows.length === 0) {
     return emptyVariant === 'panel' ? (
@@ -94,6 +101,7 @@ export function ReportTable({
           styles.table,
           stickyFirstColumn ? styles.stickyFirst : '',
           wrapCells ? styles.wrapCells : '',
+          boldFirstColumn ? styles.boldFirst : '',
         ].join(' ')}
       >
         <caption className="sr-only">{caption}</caption>
@@ -132,16 +140,18 @@ export function ReportTable({
                       ? amountTones?.[column.key]?.(raw)
                       : undefined;
                   const pillTone = typeof raw === 'number' ? valuePills?.[column.key]?.(raw) : undefined;
+                  const textTone = amountTone ?? textTones?.[column.key]?.(raw);
                   const content = badge ? (
                     <span className={styles.badge} data-tone={badge.tone}>
                       {badge.label}
                     </span>
                   ) : pillTone ? (
                     <span className={styles.badge} data-tone={pillTone}>
+                      <span className={styles.pillDot} aria-hidden="true" />
                       {text}
                     </span>
-                  ) : amountTone ? (
-                    <span className={styles.amountText} data-tone={amountTone}>
+                  ) : textTone ? (
+                    <span className={styles.amountText} data-tone={textTone}>
                       {text}
                     </span>
                   ) : (

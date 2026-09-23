@@ -250,6 +250,19 @@
 .amountText[data-tone='success'] { color: var(--color-success); font-weight: 600; }
 .amountText[data-tone='danger'] { color: var(--color-danger); font-weight: 600; }
 
+/* The coloured dot leading a value pill ("● 30%"). */
+.pillDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.boldFirst tbody td:first-child {
+  font-weight: 700;
+  color: var(--color-text);
+}
+
 /* ── Table panel ─────────────────────────────────────────────────────────── */
 
 /* Opt-in: wraps the metrics + table for a report whose page requests it

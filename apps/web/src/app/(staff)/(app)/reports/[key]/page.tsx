@@ -12,12 +12,13 @@ import { formatDateLabel } from '@/lib/reports/format';
 import { AppIcon, type AppIconName } from '@/components/app/icons';
 import {
   EOD_COMPLIANCE_CARDS,
-  EOD_COMPLIANCE_METRIC_ICONS,
   EOD_LOG_METRIC_ICONS,
   complianceCountLabel,
+  complianceMetricIcons,
   complianceTone,
 } from '@/lib/reports/eod-ui';
-import { OPERATIONAL_COMPLIANCE_METRIC_ICONS, OPERATIONAL_LOG_METRIC_ICONS } from '@/lib/reports/operational-ui';
+import { OPERATIONAL_LOG_METRIC_ICONS } from '@/lib/reports/operational-ui';
+import { KITCHEN_LOG_METRIC_ICONS } from '@/lib/reports/kitchen-ui';
 import { QUEUE_METRIC_ICONS, QUEUE_STATUS_BADGES, QUEUE_SEARCHABLE_COLUMNS } from '@/lib/reports/queue-tokens-ui';
 import {
   BANQUET_METRIC_ICONS,
@@ -58,7 +59,9 @@ interface ReportUiHint {
   badges?: Readonly<Record<string, Readonly<Record<string, BadgeSpec>>>>;
   /** Numeric columns shown as a coloured pill, e.g. a compliance rate. */
   valuePills?: Readonly<Record<string, (value: number) => BadgeSpec['tone'] | undefined>>;
-  table?: { stickyFirstColumn?: boolean; wrapCells?: boolean };
+  table?: { stickyFirstColumn?: boolean; wrapCells?: boolean; boldFirstColumn?: boolean };
+  /** Any column's text coloured by its raw value, e.g. a missed count in red. */
+  textTones?: Readonly<Record<string, (value: unknown) => 'success' | 'danger' | undefined>>;
   /** The empty panel's line, when "No data found" would not say why. */
   emptyText?: string;
   /** Another report rendered beneath this one over the SAME dates — one
@@ -80,6 +83,27 @@ interface ReportUiHint {
   chips?: {
     optionKey: string;
     values: ReadonlyArray<{ value: string; label: string }>;
+  };
+}
+
+/**
+ * "Did they file it?" beneath a daily checklist's log — the same panel on
+ * every checklist screen; only its empty line names the form.
+ */
+function complianceHint(emptyText: string): ReportUiHint {
+  return {
+    title: 'Submission Compliance',
+    panelIcon: 'clipboardCheck',
+    countLabel: (report) => complianceCountLabel(report.metrics),
+    metricIcons: complianceMetricIcons,
+    visibleMetricKeys: () => EOD_COMPLIANCE_CARDS,
+    valuePills: { compliance: complianceTone },
+    table: { boldFirstColumn: true },
+    textTones: {
+      missed: (value) => (typeof value === 'number' && value > 0 ? 'danger' : undefined),
+      missed_dates: (value) => (value ? 'danger' : undefined),
+    },
+    emptyText,
   };
 }
 
@@ -129,30 +153,22 @@ const REPORT_UI_HINTS: Readonly<Record<string, ReportUiHint>> = {
     table: { stickyFirstColumn: true, wrapCells: true },
     companion: 'tasks.eod_compliance',
   },
-  'tasks.eod_compliance': {
-    title: 'Submission Compliance',
-    panelIcon: 'clipboardCheck',
-    countLabel: (report) => complianceCountLabel(report.metrics),
-    metricIcons: () => EOD_COMPLIANCE_METRIC_ICONS,
-    visibleMetricKeys: () => EOD_COMPLIANCE_CARDS,
-    valuePills: { compliance: complianceTone },
-    emptyText: 'No EOD Report was scheduled for anyone in this period',
-  },
+  'tasks.eod_compliance': complianceHint('No EOD Report was scheduled for anyone in this period'),
   'tasks.operational': {
     title: 'Checklist Log (Transposed)',
     metricIcons: () => OPERATIONAL_LOG_METRIC_ICONS,
     table: { stickyFirstColumn: true, wrapCells: true },
     companion: 'tasks.operational_compliance',
   },
-  'tasks.operational_compliance': {
-    title: 'Submission Compliance',
-    panelIcon: 'clipboardCheck',
-    countLabel: (report) => complianceCountLabel(report.metrics),
-    metricIcons: () => OPERATIONAL_COMPLIANCE_METRIC_ICONS,
-    visibleMetricKeys: () => EOD_COMPLIANCE_CARDS,
-    valuePills: { compliance: complianceTone },
-    emptyText: 'No Operational Checklist was scheduled for anyone in this period',
+  'tasks.operational_compliance': complianceHint(
+    'No Operational Checklist was scheduled for anyone in this period',
+  ),
+  'tasks.kitchen': {
+    title: 'Kitchen Log',
+    metricIcons: () => KITCHEN_LOG_METRIC_ICONS,
+    companion: 'tasks.kitchen_compliance',
   },
+  'tasks.kitchen_compliance': complianceHint('No Kitchen Checklist was scheduled for anyone in this period'),
 };
 
 /**
@@ -211,6 +227,8 @@ function ReportPanel({
         emptyText={hint.emptyText}
         stickyFirstColumn={hint.table?.stickyFirstColumn}
         wrapCells={hint.table?.wrapCells}
+        boldFirstColumn={hint.table?.boldFirstColumn}
+        textTones={hint.textTones}
       />
     </div>
   );

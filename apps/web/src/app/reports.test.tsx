@@ -1002,6 +1002,162 @@ describe('tasks.operational report screen', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
+// KITCHEN CHECKLIST — a row per submission, and its compliance beneath it
+// ═══════════════════════════════════════════════════════════════════════════
+
+function kitchenLogResponse(): ReportResponse {
+  return reportResponse({
+    key: 'tasks.kitchen',
+    name: 'Kitchen Checklist',
+    kind: 'summary',
+    option_specs: [],
+    drilldown: { id_key: 'task_id', path: '/tasks/:id' },
+    columns: [
+      { key: 'date', label: 'Date', type: 'string' },
+      { key: 'submitted_by', label: 'Submitted By', type: 'string' },
+      { key: 'submitted_at', label: 'Submitted At', type: 'string' },
+      { key: 'branch_name', label: 'Branch', type: 'string' },
+      { key: 'hygiene', label: 'Hygiene', type: 'string' },
+      { key: 'fifo', label: 'FIFO', type: 'string' },
+      { key: 'images', label: 'Images', type: 'string' },
+    ],
+    rows: [
+      {
+        task_id: 'aaaaaaaa-0000-4000-8000-000000000001',
+        date: '23 Sep',
+        submitted_by: 'velacherykitchen',
+        submitted_at: '23 Sep, 11:52 AM',
+        branch_name: 'Velachery',
+        hygiene: 'yes',
+        fifo: 'N/A',
+        images: '21 imgs',
+      },
+    ],
+    metrics: [
+      { key: 'total_checklists', label: 'Total Checklists', value: 36, type: 'number' },
+      { key: 'with_images', label: 'With Images', value: 36, type: 'number' },
+      { key: 'hygiene_issues', label: 'Hygiene Issues', value: 0, type: 'number' },
+      { key: 'fifo_followed', label: 'FIFO Followed', value: 29, type: 'number' },
+    ],
+    meta: { total: 36, limit: 50, offset: 0 },
+  });
+}
+
+function kitchenComplianceResponse(): ReportResponse {
+  return reportResponse({
+    key: 'tasks.kitchen_compliance',
+    name: 'Kitchen Checklist Submission Compliance',
+    kind: 'summary',
+    option_specs: [],
+    columns: [
+      { key: 'staff', label: 'Staff', type: 'string' },
+      { key: 'submitted', label: 'Submitted', type: 'string' },
+      { key: 'missed', label: 'Missed', type: 'number' },
+      { key: 'pending', label: 'Pending', type: 'number' },
+      { key: 'compliance', label: 'Compliance', type: 'percent' },
+      { key: 'missed_dates', label: 'Missed Dates', type: 'string' },
+    ],
+    rows: [
+      {
+        staff: 'alwarpetba',
+        submitted: '0 of 7',
+        missed: 7,
+        pending: 1,
+        compliance: 0,
+        missed_dates: '16 Sep, 17 Sep, 18 Sep, 19 Sep +3 more',
+      },
+      { staff: 'annanagarkitchen', submitted: '7 of 7', missed: 0, pending: 0, compliance: 100, missed_dates: null },
+    ],
+    metrics: [
+      { key: 'compliance', label: 'Compliance', value: 30, type: 'percent' },
+      { key: 'submitted', label: 'Submitted', value: '32 of 105', type: 'string' },
+      { key: 'missed', label: 'Missed', value: 73, type: 'number' },
+      { key: 'pending', label: 'Pending (4 filed)', value: 11, type: 'number' },
+      { key: 'filed_today', label: 'Filed today', value: 4, type: 'number' },
+      { key: 'staff_count', label: 'Staff', value: 15, type: 'number' },
+      { key: 'due_days', label: 'Days due', value: 7, type: 'number' },
+    ],
+    meta: { total: 2, limit: 50, offset: 0 },
+  });
+}
+
+describe('tasks.kitchen report screen', () => {
+  beforeEach(() => {
+    routeKey = 'tasks.kitchen';
+    apiMock.run.mockImplementation(async (_ctx: unknown, key: string) =>
+      key === 'tasks.kitchen_compliance' ? kitchenComplianceResponse() : kitchenLogResponse(),
+    );
+  });
+
+  it("RF-63. the log and its compliance, each with its four cards; today's filings named on Pending", async () => {
+    const { container } = render(<ReportPage />);
+    await screen.findByText('Submission Compliance');
+
+    const cards = [...container.querySelectorAll('dt')].map((dt) => [
+      dt.textContent,
+      dt.parentElement?.querySelector('dd')?.textContent,
+    ]);
+    expect(cards).toEqual([
+      ['Total Checklists', '36'],
+      ['With Images', '36'],
+      ['Hygiene Issues', '0'],
+      ['FIFO Followed', '29'],
+      ['Compliance', '30%'],
+      ['Submitted', '32 of 105'],
+      ['Missed', '73'],
+      ['Pending (4 filed)', '11'],
+    ]);
+    expect(screen.getByText('Kitchen Log')).toBeTruthy();
+    expect(screen.getByText('36 entries')).toBeTruthy();
+    expect(screen.getByText('15 staff · 7 days')).toBeTruthy();
+  });
+
+  it('RF-64. one row per submission; its date opens the task', async () => {
+    render(<ReportPage />);
+    const table = (await screen.findAllByRole('table'))[0];
+    expect(within(table).getAllByRole('columnheader').map((h) => h.textContent)).toEqual([
+      'Date',
+      'Submitted By',
+      'Submitted At',
+      'Branch',
+      'Hygiene',
+      'FIFO',
+      'Images',
+    ]);
+    const link = within(table).getByRole('link', { name: '23 Sep' });
+    expect(link.getAttribute('href')).toBe('/tasks/aaaaaaaa-0000-4000-8000-000000000001');
+    expect(within(table).getByText('21 imgs')).toBeTruthy();
+    expect(screen.queryByRole('searchbox')).toBeNull();
+  });
+
+  it('RF-65. compliance rows: missed counts and dates in red, only when there are any', async () => {
+    render(<ReportPage />);
+    await waitFor(() => expect(screen.getAllByRole('table')).toHaveLength(2));
+    const table = screen.getAllByRole('table')[1];
+    expect(within(table).getByText('7').getAttribute('data-tone')).toBe('danger');
+    expect(within(table).getByText('16 Sep, 17 Sep, 18 Sep, 19 Sep +3 more').getAttribute('data-tone')).toBe(
+      'danger',
+    );
+    // Nothing missed: plain text, no colour.
+    const second = within(table).getAllByRole('row')[2];
+    expect(second.querySelectorAll('[data-tone="danger"]')).toHaveLength(0);
+    expect(within(table).getByText('0%').getAttribute('data-tone')).toBe('danger');
+  });
+});
+
+describe('compliance card icon', () => {
+  it('RF-66. takes the rate’s colour, and stays blue while nothing was due', async () => {
+    const { complianceMetricIcons } = await import('@/lib/reports/eod-ui');
+    const tone = (value: number | null) =>
+      complianceMetricIcons([{ key: 'compliance', label: 'Compliance', value, type: 'percent' }]).compliance.tone;
+    expect(tone(30)).toBe('red');
+    expect(tone(75)).toBe('amber');
+    expect(tone(100)).toBe('green');
+    expect(tone(null)).toBe('blue');
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
 // EXPORT
 // ═══════════════════════════════════════════════════════════════════════════
 

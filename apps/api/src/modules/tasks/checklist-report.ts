@@ -282,9 +282,21 @@ export const COMPLIANCE_COLUMNS: ReportColumn[] = [
 interface ComplianceRow {
   staff: string;
   submitted: bigint;
+  filed: bigint;
   missed: bigint;
   pending: bigint;
   missed_dates: Date[] | null;
+}
+
+/** How many missed dates a row spells out before "+N more". */
+const MISSED_DATES_SHOWN = 4;
+
+/** "16 Sep, 17 Sep, 18 Sep, 19 Sep +3 more" — the list stays one short line. */
+export function missedDatesLabel(localDates: readonly string[]): string | null {
+  if (localDates.length === 0) return null;
+  const shown = localDates.slice(0, MISSED_DATES_SHOWN).map(dayLabel).join(', ');
+  const rest = localDates.length - MISSED_DATES_SHOWN;
+  return rest > 0 ? `${shown} +${rest} more` : shown;
 }
 
 /**
@@ -292,14 +304,18 @@ interface ComplianceRow {
  * assignee, which a routine copies from its default assignee; "Unassigned"
  * when nobody is).
  *
+ * A day that is over is settled:
  *   submitted — filed, on time or late
- *   missed    — still unfiled and past its deadline (or, with no deadline,
- *               its day is over)
- *   pending   — still unfiled but not yet late: today's, usually
+ *   missed    — still unfiled and past its deadline (with no deadline, its
+ *               day being over is the deadline)
+ * Today is not settled yet:
+ *   filed     — already filed today; shown as "Pending (4 filed)", not
+ *               counted in the rate until the day is over
+ *   pending   — still unfiled and not yet missed
  *
- * Compliance is submitted over what was actually due (submitted + missed), so
- * today's unfiled form does not count against anyone yet. A cancelled
- * occurrence was never expected and counts nowhere.
+ * Compliance is submitted over the settled days (submitted + missed), so
+ * today counts neither for nor against anyone. A cancelled occurrence was
+ * never expected and counts nowhere.
  *
  * `due_days` is the window's days that are already over — the "7 days" of
  * "1 staff · 7 days" — whether or not anyone was scheduled on them.
@@ -312,20 +328,24 @@ export async function runCompliance(
   const { ctx, range } = query;
   const date = reportDate(ctx.timezone);
   const today = Prisma.sql`(NOW() AT TIME ZONE ${ctx.timezone})::date`;
+  const over = Prisma.sql`(${date} < ${today})`;
   const late = Prisma.sql`(
     (t."due_at" IS NOT NULL AND t."due_at" < NOW())
-    OR (t."due_at" IS NULL AND ${date} < ${today})
+    OR (t."due_at" IS NULL AND ${over})
   )`;
+  const done = Prisma.sql`t."status" = 'COMPLETED'`;
   const open = Prisma.sql`t."status" IN ('PENDING', 'IN_PROGRESS')`;
+  const missed = Prisma.sql`(${open} AND ${over} AND ${late})`;
 
   const [rows, days] = await Promise.all([
     prisma.$queryRaw<ComplianceRow[]>(Prisma.sql`
       SELECT
         COALESCE(${PERSON}, 'Unassigned') AS "staff",
-        COUNT(*) FILTER (WHERE t."status" = 'COMPLETED')         AS "submitted",
-        COUNT(*) FILTER (WHERE ${open} AND ${late})               AS "missed",
-        COUNT(*) FILTER (WHERE ${open} AND NOT ${late})           AS "pending",
-        ARRAY_AGG(${date} ORDER BY ${date}) FILTER (WHERE ${open} AND ${late}) AS "missed_dates"
+        COUNT(*) FILTER (WHERE ${done} AND ${over})         AS "submitted",
+        COUNT(*) FILTER (WHERE ${done} AND NOT ${over})     AS "filed",
+        COUNT(*) FILTER (WHERE ${missed})                   AS "missed",
+        COUNT(*) FILTER (WHERE ${open} AND NOT ${missed})   AS "pending",
+        ARRAY_AGG(${date} ORDER BY ${date}) FILTER (WHERE ${missed}) AS "missed_dates"
       ${formWindow(query, templateName, 'assignee_id')}
         AND t."status" <> 'CANCELLED'
       GROUP BY 1
@@ -337,30 +357,29 @@ export async function runCompliance(
   ]);
 
   let submitted = 0;
-  let missed = 0;
+  let filed = 0;
+  let missedTotal = 0;
   let pending = 0;
   const shaped = rows.map((r) => {
     const s = toReportNumber(r.submitted);
     const m = toReportNumber(r.missed);
     const p = toReportNumber(r.pending);
     submitted += s;
-    missed += m;
+    filed += toReportNumber(r.filed);
+    missedTotal += m;
     pending += p;
-    const dates = (r.missed_dates ?? []).map((d) =>
-      dayLabel(toLocalDateString(d)),
-    );
     return {
       staff: r.staff,
       submitted: `${s} of ${s + m}`,
       missed: m,
       pending: p,
       compliance: s + m === 0 ? null : Math.round((s / (s + m)) * 100),
-      missed_dates: dates.length ? dates.join(', ') : null,
+      missed_dates: missedDatesLabel((r.missed_dates ?? []).map(toLocalDateString)),
     };
   });
 
   // Nothing was due: no rate to invent, and no "0 of 0" to show.
-  const anyDue = submitted + missed > 0;
+  const due = submitted + missedTotal;
   return {
     rows: shaped,
     total: shaped.length,
@@ -368,26 +387,26 @@ export async function runCompliance(
       {
         key: 'compliance',
         label: 'Compliance',
-        value: anyDue
-          ? Math.round((submitted / (submitted + missed)) * 100)
-          : null,
+        value: due > 0 ? Math.round((submitted / due) * 100) : null,
         type: 'percent',
       },
       {
         key: 'submitted',
         label: 'Submitted',
-        value: anyDue ? `${submitted} of ${submitted + missed}` : null,
+        value: due > 0 ? `${submitted} of ${due}` : null,
         type: 'string',
       },
-      { key: 'missed', label: 'Missed', value: missed, type: 'number' },
-      { key: 'pending', label: 'Pending', value: pending, type: 'number' },
-      // For the panel's "1 staff · 7 days" line, not a card of its own.
+      { key: 'missed', label: 'Missed', value: missedTotal, type: 'number' },
       {
-        key: 'staff_count',
-        label: 'Staff',
-        value: shaped.length,
+        key: 'pending',
+        label: filed > 0 ? `Pending (${filed} filed)` : 'Pending',
+        value: pending,
         type: 'number',
       },
+      // Not cards of their own: today's filings (named in Pending's label),
+      // and the panel's "1 staff · 7 days" line.
+      { key: 'filed_today', label: 'Filed today', value: filed, type: 'number' },
+      { key: 'staff_count', label: 'Staff', value: shaped.length, type: 'number' },
       {
         key: 'due_days',
         label: 'Days due',
@@ -396,4 +415,20 @@ export async function runCompliance(
       },
     ],
   };
+}
+
+/** Photos attached to each submission, across all its photo fields. */
+export async function photoCounts(
+  prisma: PrismaService,
+  taskIds: readonly string[],
+): Promise<Map<string, number>> {
+  if (taskIds.length === 0) return new Map();
+  const rows = await prisma.$queryRaw<Array<{ task_id: string; photos: bigint }>>(Prisma.sql`
+    SELECT i."task_id", COUNT(p."id") AS "photos"
+    FROM "task_checklist_items" i
+    JOIN "task_checklist_item_photos" p ON p."checklist_item_id" = i."id"
+    WHERE i."task_id" = ANY(${taskIds}::uuid[])
+    GROUP BY i."task_id"
+  `);
+  return new Map(rows.map((r) => [r.task_id, toReportNumber(r.photos)]));
 }
