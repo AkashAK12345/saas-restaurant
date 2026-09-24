@@ -100,7 +100,8 @@ export type AppIconName =
   | 'pie'
   | 'rupee'
   | 'truck'
-  | 'send';
+  | 'send'
+  | 'xCircle';
 
 const FILLED: Partial<Record<AppIconName, ReactNode>> = {
   truck: (
@@ -205,6 +206,12 @@ const FILLED: Partial<Record<AppIconName, ReactNode>> = {
     </>
   ),
   kid: undefined,
+  xCircle: (
+    <>
+      <circle cx="12" cy="12" r="9.5" />
+      <path d="m8.8 8.8 6.4 6.4m0-6.4-6.4 6.4" stroke="#fff" strokeWidth="2.2" strokeLinecap="round" fill="none" />
+    </>
+  ),
   checkCircle: (
     <>
       <circle cx="12" cy="12" r="9.5" />
@@ -360,6 +367,7 @@ const STROKED: Record<AppIconName, ReactNode> = {
   rupee: <path d="M7 4.5h10M7 9h10M7 4.5h3.5a4.5 4.5 0 0 1 0 9H7l7.5 7" />,
   truck: null,
   send: null,
+  xCircle: null,
   pie: (
     <>
       <circle cx="12" cy="12" r="8.5" />

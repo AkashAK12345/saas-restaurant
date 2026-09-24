@@ -299,6 +299,14 @@
   outline-offset: 2px;
 }
 
+/* A cell drawn as an icon — a tick or a cross. */
+.iconCell {
+  display: inline-flex;
+  vertical-align: middle;
+}
+.iconCell[data-tone='success'] { color: var(--color-success); }
+.iconCell[data-tone='danger'] { color: var(--color-danger); }
+
 .boldCell {
   font-weight: 700;
   color: var(--color-text);

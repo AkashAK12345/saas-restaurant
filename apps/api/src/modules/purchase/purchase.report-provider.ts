@@ -4,6 +4,7 @@ import { PrismaService } from '../../core/database/prisma.service.js';
 import { PERMISSION_KEYS } from '../../common/authorization/permission-keys.js';
 import { ReportRegistry } from '../reports/report-registry.service.js';
 import { toReportNumber } from '../reports/report-values.js';
+import { instantLabel } from '../tasks/checklist-report.js';
 import type {
   ReportDefinition,
   ReportMetric,
@@ -18,7 +19,7 @@ import type {
  * An order belongs to the window it was placed in, on the branch's clock. A
  * cancelled order was never bought and counts nowhere; an order still to be
  * received is money committed, so it counts. The same four cards head both
- * views, By Vendor and By Item:
+ * views — By Vendor (each order, with its vendor) and By Item:
  *
  *   Total Amount   — what the orders came to
  *   Total Items    — the lines ordered, across every order
@@ -45,6 +46,14 @@ function ordersIn({ ctx, range }: ReportQuery): Prisma.Sql {
 /** "3/4" — sent, of all. */
 export function sentLabel(sent: number, total: number): string {
   return `${sent}/${total}`;
+}
+
+/**
+ * The average price paid per unit, in minor units: what the item came to
+ * over how much of it was bought. 0 when nothing was.
+ */
+export function averageRateMinor(totalMinor: number, quantity: number): number {
+  return quantity > 0 ? Math.round(totalMinor / quantity) : 0;
 }
 
 async function cards(prisma: PrismaService, query: ReportQuery): Promise<ReportMetric[]> {
@@ -83,23 +92,31 @@ async function cards(prisma: PrismaService, query: ReportQuery): Promise<ReportM
   ];
 }
 
-/** By Vendor: each vendor's orders over the period, biggest spend first. */
+/**
+ * By Vendor: every purchase order in the period, newest first — who it went
+ * to, how it was raised, what it came to, and whether it was received and
+ * sent on WhatsApp. The search box narrows it by vendor.
+ */
 @Injectable()
 export class PurchaseByVendorReport implements ReportProvider {
   readonly definition: ReportDefinition = {
     key: 'purchase.by_vendor',
     name: 'Purchases by Vendor',
-    description: 'What was ordered from each vendor in the period, biggest spend first.',
+    description: 'Every purchase order in the period, newest first, with its vendor.',
     domain: 'purchase',
     scope: 'branch',
     kind: 'summary',
     permission: PERMISSION_KEYS.PURCHASE_REPORTS_VIEW,
     columns: [
+      { key: 'created_at', label: 'Created At', type: 'string' },
+      { key: 'invoice', label: 'Invoice', type: 'string' },
       { key: 'vendor', label: 'Vendor', type: 'string' },
-      { key: 'orders', label: 'Orders', type: 'number' },
+      { key: 'branch_name', label: 'Branch', type: 'string' },
+      { key: 'source', label: 'Source', type: 'badge' },
       { key: 'items', label: 'Items', type: 'number' },
-      { key: 'amount_minor', label: 'Amount', type: 'money' },
-      { key: 'whatsapp_sent', label: 'WhatsApp Sent', type: 'string' },
+      { key: 'total_minor', label: 'Total', type: 'money' },
+      { key: 'status', label: 'Status', type: 'badge' },
+      { key: 'sent', label: 'Sent', type: 'string' },
     ],
     exportable: true,
   };
@@ -109,30 +126,46 @@ export class PurchaseByVendorReport implements ReportProvider {
   async run(query: ReportQuery): Promise<ReportResult> {
     const [rows, metrics] = await Promise.all([
       this.prisma.$queryRaw<
-        Array<{ vendor: string; orders: bigint; items: bigint; amount: bigint; sent: bigint; currency: string }>
+        Array<{
+          ordered_at: Date;
+          po_number: string;
+          vendor: string;
+          source: string;
+          items: bigint;
+          total_minor: number;
+          currency: string;
+          status: string;
+          sent: boolean;
+        }>
       >(Prisma.sql`
         SELECT
+          po."ordered_at",
+          po."po_number",
           v."name" AS "vendor",
-          COUNT(*) AS "orders",
-          SUM((SELECT COUNT(*) FROM "purchase_order_items" i WHERE i."purchase_order_id" = po."id")) AS "items",
-          SUM(po."total_minor") AS "amount",
-          COUNT(*) FILTER (WHERE po."whatsapp_sent_at" IS NOT NULL) AS "sent",
-          MIN(po."currency") AS "currency"
+          po."source",
+          (SELECT COUNT(*) FROM "purchase_order_items" i WHERE i."purchase_order_id" = po."id") AS "items",
+          po."total_minor",
+          po."currency",
+          po."status"::text AS "status",
+          po."whatsapp_sent_at" IS NOT NULL AS "sent"
         FROM (SELECT po.* ${ordersIn(query)}) po
         JOIN "vendors" v ON v."id" = po."vendor_id"
-        GROUP BY v."id", v."name"
-        ORDER BY 4 DESC, 1
+        ORDER BY po."ordered_at" DESC, po."po_number" DESC
       `),
       cards(this.prisma, query),
     ]);
     return {
       rows: rows.map((r) => ({
+        created_at: instantLabel(r.ordered_at, query.ctx.timezone),
+        invoice: r.po_number,
         vendor: r.vendor,
-        orders: toReportNumber(r.orders),
+        source: r.source,
         items: toReportNumber(r.items),
-        amount_minor: toReportNumber(r.amount),
+        total_minor: r.total_minor,
         currency: r.currency,
-        whatsapp_sent: sentLabel(toReportNumber(r.sent), toReportNumber(r.orders)),
+        status: r.status,
+        // Words, so an export reads plainly; the screen draws a tick or cross.
+        sent: r.sent ? 'Yes' : 'No',
       })),
       total: rows.length,
       metrics,
@@ -140,24 +173,29 @@ export class PurchaseByVendorReport implements ReportProvider {
   }
 }
 
-/** By Item: each item ordered over the period, biggest spend first. */
+/**
+ * By Item: each item bought in the period, biggest spend first — how much,
+ * at what average rate, on how many orders, and when it was last ordered.
+ */
 @Injectable()
 export class PurchaseByItemReport implements ReportProvider {
   readonly definition: ReportDefinition = {
     key: 'purchase.by_item',
     name: 'Purchases by Item',
-    description: 'How much of each item was ordered in the period, and from whom, biggest spend first.',
+    description: 'How much of each item was bought in the period, at what rate, biggest spend first.',
     domain: 'purchase',
     scope: 'branch',
     kind: 'summary',
     permission: PERMISSION_KEYS.PURCHASE_REPORTS_VIEW,
     columns: [
       { key: 'item', label: 'Item', type: 'string' },
-      { key: 'quantity', label: 'Quantity', type: 'number' },
       { key: 'unit', label: 'Unit', type: 'string' },
-      { key: 'amount_minor', label: 'Amount', type: 'money' },
+      { key: 'branch_name', label: 'Branch', type: 'string' },
+      { key: 'total_qty', label: 'Total Qty', type: 'number' },
+      { key: 'avg_rate_minor', label: 'Avg Rate', type: 'money' },
+      { key: 'total_minor', label: 'Total', type: 'money' },
       { key: 'orders', label: 'Orders', type: 'number' },
-      { key: 'vendors', label: 'Vendors', type: 'string' },
+      { key: 'last_ordered', label: 'Last Ordered', type: 'string' },
     ],
     exportable: true,
   };
@@ -174,6 +212,7 @@ export class PurchaseByItemReport implements ReportProvider {
           amount: bigint;
           orders: bigint;
           vendors: string;
+          last_ordered: Date;
           currency: string;
         }>
       >(Prisma.sql`
@@ -184,6 +223,7 @@ export class PurchaseByItemReport implements ReportProvider {
           SUM(i."line_total_minor") AS "amount",
           COUNT(DISTINCT po."id") AS "orders",
           STRING_AGG(DISTINCT v."name", ', ') AS "vendors",
+          MAX(po."ordered_at") AS "last_ordered",
           MIN(po."currency") AS "currency"
         FROM "purchase_order_items" i
         JOIN (SELECT po.* ${ordersIn(query)}) po ON po."id" = i."purchase_order_id"
@@ -195,15 +235,22 @@ export class PurchaseByItemReport implements ReportProvider {
       cards(this.prisma, query),
     ]);
     return {
-      rows: rows.map((r) => ({
-        item: r.item,
-        quantity: toReportNumber(r.quantity),
-        unit: r.unit,
-        amount_minor: toReportNumber(r.amount),
-        currency: r.currency,
-        orders: toReportNumber(r.orders),
-        vendors: r.vendors,
-      })),
+      rows: rows.map((r) => {
+        const quantity = toReportNumber(r.quantity);
+        const amount = toReportNumber(r.amount);
+        return {
+          item: r.item,
+          unit: r.unit,
+          total_qty: quantity,
+          avg_rate_minor: averageRateMinor(amount, quantity),
+          total_minor: amount,
+          currency: r.currency,
+          orders: toReportNumber(r.orders),
+          last_ordered: instantLabel(r.last_ordered, query.ctx.timezone),
+          // Not a column: lets the search box find an item by its vendor.
+          vendors: r.vendors,
+        };
+      }),
       total: rows.length,
       metrics,
     };

@@ -10,6 +10,16 @@ import styles from './reports.module.css';
 export interface BadgeSpec {
   label: string;
   tone: 'success' | 'warning' | 'danger' | 'primary' | 'neutral';
+  /** Lead with a dot in the tone's colour, as a status does ("● Received"). */
+  dot?: boolean;
+}
+
+/** A cell drawn as an icon, e.g. a sent/not-sent tick or cross. */
+export interface IconCellSpec {
+  icon: 'checkCircle' | 'xCircle';
+  tone: 'success' | 'danger';
+  /** What the icon says, for assistive technology and on hover. */
+  label: string;
 }
 
 /**
@@ -47,6 +57,7 @@ export function ReportTable({
   clampColumns,
   textPills,
   boldColumns,
+  iconCells,
 }: {
   columns: readonly ReportColumn[];
   rows: ReadonlyArray<Record<string, unknown>>;
@@ -83,6 +94,8 @@ export function ReportTable({
   /** Columns whose long text is cut to one line with "…" (the full text is
    *  in the cell's title, and in the row's details). */
   clampColumns?: readonly string[];
+  /** Column key -> an icon instead of the text, by the raw value. */
+  iconCells?: Readonly<Record<string, (value: unknown) => IconCellSpec | undefined>>;
   /** Columns set in bold — the figure a row is read by, e.g. a total. */
   boldColumns?: readonly string[];
   /** Column key -> any value shown as a coloured pill, by its raw value —
@@ -168,8 +181,15 @@ export function ReportTable({
                   const pillTone = typeof raw === 'number' ? valuePills?.[column.key]?.(raw) : undefined;
                   const textTone = amountTone ?? textTones?.[column.key]?.(raw);
                   const textPill = raw === null || raw === undefined ? undefined : textPills?.[column.key]?.(raw);
-                  const content = badge ? (
+                  const iconCell = iconCells?.[column.key]?.(raw);
+                  const content = iconCell ? (
+                    <span className={styles.iconCell} data-tone={iconCell.tone} title={iconCell.label}>
+                      <AppIcon name={iconCell.icon} size={24} />
+                      <span className="sr-only">{iconCell.label}</span>
+                    </span>
+                  ) : badge ? (
                     <span className={styles.badge} data-tone={badge.tone}>
+                      {badge.dot ? <span className={styles.pillDot} aria-hidden="true" /> : null}
                       {badge.label}
                     </span>
                   ) : pillTone ? (

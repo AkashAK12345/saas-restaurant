@@ -12,11 +12,13 @@ import { ReportTable } from '@/components/reports/report-table';
 import { DateDialog } from '@/components/reports/date-range-dialog';
 import { AppIcon } from '@/components/app/icons';
 import {
+  PURCHASE_BADGES,
   PURCHASE_CARDS,
   PURCHASE_ICONS,
   PURCHASE_VIEWS,
   matchesSearch,
   pillRangeLabel,
+  sentIcon,
   type PurchaseView,
 } from '@/lib/reports/purchase-ui';
 import reportStyles from '@/components/reports/reports.module.css';
@@ -165,6 +167,8 @@ export default function PurchaseReportsPage() {
             timezone={timezone}
             caption={`${report.name}, ${shown.from} to ${shown.to}`}
             boldColumns={['vendor', 'item']}
+            badges={PURCHASE_BADGES}
+            iconCells={{ sent: sentIcon }}
           />
         )
       ) : null}

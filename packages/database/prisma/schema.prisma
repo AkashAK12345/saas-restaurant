@@ -1391,6 +1391,9 @@ model PurchaseOrder {
   /// The number on the order, unique within its branch.
   po_number        String              @db.VarChar(40)
   status           PurchaseOrderStatus @default(ORDERED)
+  /// How the order was raised. Only "MANUAL" today — typed in by staff;
+  /// orders raised from a stock request or a reorder level will say so.
+  source           String              @default("MANUAL") @db.VarChar(24)
   total_minor      Int                 @default(0)
   currency         String              @db.Char(3)
   ordered_at       DateTime            @default(now()) @db.Timestamptz(3)

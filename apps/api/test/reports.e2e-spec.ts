@@ -2588,23 +2588,68 @@ describe('Phase 10 Reports & Dashboard (e2e)', () => {
       expect(metric('whatsapp_sent').value).toBe('1/2');
     });
 
-    it('RP-PUR2. by vendor: each vendor, biggest spend first', async () => {
+    it('RP-PUR2. by vendor: every order, newest first, with its vendor, source, status and whether it was sent', async () => {
       const res = await run('purchase.by_vendor');
-      expect(res.body.rows.map((r: any) => [r.vendor, r.orders, r.items, r.amount_minor, r.whatsapp_sent])).toEqual([
-        ['Fresh Farms', 1, 3, 250_000, '1/1'],
-        ['Metro Wholesale', 1, 2, 180_000, '0/1'],
+      expect(res.body.columns.map((c: any) => c.label)).toEqual([
+        'Created At',
+        'Invoice',
+        'Vendor',
+        'Branch',
+        'Source',
+        'Items',
+        'Total',
+        'Status',
+        'Sent',
+      ]);
+      expect(
+        res.body.rows.map((r: any) => [
+          r.created_at,
+          r.invoice,
+          r.vendor,
+          r.branch_name,
+          r.source,
+          r.items,
+          r.total_minor,
+          r.status,
+          r.sent,
+        ]),
+      ).toEqual([
+        ['18 Sep, 11:30 AM', 'PO-2', 'Metro Wholesale', 'Alpha Main', 'MANUAL', 2, 180_000, 'RECEIVED', 'No'],
+        ['17 Sep, 10:30 AM', 'PO-1', 'Fresh Farms', 'Alpha Main', 'MANUAL', 3, 250_000, 'ORDERED', 'Yes'],
       ]);
     });
 
-    it('RP-PUR3. by item: quantities add within a unit, across vendors', async () => {
+    it('RP-PUR3. by item: quantities add within a unit across vendors, with the average rate and last order', async () => {
       const res = await run('purchase.by_item');
       expect(res.status).toBe(200);
-      expect(res.body.rows.map((r: any) => [r.item, r.quantity, r.unit, r.amount_minor, r.vendors])).toEqual([
-        ['Basmati Rice', 25, 'kg', 150_000, 'Metro Wholesale'],
-        ['Coriander', 5, 'bunch', 100_000, 'Fresh Farms'],
-        ['Onion', 30, 'kg', 90_000, 'Fresh Farms, Metro Wholesale'],
-        ['Tomato', 12.5, 'kg', 90_000, 'Fresh Farms'],
+      expect(res.body.columns.map((c: any) => c.label)).toEqual([
+        'Item',
+        'Unit',
+        'Branch',
+        'Total Qty',
+        'Avg Rate',
+        'Total',
+        'Orders',
+        'Last Ordered',
       ]);
+      expect(
+        res.body.rows.map((r: any) => [
+          r.item,
+          r.unit,
+          r.total_qty,
+          r.avg_rate_minor,
+          r.total_minor,
+          r.orders,
+          r.last_ordered,
+        ]),
+      ).toEqual([
+        ['Basmati Rice', 'kg', 25, 6_000, 150_000, 1, '18 Sep, 11:30 AM'],
+        ['Coriander', 'bunch', 5, 20_000, 100_000, 1, '17 Sep, 10:30 AM'],
+        ['Onion', 'kg', 30, 3_000, 90_000, 2, '18 Sep, 11:30 AM'],
+        ['Tomato', 'kg', 12.5, 7_200, 90_000, 1, '17 Sep, 10:30 AM'],
+      ]);
+      // The vendors ride along for the search box, though they are not a column.
+      expect(res.body.rows.find((r: any) => r.item === 'Onion').vendors).toBe('Fresh Farms, Metro Wholesale');
     });
 
     it('RP-PUR4. both need purchase.reports.view', async () => {

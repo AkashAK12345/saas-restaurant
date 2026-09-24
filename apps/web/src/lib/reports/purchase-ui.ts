@@ -1,4 +1,5 @@
 import type { MetricIcon } from '@/components/reports/metric-grid';
+import type { BadgeSpec, IconCellSpec } from '@/components/reports/report-table';
 
 /**
  * Presentation-only helpers for the Purchase Reports screen
@@ -46,4 +47,21 @@ export function matchesSearch(row: Record<string, unknown>, search: string): boo
       .toLowerCase()
       .includes(needle),
   );
+}
+
+/** By Vendor's pills: how the order was raised, and where it stands. */
+export const PURCHASE_BADGES: Readonly<Record<string, Readonly<Record<string, BadgeSpec>>>> = {
+  source: { MANUAL: { label: 'Manual', tone: 'neutral' } },
+  status: {
+    ORDERED: { label: 'Ordered', tone: 'warning', dot: true },
+    RECEIVED: { label: 'Received', tone: 'success', dot: true },
+    CANCELLED: { label: 'Cancelled', tone: 'danger', dot: true },
+  },
+};
+
+/** Sent on WhatsApp: a green tick, or a red cross. */
+export function sentIcon(value: unknown): IconCellSpec | undefined {
+  if (value === 'Yes') return { icon: 'checkCircle', tone: 'success', label: 'Sent on WhatsApp' };
+  if (value === 'No') return { icon: 'xCircle', tone: 'danger', label: 'Not sent' };
+  return undefined;
 }

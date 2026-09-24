@@ -36,15 +36,20 @@ function response(key: string, rows: ReportResponse['rows'], metrics = METRICS()
     key === 'purchase.by_item'
       ? [
           { key: 'item', label: 'Item', type: 'string' },
-          { key: 'quantity', label: 'Quantity', type: 'number' },
-          { key: 'amount_minor', label: 'Amount', type: 'money' },
-          { key: 'vendors', label: 'Vendors', type: 'string' },
+          { key: 'unit', label: 'Unit', type: 'string' },
+          { key: 'total_qty', label: 'Total Qty', type: 'number' },
+          { key: 'avg_rate_minor', label: 'Avg Rate', type: 'money' },
+          { key: 'total_minor', label: 'Total', type: 'money' },
+          { key: 'last_ordered', label: 'Last Ordered', type: 'string' },
         ]
       : [
+          { key: 'created_at', label: 'Created At', type: 'string' },
+          { key: 'invoice', label: 'Invoice', type: 'string' },
           { key: 'vendor', label: 'Vendor', type: 'string' },
-          { key: 'orders', label: 'Orders', type: 'number' },
-          { key: 'amount_minor', label: 'Amount', type: 'money' },
-          { key: 'whatsapp_sent', label: 'WhatsApp Sent', type: 'string' },
+          { key: 'source', label: 'Source', type: 'badge' },
+          { key: 'total_minor', label: 'Total', type: 'money' },
+          { key: 'status', label: 'Status', type: 'badge' },
+          { key: 'sent', label: 'Sent', type: 'string' },
         ];
   return {
     key,
@@ -96,8 +101,26 @@ describe('Purchase Reports screen', () => {
     run.mockImplementation(async (_ctx: unknown, key: string) =>
       key === 'purchase.by_item'
         ? response(key, [
-            { item: 'Onion', quantity: 30, amount_minor: 90_000, currency: 'INR', vendors: 'Fresh Farms, Metro' },
-            { item: 'Basmati Rice', quantity: 25, amount_minor: 150_000, currency: 'INR', vendors: 'Metro' },
+            {
+              item: 'Onion',
+              unit: 'Kg',
+              total_qty: 30,
+              avg_rate_minor: 3_000,
+              total_minor: 90_000,
+              currency: 'INR',
+              last_ordered: '23 Sep, 11:08 PM',
+              vendors: 'Fresh Farms, Metro',
+            },
+            {
+              item: 'Basmati Rice',
+              unit: 'Kg',
+              total_qty: 25,
+              avg_rate_minor: 6_000,
+              total_minor: 150_000,
+              currency: 'INR',
+              last_ordered: '20 Sep, 7:56 AM',
+              vendors: 'Metro',
+            },
           ])
         : response(key, []),
     );
@@ -113,6 +136,51 @@ describe('Purchase Reports screen', () => {
 
     fireEvent.change(screen.getByPlaceholderText('Search vendors or items'), { target: { value: 'paneer' } });
     expect(screen.getByText('Nothing matches “paneer”')).toBeTruthy();
+  });
+
+  it('PU-6. By Vendor: a row per order, status and source as pills, sent as a tick or a cross', async () => {
+    run.mockImplementation(async (_ctx: unknown, key: string) =>
+      response(key, [
+        {
+          created_at: '24 Sep, 10:04 AM',
+          invoice: 'INV-CEN-2609-0086',
+          vendor: 'Mylai Pazhamudhir Cholai',
+          source: 'MANUAL',
+          total_minor: 183_100,
+          currency: 'INR',
+          status: 'RECEIVED',
+          sent: 'No',
+        },
+        {
+          created_at: '23 Sep, 11:14 PM',
+          invoice: 'INV-CEN-2609-0074',
+          vendor: 'N G Mutton and Chicken Centre',
+          source: 'MANUAL',
+          total_minor: 883_500,
+          currency: 'INR',
+          status: 'RECEIVED',
+          sent: 'Yes',
+        },
+      ]),
+    );
+    render(<PurchaseReportsPage />);
+    const table = await screen.findByRole('table');
+    expect(within(table).getAllByRole('columnheader').map((h) => h.textContent)).toEqual([
+      'Created At',
+      'Invoice',
+      'Vendor',
+      'Source',
+      'Total',
+      'Status',
+      'Sent',
+    ]);
+    const [first, second] = within(table).getAllByRole('row').slice(1);
+    expect(within(first).getByText('Manual').getAttribute('data-tone')).toBe('neutral');
+    expect(within(first).getByText('Received').closest('[data-tone]')?.getAttribute('data-tone')).toBe('success');
+    expect(within(first).getByText('Not sent').closest('[data-tone]')?.getAttribute('data-tone')).toBe('danger');
+    expect(within(second).getByText('Sent on WhatsApp').closest('[data-tone]')?.getAttribute('data-tone')).toBe('success');
+    // The words stay out of sight; the icon says it.
+    expect(within(table).queryByText('Yes')).toBeNull();
   });
 
   it('PU-3. the date pill opens "Select Date Range" and re-runs over the range chosen', async () => {
