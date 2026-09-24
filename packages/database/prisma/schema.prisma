@@ -275,6 +275,8 @@ model Company {
   customers   Customer[]
   queue_tokens QueueToken[]
   banquet_packages BanquetPackage[]
+  vendors          Vendor[]
+  purchase_orders  PurchaseOrder[]
   pos_orders       PosOrder[]
   banquet_bookings BanquetBooking[]
   banquet_plate_requests BanquetPlateRequest[]
@@ -330,6 +332,7 @@ model Branch {
   display_devices DisplayDevice[]
   queue_tokens    QueueToken[]
   queue_counters  QueueCounter[]
+  purchase_orders  PurchaseOrder[]
   pos_orders       PosOrder[]
   banquet_halls    BanquetHall[]
   banquet_bookings BanquetBooking[]
@@ -1346,4 +1349,84 @@ model PosPayment {
 
   @@index([order_id])
   @@map("pos_payments")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Purchasing — vendors, the purchase orders a branch sends them, and what was
+// on each order.
+//
+// Reporting comes first, as with point of sale: Purchase Reports reads these
+// tables, and raising purchase orders is the module still to come. A purchase
+// order is usually sent to its vendor on WhatsApp; `whatsapp_sent_at` records
+// that it was, not how. Money is integer minor units.
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum PurchaseOrderStatus {
+  ORDERED
+  RECEIVED
+  CANCELLED
+}
+
+model Vendor {
+  id         String   @id @default(uuid()) @db.Uuid
+  company_id String   @db.Uuid
+  name       String   @db.VarChar(160)
+  /// The number purchase orders are sent to.
+  phone      String?  @db.VarChar(32)
+  created_at DateTime @default(now()) @db.Timestamptz(3)
+  updated_at DateTime @updatedAt @db.Timestamptz(3)
+
+  company         Company         @relation(fields: [company_id], references: [id], onDelete: Restrict)
+  purchase_orders PurchaseOrder[]
+
+  @@unique([company_id, name])
+  @@map("vendors")
+}
+
+model PurchaseOrder {
+  id               String              @id @default(uuid()) @db.Uuid
+  company_id       String              @db.Uuid
+  branch_id        String              @db.Uuid
+  vendor_id        String              @db.Uuid
+  /// The number on the order, unique within its branch.
+  po_number        String              @db.VarChar(40)
+  status           PurchaseOrderStatus @default(ORDERED)
+  total_minor      Int                 @default(0)
+  currency         String              @db.Char(3)
+  ordered_at       DateTime            @default(now()) @db.Timestamptz(3)
+  whatsapp_sent_at DateTime?           @db.Timestamptz(3)
+  received_at      DateTime?           @db.Timestamptz(3)
+  cancelled_at     DateTime?           @db.Timestamptz(3)
+  notes            String?
+  created_at       DateTime            @default(now()) @db.Timestamptz(3)
+  updated_at       DateTime            @updatedAt @db.Timestamptz(3)
+
+  company Company             @relation(fields: [company_id], references: [id], onDelete: Restrict)
+  branch  Branch              @relation(fields: [branch_id], references: [id], onDelete: Restrict)
+  vendor  Vendor              @relation(fields: [vendor_id], references: [id], onDelete: Restrict)
+  items   PurchaseOrderItem[]
+
+  @@unique([branch_id, po_number])
+  // Purchase reports scan one branch over a window of order times.
+  @@index([branch_id, ordered_at])
+  @@map("purchase_orders")
+}
+
+model PurchaseOrderItem {
+  id                String  @id @default(uuid()) @db.Uuid
+  purchase_order_id String  @db.Uuid
+  /// Item name as ordered, e.g. "Basmati rice".
+  name              String  @db.VarChar(160)
+  /// Up to three decimals: 12.5 kg is a real order.
+  quantity          Decimal @db.Decimal(12, 3)
+  /// "kg", "L", "pcs"…; free text, as vendors quote it.
+  unit              String? @db.VarChar(16)
+  unit_price_minor  Int
+  line_total_minor  Int
+  position          Int     @default(0)
+
+  order PurchaseOrder @relation(fields: [purchase_order_id], references: [id], onDelete: Cascade)
+
+  @@index([purchase_order_id])
+  @@map("purchase_order_items")
 }

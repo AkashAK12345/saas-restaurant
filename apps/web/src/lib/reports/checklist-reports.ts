@@ -10,10 +10,9 @@ import { PERMISSION_KEYS, type PermissionKey } from '@/lib/auth/permissions';
  * Quick Access tile in `lib/tasks/quick-access.ts`, so the submission flow and
  * its report always name the same thing.
  *
- * Only reports with data behind them are listed. Point of sale leads: its
- * order tables exist (order taking is still to come), so POS Reports opens
- * and says honestly when there is nothing yet. Purchasing has no data at all
- * and stays out.
+ * Point of sale and purchasing lead: their tables exist (taking orders and
+ * raising purchase orders are still to come), so their screens open and say
+ * honestly when there is nothing yet. The checklist reports follow.
  */
 export interface ChecklistReport {
   key: string;
@@ -29,6 +28,13 @@ export interface ChecklistReport {
 
 export const CHECKLIST_REPORTS: readonly ChecklistReport[] = [
   { key: 'pos', title: 'POS Reports', subtitle: 'Sales & orders', icon: 'receipt', href: '/reports/pos' },
+  {
+    key: 'purchase',
+    title: 'Purchase Reports',
+    subtitle: 'Vendors & purchase orders',
+    icon: 'truck',
+    href: '/reports/purchase',
+  },
   {
     key: 'operational-checklist',
     title: 'Operational Checklist',

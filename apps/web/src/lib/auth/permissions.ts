@@ -54,6 +54,8 @@ export const PERMISSION_KEYS = {
   TASKS_REPORTS_VIEW: 'tasks.reports.view',
   // Point of sale: a branch's takings, granted on its own.
   POS_REPORTS_VIEW: 'pos.reports.view',
+  // Purchasing: what a branch spends and with whom, granted on its own.
+  PURCHASE_REPORTS_VIEW: 'purchase.reports.view',
   // Reports & Dashboard (Phase 10). REPORTS_VIEW opens the catalogue; each
   // report additionally needs its own domain key, which the server checks.
   REPORTS_VIEW: 'reports.view',

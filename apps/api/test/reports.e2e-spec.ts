@@ -43,6 +43,7 @@ const ANALYST_PERMS = [
   'tasks.view',
   'tasks.reports.view',
   'pos.reports.view',
+  'purchase.reports.view',
 ];
 const QUEUE_ONLY_PERMS = ['reports.view', 'reports.export', 'dashboard.view', 'queue.view'];
 const NO_EXPORT_PERMS = ['reports.view', 'dashboard.view', 'queue.view'];
@@ -473,6 +474,8 @@ describe('Phase 10 Reports & Dashboard (e2e)', () => {
         'pos.revenue_by_hour',
         'pos.revenue_by_type',
         'pos.summary',
+        'purchase.by_item',
+        'purchase.by_vendor',
         'queue.summary',
         'queue.tokens',
         'tasks.assignee',
@@ -2475,6 +2478,148 @@ describe('Phase 10 Reports & Dashboard (e2e)', () => {
     });
   });
 
+  describe('Purchase reports', () => {
+    // 17–18 Sep on the branch's clock (Asia/Kolkata).
+    const range = { from: '2026-09-17', to: '2026-09-18' };
+    const orderIds: string[] = [];
+    const vendorIds: string[] = [];
+
+    const vendor = async (name: string) => {
+      const v = await prisma.vendor.create({ data: { company_id: companyA.id, name } });
+      vendorIds.push(v.id);
+      return v.id;
+    };
+
+    const po = async (
+      number: string,
+      vendorId: string,
+      opts: {
+        at: string;
+        total: number;
+        sent?: boolean;
+        status?: 'ORDERED' | 'RECEIVED' | 'CANCELLED';
+        items: Array<[name: string, qty: string, unit: string | null, line: number]>;
+        branchId?: string;
+      },
+    ) => {
+      const at = new Date(opts.at);
+      const status = opts.status ?? 'ORDERED';
+      const o = await prisma.purchaseOrder.create({
+        data: {
+          company_id: companyA.id,
+          branch_id: opts.branchId ?? branchA.id,
+          vendor_id: vendorId,
+          po_number: number,
+          status,
+          total_minor: opts.total,
+          currency: 'INR',
+          ordered_at: at,
+          whatsapp_sent_at: opts.sent ? at : null,
+          received_at: status === 'RECEIVED' ? at : null,
+          cancelled_at: status === 'CANCELLED' ? at : null,
+          items: {
+            create: opts.items.map(([name, quantity, unit, line], position) => ({
+              name,
+              quantity,
+              unit,
+              unit_price_minor: line,
+              line_total_minor: line,
+              position,
+            })),
+          },
+        },
+      });
+      orderIds.push(o.id);
+    };
+
+    const run = (key: string) => asAnalyst(request(http).get(`/api/v1/reports/${key}/data`)).query(range);
+
+    beforeAll(async () => {
+      const fresh = await vendor('Fresh Farms');
+      const metro = await vendor('Metro Wholesale');
+      await po('PO-1', fresh, {
+        at: '2026-09-17T05:00:00.000Z',
+        total: 250_000,
+        sent: true,
+        items: [
+          ['Onion', '20', 'kg', 60_000],
+          ['Tomato', '12.5', 'kg', 90_000],
+          ['Coriander', '5', 'bunch', 100_000],
+        ],
+      });
+      await po('PO-2', metro, {
+        at: '2026-09-18T06:00:00.000Z',
+        total: 180_000,
+        status: 'RECEIVED',
+        items: [
+          ['Onion', '10', 'kg', 30_000],
+          ['Basmati Rice', '25', 'kg', 150_000],
+        ],
+      });
+      // Cancelled: never bought, counts nowhere.
+      await po('PO-3', metro, {
+        at: '2026-09-18T07:00:00.000Z',
+        total: 99_000,
+        sent: true,
+        status: 'CANCELLED',
+        items: [['Oil', '15', 'L', 99_000]],
+      });
+      // Another branch's order never counts.
+      await po('PO-4', fresh, {
+        at: '2026-09-17T05:00:00.000Z',
+        total: 77_000,
+        branchId: branchA2.id,
+        items: [['Onion', '99', 'kg', 77_000]],
+      });
+    });
+
+    afterAll(async () => {
+      await prisma.purchaseOrder.deleteMany({ where: { id: { in: orderIds } } });
+      await prisma.vendor.deleteMany({ where: { id: { in: vendorIds } } });
+    });
+
+    it('RP-PUR1. the cards: amount, item lines, vendors, and WhatsApp sent of all — cancelled left out', async () => {
+      const res = await run('purchase.by_vendor');
+      expect(res.status).toBe(200);
+      const metric = (key: string) => res.body.metrics.find((m: any) => m.key === key);
+      expect(metric('total_amount')).toMatchObject({ value: 430_000, currency: 'INR' });
+      expect(metric('total_items').value).toBe(5);
+      expect(metric('vendors').value).toBe(2);
+      expect(metric('whatsapp_sent').value).toBe('1/2');
+    });
+
+    it('RP-PUR2. by vendor: each vendor, biggest spend first', async () => {
+      const res = await run('purchase.by_vendor');
+      expect(res.body.rows.map((r: any) => [r.vendor, r.orders, r.items, r.amount_minor, r.whatsapp_sent])).toEqual([
+        ['Fresh Farms', 1, 3, 250_000, '1/1'],
+        ['Metro Wholesale', 1, 2, 180_000, '0/1'],
+      ]);
+    });
+
+    it('RP-PUR3. by item: quantities add within a unit, across vendors', async () => {
+      const res = await run('purchase.by_item');
+      expect(res.status).toBe(200);
+      expect(res.body.rows.map((r: any) => [r.item, r.quantity, r.unit, r.amount_minor, r.vendors])).toEqual([
+        ['Basmati Rice', 25, 'kg', 150_000, 'Metro Wholesale'],
+        ['Coriander', 5, 'bunch', 100_000, 'Fresh Farms'],
+        ['Onion', 30, 'kg', 90_000, 'Fresh Farms, Metro Wholesale'],
+        ['Tomato', 12.5, 'kg', 90_000, 'Fresh Farms'],
+      ]);
+    });
+
+    it('RP-PUR4. both need purchase.reports.view', async () => {
+      for (const key of ['purchase.by_vendor', 'purchase.by_item']) {
+        const res = await as(
+          request(http).get(`/api/v1/reports/${key}/data`),
+          tokenQueueOnlyA,
+          companyA.id,
+          branchA.id,
+        ).query(range);
+        expect(res.status).toBe(403);
+      }
+    });
+  });
+
   // ═══════════════════════════════════════════════════════════════════════════
   // PII
   // ═══════════════════════════════════════════════════════════════════════════
@@ -2896,15 +3041,16 @@ describe('Phase 10 Reports & Dashboard (e2e)', () => {
     it('RP-49. every registered report came from its own domain module', () => {
       const registry = app.get(ReportRegistry);
       const domains = new Set(registry.definitions().map((d) => d.domain));
-      expect([...domains].sort()).toEqual(['banquet', 'pos', 'queue', 'tasks']);
+      expect([...domains].sort()).toEqual(['banquet', 'pos', 'purchase', 'queue', 'tasks']);
     });
 
     // The roadmap's later modules do not exist yet, and nothing here pretends
-    // they do. (Point of sale now has its own order tables and module, so its
-    // reports are real — see "POS reports".)
+    // they do. (Point of sale and purchasing now have their own tables and
+    // modules, so their reports are real — see "POS reports" and "Purchase
+    // reports".)
     it('RP-50. invents no report for a module that does not exist', () => {
       const keys = app.get(ReportRegistry).definitions().map((d) => d.key);
-      for (const absent of ['inventory', 'purchase', 'finance', 'sales']) {
+      for (const absent of ['inventory', 'finance', 'sales']) {
         expect(keys.some((k) => k.startsWith(`${absent}.`))).toBe(false);
       }
     });

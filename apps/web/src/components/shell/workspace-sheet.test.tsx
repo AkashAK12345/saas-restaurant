@@ -87,6 +87,7 @@ describe('Workspace — the Reports sheet', () => {
     const { dialog } = openReports();
     expect(rows(dialog)).toEqual([
       'POS ReportsSales & orders',
+      'Purchase ReportsVendors & purchase orders',
       'Operational ChecklistChecklist reports',
       'Kitchen ChecklistKitchen reports',
       'Branch Head OpeningBranch head opening reports',
@@ -122,6 +123,7 @@ describe('Workspace — the Reports sheet', () => {
   it('opens the report behind every row, closing the sheet', () => {
     const expected: Record<string, string> = {
       'POS Reports': '/reports/pos',
+      'Purchase Reports': '/reports/purchase',
       'Operational Checklist': '/reports/tasks.operational',
       'Kitchen Checklist': '/reports/tasks.kitchen',
       'Branch Head Opening': '/reports/tasks.opening',

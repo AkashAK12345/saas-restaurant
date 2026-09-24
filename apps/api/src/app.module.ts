@@ -18,6 +18,7 @@ import { QueueTokensModule } from './modules/queue-tokens/queue-tokens.module.js
 import { BanquetModule } from './modules/banquet/banquet.module.js';
 import { TasksModule } from './modules/tasks/tasks.module.js';
 import { PosModule } from './modules/pos/pos.module.js';
+import { PurchaseModule } from './modules/purchase/purchase.module.js';
 import { ReportsModule } from './modules/reports/reports.module.js';
 
 @Module({
@@ -51,6 +52,8 @@ import { ReportsModule } from './modules/reports/reports.module.js';
     TasksModule,
     // Point of sale — reporting over the order tables, ahead of order taking
     PosModule,
+    // Purchasing — reporting over vendors and purchase orders, ahead of ordering
+    PurchaseModule,
     // Phase 10 — reports & dashboard. Imported LAST so it is obvious that no
     // domain module depends on it: reports register themselves into
     // ReportingCoreModule from the module that owns the data.

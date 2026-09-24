@@ -97,9 +97,21 @@ export type AppIconName =
   | 'moon'
   | 'grid'
   | 'refresh'
-  | 'pie';
+  | 'pie'
+  | 'rupee'
+  | 'truck'
+  | 'send';
 
 const FILLED: Partial<Record<AppIconName, ReactNode>> = {
+  truck: (
+    <>
+      <path d="M2.5 6.5A1.5 1.5 0 0 1 4 5h9.5A1.5 1.5 0 0 1 15 6.5V16H2.5z" />
+      <path d="M15 9h3.6a1.5 1.5 0 0 1 1.2.6l1.9 2.6a1.5 1.5 0 0 1 .3.9V16H15z" />
+      <circle cx="6.5" cy="17.5" r="2" />
+      <circle cx="17.5" cy="17.5" r="2" />
+    </>
+  ),
+  send: <path d="M3 20.5 21.5 12 3 3.5l2.2 7L14 12l-8.8 1.5z" />,
   grid: (
     <>
       <rect x="3.5" y="3.5" width="7.5" height="9.5" rx="1.2" />
@@ -345,6 +357,9 @@ const STROKED: Record<AppIconName, ReactNode> = {
       <path d="M19.5 4.5v4.2h-4.2" />
     </>
   ),
+  rupee: <path d="M7 4.5h10M7 9h10M7 4.5h3.5a4.5 4.5 0 0 1 0 9H7l7.5 7" />,
+  truck: null,
+  send: null,
   pie: (
     <>
       <circle cx="12" cy="12" r="8.5" />

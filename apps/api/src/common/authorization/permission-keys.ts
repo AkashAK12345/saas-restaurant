@@ -163,6 +163,10 @@ export const PERMISSION_KEYS = {
   // nothing about whether someone may see its takings.
   POS_REPORTS_VIEW: 'pos.reports.view',
 
+  // ── Purchasing ──────────────────────────────────────────────────────────
+  // What a branch spends, and with whom, is its own grant too.
+  PURCHASE_REPORTS_VIEW: 'purchase.reports.view',
+
   // ── Reports & Dashboard (Phase 10) ───────────────────────────────────────
   // REPORTS_VIEW (above, reserved since Phase 1) now gates the reporting
   // system itself. It is deliberately NOT sufficient on its own: running a
@@ -584,6 +588,11 @@ export const SYSTEM_PERMISSIONS: Array<{
     name: PERMISSION_KEYS.POS_REPORTS_VIEW,
     module: 'pos',
     description: "View a branch's point-of-sale revenue, orders and items sold",
+  },
+  {
+    name: PERMISSION_KEYS.PURCHASE_REPORTS_VIEW,
+    module: 'purchase',
+    description: "View a branch's purchase orders by vendor and by item",
   },
   {
     name: PERMISSION_KEYS.REPORTS_EXPORT,

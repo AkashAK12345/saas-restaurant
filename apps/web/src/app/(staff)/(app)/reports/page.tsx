@@ -16,7 +16,7 @@ import styles from '@/components/reports/reports.module.css';
  * future module appears under its own heading with no change here.
  */
 /** A domain's heading where its key is not already a word. */
-const DOMAIN_TITLES: Readonly<Record<string, string>> = { pos: 'Point of Sale' };
+const DOMAIN_TITLES: Readonly<Record<string, string>> = { pos: 'Point of Sale', purchase: 'Purchasing' };
 
 export default function ReportsPage() {
   const { selectedCompanyId, selectedBranchId } = useAppContext();
