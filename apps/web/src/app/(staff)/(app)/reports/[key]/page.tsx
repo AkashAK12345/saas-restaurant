@@ -20,6 +20,11 @@ import {
 import { OPERATIONAL_LOG_METRIC_ICONS } from '@/lib/reports/operational-ui';
 import { KITCHEN_LOG_METRIC_ICONS } from '@/lib/reports/kitchen-ui';
 import {
+  BIRYANI_SALES_CARDS,
+  BIRYANI_SALES_METRIC_ICONS,
+  BIRYANI_SALES_SEARCHABLE_COLUMNS,
+} from '@/lib/reports/biryani-sales-ui';
+import {
   KITCHEN_BALANCE_METRIC_ICONS,
   KITCHEN_BALANCE_SEARCHABLE_COLUMNS,
 } from '@/lib/reports/kitchen-balance-ui';
@@ -281,6 +286,25 @@ const REPORT_UI_HINTS: Readonly<Record<string, ReportUiHint>> = {
   },
   'tasks.kitchen_balance_compliance': complianceHint(
     'No Kitchen Balance Report was scheduled for anyone in this period',
+  ),
+  'tasks.biryani_sales': {
+    title: 'Sales Log',
+    searchPlaceholder: 'Search...',
+    searchableColumns: BIRYANI_SALES_SEARCHABLE_COLUMNS,
+    metricIcons: () => BIRYANI_SALES_METRIC_ICONS,
+    visibleMetricKeys: () => BIRYANI_SALES_CARDS,
+    table: { clampColumns: ['remarks'] },
+    companion: 'tasks.biryani_sales_compliance',
+    // The per-product split is on the form itself.
+    details: {
+      title: 'Biryani Sales Details',
+      icon: 'bowl',
+      tone: 'red',
+      subtitle: (row) => [row.date, row.submitted_by].filter(Boolean).join(' - '),
+    },
+  },
+  'tasks.biryani_sales_compliance': complianceHint(
+    'No Biryani Sales Report was scheduled for anyone in this period',
   ),
 };
 

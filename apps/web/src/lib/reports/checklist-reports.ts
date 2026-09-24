@@ -67,7 +67,13 @@ export const CHECKLIST_REPORTS: readonly ChecklistReport[] = [
     icon: 'scale',
     reportKey: 'tasks.kitchen_balance',
   },
-  { key: 'biryani-sales', title: 'Biryani Sales', subtitle: 'Sales reports', icon: 'fork' },
+  {
+    key: 'biryani-sales',
+    title: 'Biryani Sales',
+    subtitle: 'Sales reports',
+    icon: 'fork',
+    reportKey: 'tasks.biryani_sales',
+  },
   { key: 'kitchen-stock-request', title: 'Kitchen Stock Request', subtitle: 'Stock reports', icon: 'archive' },
 ];
 

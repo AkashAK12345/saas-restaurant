@@ -1573,6 +1573,81 @@ describe('tasks.kitchen_balance report screen', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
+// BIRYANI SALES — weights by the day, totalled over the products
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('tasks.biryani_sales report screen', () => {
+  const salesResponse = (rows: Array<Record<string, unknown>>) =>
+    reportResponse({
+      key: 'tasks.biryani_sales',
+      name: 'Biryani Sales',
+      kind: 'summary',
+      option_specs: [],
+      columns: [
+        { key: 'date', label: 'Date', type: 'string' },
+        { key: 'submitted_by', label: 'Submitted By', type: 'string' },
+        { key: 'purchase_kg', label: 'Purchase (KG)', type: 'number' },
+        { key: 'remarks', label: 'Remarks', type: 'string' },
+      ],
+      rows,
+      metrics: [
+        { key: 'total_reports', label: 'Total Reports', value: rows.length, type: 'number' },
+        { key: 'purchase', label: 'Purchase', value: rows.length ? '20.5 KG' : '0 KG', type: 'string' },
+        { key: 'morning_sales', label: 'Morning Sales', value: rows.length ? '8 KG' : '0 KG', type: 'string' },
+        { key: 'evening_sales', label: 'Evening Sales', value: rows.length ? '10.5 KG' : '0 KG', type: 'string' },
+        { key: 'order_qty', label: 'Order Qty', value: '10 KG', type: 'string' },
+      ],
+      meta: { total: rows.length, limit: 50, offset: 0 },
+    });
+
+  const mount = (rows: Array<Record<string, unknown>>) => {
+    routeKey = 'tasks.biryani_sales';
+    apiMock.run.mockImplementation(async (_ctx: unknown, key: string) =>
+      key === 'tasks.biryani_sales_compliance' ? { ...openingComplianceResponse(), key } : salesResponse(rows),
+    );
+    return render(<ReportPage />);
+  };
+
+  it('RF-77. an empty week reads as the reference does: four cards in KG, and no data', async () => {
+    const { container } = mount([]);
+    await screen.findByText('Submission Compliance');
+    const cards = [...container.querySelectorAll('dt')].map((dt) => [
+      dt.textContent,
+      dt.parentElement?.querySelector('dd')?.textContent,
+    ]);
+    // Order quantity stays in the export, not on a card.
+    expect(cards.slice(0, 4)).toEqual([
+      ['Total Reports', '0'],
+      ['Purchase', '0 KG'],
+      ['Morning Sales', '0 KG'],
+      ['Evening Sales', '0 KG'],
+    ]);
+    expect(screen.getByText('Sales Log')).toBeTruthy();
+    expect(screen.getByText('0 entries')).toBeTruthy();
+    expect(screen.getByText('No data found')).toBeTruthy();
+    expect(screen.getByPlaceholderText('Search...')).toBeTruthy();
+  });
+
+  it('RF-78. a filed report: its totals in the log, and View opens the per-product form', async () => {
+    tasksApiMock.get.mockReset();
+    tasksApiMock.get.mockResolvedValue({ checklist: [] });
+    mount([
+      {
+        task_id: 'ffffffff-0000-4000-8000-000000000001',
+        date: '5 Sep 2026',
+        submitted_by: 'alwarpetba',
+        purchase_kg: 20.5,
+        remarks: 'Mutton ran out by 9 PM',
+      },
+    ]);
+    const table = (await screen.findAllByRole('table'))[0];
+    expect(within(table).getByText('20.5')).toBeTruthy();
+    fireEvent.click(within(table).getByRole('button', { name: 'View 5 Sep 2026' }));
+    expect(screen.getByRole('dialog', { name: 'Biryani Sales Details' })).toBeTruthy();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
 // EXPORT
 // ═══════════════════════════════════════════════════════════════════════════
 

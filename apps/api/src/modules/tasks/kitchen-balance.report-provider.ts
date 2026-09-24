@@ -5,8 +5,10 @@ import { toLocalDateString } from '../reports/report-values.js';
 import {
   COMPLIANCE_COLUMNS,
   dayLabel,
+  exactSum,
   instantLabel,
   loadSubmissions,
+  numberValue,
   referenceForm,
   runCompliance,
   type ChecklistAnswer,
@@ -40,30 +42,18 @@ for (const { section } of Object.values(SECTION_COLUMNS)) {
   }
 }
 
-/** A count as a number; a blank or non-count answer adds nothing. */
-function count(answer: ChecklistAnswer): number {
-  if (answer.kind !== 'NUMBER' || !answer.value) return 0;
-  const n = Number(answer.value);
-  return Number.isFinite(n) ? n : 0;
-}
-
-/** Sums without float dust: counts carry at most three decimals. */
-function sum(values: number[]): number {
-  return Math.round(values.reduce((a, b) => a + b, 0) * 1000) / 1000;
-}
-
 /** A submission's total across every item, and per section. */
 export function balanceTotals(answers: Iterable<ChecklistAnswer>): { total: number; bySection: Map<string, number> } {
   const all: number[] = [];
   const bySection = new Map<string, number[]>();
   for (const answer of answers) {
-    const n = count(answer);
+    const n = numberValue(answer);
     all.push(n);
     if (answer.section) bySection.set(answer.section, [...(bySection.get(answer.section) ?? []), n]);
   }
   return {
-    total: sum(all),
-    bySection: new Map([...bySection].map(([section, ns]) => [section, sum(ns)])),
+    total: exactSum(all),
+    bySection: new Map([...bySection].map(([section, ns]) => [section, exactSum(ns)])),
   };
 }
 
@@ -95,7 +85,7 @@ export class KitchenBalanceLogReport implements ReportProvider {
     const forms = await loadSubmissions(this.prisma, query, KITCHEN_BALANCE.name);
     // Newest first, as the screen lists them.
     const rows = [...forms.submissions].reverse().map((s) => {
-      const { total, bySection } = balanceTotals(forms.answers.get(s.task_id)?.values() ?? []);
+      const { total, bySection } = balanceTotals(forms.items.get(s.task_id) ?? []);
       return {
         task_id: s.task_id,
         date: dayLabel(toLocalDateString(s.report_date), true),
@@ -108,7 +98,7 @@ export class KitchenBalanceLogReport implements ReportProvider {
       };
     });
 
-    const totalItems = sum(rows.map((r) => r.total));
+    const totalItems = exactSum(rows.map((r) => r.total));
     return {
       rows,
       total: rows.length,

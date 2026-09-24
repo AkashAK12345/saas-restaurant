@@ -15,7 +15,7 @@ function forms(perTask: Array<Record<string, string | null>>): SubmittedForms {
   const answers = new Map(
     perTask.map((a, i) => [`t${i}`, new Map(Object.entries(a).map(([k, v]) => [k, yesNo(v)]))]),
   );
-  return { submissions, labels: FIELDS, answers };
+  return { submissions, labels: FIELDS, answers, items: new Map() };
 }
 
 describe('BM Checklist report helpers', () => {

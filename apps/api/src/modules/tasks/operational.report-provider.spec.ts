@@ -18,7 +18,7 @@ function forms(ratings: Array<string | null | undefined>): SubmittedForms {
       answers.set(`t${i}`, new Map([[FIELD, { kind: 'RATING', value, is_done: value !== null }]]));
     }
   });
-  return { submissions, labels: [FIELD], answers };
+  return { submissions, labels: [FIELD], answers, items: new Map() };
 }
 
 describe('Operational Checklist report helpers', () => {

@@ -472,6 +472,8 @@ describe('Phase 10 Reports & Dashboard (e2e)', () => {
         'tasks.assignee',
         'tasks.banquet_opening',
         'tasks.banquet_opening_compliance',
+        'tasks.biryani_sales',
+        'tasks.biryani_sales_compliance',
         'tasks.bm',
         'tasks.bm_compliance',
         'tasks.completion',
@@ -2018,6 +2020,140 @@ describe('Phase 10 Reports & Dashboard (e2e)', () => {
 
     it('RP-KB3. both need tasks.reports.view', async () => {
       for (const key of ['tasks.kitchen_balance', 'tasks.kitchen_balance_compliance']) {
+        const res = await as(
+          request(http).get(`/api/v1/reports/${key}/data`),
+          tokenQueueOnlyA,
+          companyA.id,
+          branchA.id,
+        ).query(range);
+        expect(res.status).toBe(403);
+      }
+    });
+  });
+
+  describe('Biryani Sales reports', () => {
+    const range = { from: '2026-09-05', to: '2026-09-06' };
+    const taskIds: string[] = [];
+    const routineIds: string[] = [];
+    let templateId: string;
+
+    const bsTask = async (
+      day: string,
+      completedAt: Date,
+      items: Array<[section: string, label: string, kind: 'NUMBER' | 'TEXT', value: string | null]>,
+    ) => {
+      const routine = await prisma.taskRoutine.create({
+        data: {
+          company_id: companyA.id,
+          branch_id: branchA.id,
+          name: `Biryani Sales ${day} ${taskIds.length}`,
+          frequency: 'DAILY',
+          time_of_day: '00:00',
+          checklist_template_id: templateId,
+        },
+      });
+      routineIds.push(routine.id);
+      const task = await prisma.task.create({
+        data: {
+          company_id: companyA.id,
+          branch_id: branchA.id,
+          title: 'Biryani Sales Report',
+          status: TaskStatus.COMPLETED,
+          source: 'ROUTINE',
+          routine_id: routine.id,
+          routine_occurrence_date: new Date(`${day}T00:00:00.000Z`),
+          checklist_template_id: templateId,
+          assignee_id: analystA.id,
+          created_at: new Date(`${day}T01:00:00.000Z`),
+          completed_at: completedAt,
+          completed_by: analystA.id,
+        },
+      });
+      taskIds.push(task.id);
+      await prisma.taskChecklistItem.createMany({
+        data: items.map(([section, label, kind, value], position) => ({
+          task_id: task.id,
+          label,
+          section,
+          position,
+          kind,
+          value,
+          is_done: value != null,
+        })),
+      });
+    };
+
+    const run = (key: string) => asAnalyst(request(http).get(`/api/v1/reports/${key}/data`)).query(range);
+
+    beforeAll(async () => {
+      const template = await prisma.checklistTemplate.create({
+        data: { company_id: companyA.id, name: 'Biryani Sales Report' },
+      });
+      templateId = template.id;
+
+      // The same four questions under each product: all of them count.
+      await bsTask('2026-09-05', new Date('2026-09-05T15:40:00.000Z'), [
+        ['Chicken Biryani (Non-Veg)', 'Purchase (KG)', 'NUMBER', '12.5'],
+        ['Chicken Biryani (Non-Veg)', 'Morning (KG)', 'NUMBER', '5'],
+        ['Chicken Biryani (Non-Veg)', 'Evening (KG)', 'NUMBER', '6'],
+        ['Chicken Biryani (Non-Veg)', 'Order Qty (KG)', 'NUMBER', '10'],
+        ['Mutton Biryani (Non-Veg)', 'Purchase (KG)', 'NUMBER', '8'],
+        ['Mutton Biryani (Non-Veg)', 'Morning (KG)', 'NUMBER', '3'],
+        ['Mutton Biryani (Non-Veg)', 'Evening (KG)', 'NUMBER', '4.5'],
+        ['Mutton Biryani (Non-Veg)', 'Order Qty (KG)', 'NUMBER', null],
+        ['Remarks', 'Remarks', 'TEXT', 'Mutton ran out by 9 PM'],
+      ]);
+      await bsTask('2026-09-06', new Date('2026-09-06T15:30:00.000Z'), [
+        ['Appam (Veg)', 'Purchase (KG)', 'NUMBER', '2'],
+        ['Appam (Veg)', 'Morning (KG)', 'NUMBER', '1'],
+      ]);
+    });
+
+    afterAll(async () => {
+      await prisma.taskChecklistItem.deleteMany({ where: { task_id: { in: taskIds } } });
+      await prisma.task.deleteMany({ where: { id: { in: taskIds } } });
+      await prisma.taskRoutine.deleteMany({ where: { id: { in: routineIds } } });
+      await prisma.checklistTemplate.delete({ where: { id: templateId } });
+    });
+
+    it('RP-BS1. a row per submission, each figure totalled over every product', async () => {
+      const res = await run('tasks.biryani_sales');
+      expect(res.status).toBe(200);
+      expect(res.body.name).toBe('Biryani Sales');
+      expect(res.body.columns.map((c: any) => c.label)).toEqual([
+        'Date',
+        'Submitted By',
+        'Branch',
+        'Purchase (KG)',
+        'Morning (KG)',
+        'Evening (KG)',
+        'Order Qty (KG)',
+        'Remarks',
+        'Submitted At',
+      ]);
+      expect(res.body.rows[0]).toMatchObject({ date: '6 Sep 2026', purchase_kg: 2, morning_kg: 1, evening_kg: 0 });
+      expect(res.body.rows[1]).toMatchObject({
+        date: '5 Sep 2026',
+        purchase_kg: 20.5,
+        morning_kg: 8,
+        evening_kg: 10.5,
+        order_qty_kg: 10,
+        remarks: 'Mutton ran out by 9 PM',
+        submitted_at: '5 Sep, 9:10 PM',
+      });
+    });
+
+    it('RP-BS2. the cards: reports, and purchase, morning and evening in KG', async () => {
+      const res = await run('tasks.biryani_sales');
+      const metric = (key: string) => res.body.metrics.find((m: any) => m.key === key).value;
+      expect(metric('total_reports')).toBe(2);
+      expect(metric('purchase')).toBe('22.5 KG');
+      expect(metric('morning_sales')).toBe('9 KG');
+      expect(metric('evening_sales')).toBe('10.5 KG');
+    });
+
+    it('RP-BS3. both need tasks.reports.view', async () => {
+      for (const key of ['tasks.biryani_sales', 'tasks.biryani_sales_compliance']) {
         const res = await as(
           request(http).get(`/api/v1/reports/${key}/data`),
           tokenQueueOnlyA,

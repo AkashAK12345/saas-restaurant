@@ -180,6 +180,12 @@ export interface SubmittedForms {
   labels: string[];
   /** Task id -> field label -> the stored answer. */
   answers: Map<string, Map<string, ChecklistAnswer>>;
+  /**
+   * Task id -> every non-photo item, in form order. Unlike `answers` this
+   * keeps a label that repeats across sections — "Purchase (KG)" under each
+   * product — once per section.
+   */
+  items: Map<string, Array<ChecklistAnswer & { label: string }>>;
 }
 
 /** Every submission of this form in the window, with its answers. */
@@ -213,8 +219,18 @@ export async function loadSubmissions(
   // themselves stay on the task.
   const labels: string[] = [];
   const answers = new Map<string, Map<string, ChecklistAnswer>>();
+  const itemsByTask = new Map<string, Array<ChecklistAnswer & { label: string }>>();
   for (const item of items) {
     if (item.kind === 'PHOTO') continue;
+    const list = itemsByTask.get(item.task_id) ?? [];
+    list.push({
+      label: item.label,
+      kind: item.kind,
+      value: item.value,
+      is_done: item.is_done,
+      section: item.section,
+    });
+    itemsByTask.set(item.task_id, list);
     if (!labels.includes(item.label)) labels.push(item.label);
     const byTask =
       answers.get(item.task_id) ?? new Map<string, ChecklistAnswer>();
@@ -226,7 +242,7 @@ export async function loadSubmissions(
     });
     answers.set(item.task_id, byTask);
   }
-  return { submissions, labels, answers };
+  return { submissions, labels, answers, items: itemsByTask };
 }
 
 /**
@@ -529,4 +545,16 @@ export async function runSubmissionLog(
       ...extraMetrics(forms),
     ],
   };
+}
+
+/** A NUMBER answer as a number; a blank or non-number answer is 0. */
+export function numberValue(answer: ChecklistAnswer): number {
+  if (answer.kind !== 'NUMBER' || !answer.value) return 0;
+  const n = Number(answer.value);
+  return Number.isFinite(n) ? n : 0;
+}
+
+/** Sums without float dust: a NUMBER answer carries at most three decimals. */
+export function exactSum(values: readonly number[]): number {
+  return Math.round(values.reduce((a, b) => a + b, 0) * 1000) / 1000;
 }
