@@ -1648,6 +1648,75 @@ describe('tasks.biryani_sales report screen', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
+// STOCK REQUESTS — a row per department, filterable by department
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('tasks.stock_requests report screen', () => {
+  beforeEach(() => {
+    routeKey = 'tasks.stock_requests';
+    apiMock.run.mockImplementation(async (_ctx: unknown, key: string) =>
+      key === 'tasks.stock_requests_compliance'
+        ? { ...openingComplianceResponse(), key }
+        : reportResponse({
+            key: 'tasks.stock_requests',
+            name: 'Stock Requests',
+            kind: 'summary',
+            option_specs: [
+              {
+                key: 'department',
+                label: 'Department',
+                values: ['Indian', 'Chinese', 'Tandoori', 'BBQ', 'Turkish', 'Staff Food', 'Pick Up', 'Legacy'],
+              },
+            ],
+            columns: [
+              { key: 'date', label: 'Date', type: 'string' },
+              { key: 'department', label: 'Department', type: 'string' },
+              { key: 'items', label: 'Items', type: 'string' },
+              { key: 'item_count', label: 'Item Count', type: 'number' },
+            ],
+            rows: [],
+            metrics: [
+              { key: 'total_requests', label: 'Total Requests', value: 0, type: 'number' },
+              { key: 'total_items', label: 'Total Items', value: 0, type: 'number' },
+              { key: 'avg_items', label: 'Avg Items', value: 0, type: 'number' },
+              { key: 'departments', label: 'Departments', value: 0, type: 'number' },
+            ],
+            meta: { total: 0, limit: 50, offset: 0 },
+          }),
+    );
+  });
+
+  it('RF-79. an empty week as the reference shows it: four cards, a Stock Request Log, no data', async () => {
+    const { container } = render(<ReportPage />);
+    await screen.findByText('Submission Compliance');
+    expect([...container.querySelectorAll('dt')].slice(0, 4).map((dt) => dt.textContent)).toEqual([
+      'Total Requests',
+      'Total Items',
+      'Avg Items',
+      'Departments',
+    ]);
+    expect(screen.getByText('Stock Request Log')).toBeTruthy();
+    expect(screen.getByText('No data found')).toBeTruthy();
+  });
+
+  it('RF-80. the Department dropdown starts on "All departments" and filters on the server', async () => {
+    render(<ReportPage />);
+    await screen.findByText('Stock Request Log');
+    const select = screen.getByLabelText('Department') as HTMLSelectElement;
+    expect(select.options[0].textContent).toBe('All departments');
+    expect([...select.options].map((o) => o.value)).toContain('Staff Food');
+
+    apiMock.run.mockClear();
+    fireEvent.change(select, { target: { value: 'BBQ' } });
+    await waitFor(() =>
+      expect(apiMock.run.mock.calls.find((c) => c[1] === 'tasks.stock_requests')?.[2]).toMatchObject({
+        options: { department: 'BBQ' },
+      }),
+    );
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
 // EXPORT
 // ═══════════════════════════════════════════════════════════════════════════
 

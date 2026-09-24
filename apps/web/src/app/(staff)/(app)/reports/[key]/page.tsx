@@ -19,6 +19,7 @@ import {
 } from '@/lib/reports/eod-ui';
 import { OPERATIONAL_LOG_METRIC_ICONS } from '@/lib/reports/operational-ui';
 import { KITCHEN_LOG_METRIC_ICONS } from '@/lib/reports/kitchen-ui';
+import { STOCK_REQUEST_METRIC_ICONS, STOCK_REQUEST_SEARCHABLE_COLUMNS } from '@/lib/reports/stock-request-ui';
 import {
   BIRYANI_SALES_CARDS,
   BIRYANI_SALES_METRIC_ICONS,
@@ -92,6 +93,9 @@ interface ReportUiHint {
     /** Set in bold, e.g. a row's total. */
     boldColumns?: readonly string[];
   };
+  /** A filter dropdown's "everything" choice, e.g. "All departments"; "All"
+   *  when unset. */
+  optionAllLabels?: Readonly<Record<string, string>>;
   /** Any column's value shown as a coloured pill, e.g. Yes/No or "5/6". */
   textPills?: Readonly<Record<string, (value: unknown) => BadgeSpec['tone'] | undefined>>;
   /** A pill after a cell, read from its row — e.g. "+1 filed" by Pending. */
@@ -305,6 +309,24 @@ const REPORT_UI_HINTS: Readonly<Record<string, ReportUiHint>> = {
   },
   'tasks.biryani_sales_compliance': complianceHint(
     'No Biryani Sales Report was scheduled for anyone in this period',
+  ),
+  'tasks.stock_requests': {
+    title: 'Stock Request Log',
+    searchPlaceholder: 'Search...',
+    searchableColumns: STOCK_REQUEST_SEARCHABLE_COLUMNS,
+    metricIcons: () => STOCK_REQUEST_METRIC_ICONS,
+    optionAllLabels: { department: 'All departments' },
+    table: { clampColumns: ['items'] },
+    companion: 'tasks.stock_requests_compliance',
+    details: {
+      title: 'Stock Request Details',
+      icon: 'cart',
+      tone: 'red',
+      subtitle: (row) => [row.date, row.submitted_by].filter(Boolean).join(' - '),
+    },
+  },
+  'tasks.stock_requests_compliance': complianceHint(
+    'No Kitchen Stock Request was scheduled for anyone in this period',
   ),
 };
 
@@ -650,7 +672,7 @@ export default function ReportPage() {
                 setOffset(0);
               }}
             >
-              <option value="">All</option>
+              <option value="">{hint?.optionAllLabels?.[spec.key] ?? 'All'}</option>
               {spec.values.map((value) => (
                 <option key={value} value={value}>
                   {value}

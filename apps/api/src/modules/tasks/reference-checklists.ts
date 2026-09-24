@@ -58,6 +58,20 @@ const opt = (
   ...(section ? { section } : {}),
 });
 
+/**
+ * The kitchen departments a stock request is split by — each is a section of
+ * the Kitchen Stock Request form, and a filter on its report.
+ */
+export const STOCK_DEPARTMENTS = [
+  'Indian',
+  'Chinese',
+  'Tandoori',
+  'BBQ',
+  'Turkish',
+  'Staff Food',
+  'Pick Up',
+] as const;
+
 export const REFERENCE_CHECKLISTS: readonly ReferenceChecklist[] = [
   {
     key: 'eod-report',
@@ -342,7 +356,12 @@ export const REFERENCE_CHECKLISTS: readonly ReferenceChecklist[] = [
     key: 'kitchen-stock-request',
     name: 'Kitchen Stock Request',
     description: 'Daily indent to the store or central kitchen. A request note — not a procurement order.',
-    items: [req('Items requested', 'TEXT'), opt('Needed by', 'DATE')],
+    // One items box per kitchen department, so a request can cover several
+    // and the report can filter by department without matching typed names.
+    items: [
+      opt('Needed by', 'DATE', 'Request Details'),
+      ...STOCK_DEPARTMENTS.map((department) => opt('Items requested', 'TEXT', department)),
+    ],
   },
   {
     key: 'corporate-branch-visit',

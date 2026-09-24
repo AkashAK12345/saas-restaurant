@@ -69,6 +69,14 @@ const SECTION_META: Record<string, { icon: AppIconName; tone: Tone }> = {
   'Chicken Mandi (Non-Veg)': { icon: 'fork', tone: 'red' },
   'Mutton Mandi (Non-Veg)': { icon: 'fork', tone: 'blue' },
   'Appam (Veg)': { icon: 'bowl', tone: 'green' },
+  // Kitchen Stock Request — one items box per department ('Indian' and
+  // 'BBQ' are the Kitchen Balance entries above).
+  'Request Details': { icon: 'calendar', tone: 'blue' },
+  Chinese: { icon: 'bowl', tone: 'amber' },
+  Tandoori: { icon: 'flame', tone: 'red' },
+  Turkish: { icon: 'grill', tone: 'purple' },
+  'Staff Food': { icon: 'people', tone: 'green' },
+  'Pick Up': { icon: 'box', tone: 'blue' },
   // Corporate Branch Visit Report
   'Visit Details': { icon: 'briefcase', tone: 'blue' },
   'Remarks / Observations': { icon: 'notes', tone: 'blue' },

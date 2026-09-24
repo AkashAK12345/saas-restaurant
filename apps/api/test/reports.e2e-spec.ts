@@ -489,6 +489,8 @@ describe('Phase 10 Reports & Dashboard (e2e)', () => {
         'tasks.operational',
         'tasks.operational_compliance',
         'tasks.routines',
+        'tasks.stock_requests',
+        'tasks.stock_requests_compliance',
       ]);
       expect(res.body.meta.total).toBe(keys.length);
     });
@@ -2154,6 +2156,131 @@ describe('Phase 10 Reports & Dashboard (e2e)', () => {
 
     it('RP-BS3. both need tasks.reports.view', async () => {
       for (const key of ['tasks.biryani_sales', 'tasks.biryani_sales_compliance']) {
+        const res = await as(
+          request(http).get(`/api/v1/reports/${key}/data`),
+          tokenQueueOnlyA,
+          companyA.id,
+          branchA.id,
+        ).query(range);
+        expect(res.status).toBe(403);
+      }
+    });
+  });
+
+  describe('Stock Request reports', () => {
+    const range = { from: '2026-09-08', to: '2026-09-09' };
+    const taskIds: string[] = [];
+    const routineIds: string[] = [];
+    let templateId: string;
+
+    const srTask = async (
+      day: string,
+      completedAt: Date,
+      items: Array<[section: string | null, label: string, kind: 'TEXT' | 'DATE', value: string | null]>,
+    ) => {
+      const routine = await prisma.taskRoutine.create({
+        data: {
+          company_id: companyA.id,
+          branch_id: branchA.id,
+          name: `Stock Request ${day} ${taskIds.length}`,
+          frequency: 'DAILY',
+          time_of_day: '00:00',
+          checklist_template_id: templateId,
+        },
+      });
+      routineIds.push(routine.id);
+      const task = await prisma.task.create({
+        data: {
+          company_id: companyA.id,
+          branch_id: branchA.id,
+          title: 'Kitchen Stock Request',
+          status: TaskStatus.COMPLETED,
+          source: 'ROUTINE',
+          routine_id: routine.id,
+          routine_occurrence_date: new Date(`${day}T00:00:00.000Z`),
+          checklist_template_id: templateId,
+          assignee_id: analystA.id,
+          created_at: new Date(`${day}T01:00:00.000Z`),
+          completed_at: completedAt,
+          completed_by: analystA.id,
+        },
+      });
+      taskIds.push(task.id);
+      await prisma.taskChecklistItem.createMany({
+        data: items.map(([section, label, kind, value], position) => ({
+          task_id: task.id,
+          label,
+          section,
+          position,
+          kind,
+          value,
+          is_done: value != null,
+        })),
+      });
+    };
+
+    const run = (key: string, options: Record<string, string> = {}) =>
+      asAnalyst(request(http).get(`/api/v1/reports/${key}/data`)).query({ ...range, ...options });
+
+    beforeAll(async () => {
+      const template = await prisma.checklistTemplate.create({
+        data: { company_id: companyA.id, name: 'Kitchen Stock Request' },
+      });
+      templateId = template.id;
+
+      // One request for two departments: two rows.
+      await srTask('2026-09-09', new Date('2026-09-09T04:30:00.000Z'), [
+        ['Request Details', 'Needed by', 'DATE', '2026-09-10'],
+        ['Indian', 'Items requested', 'TEXT', 'Rice 10kg\nOil 5L\nOnion 20kg'],
+        ['Chinese', 'Items requested', 'TEXT', null],
+        ['BBQ', 'Items requested', 'TEXT', 'Charcoal 2 bags'],
+      ]);
+      // Filed on the form before it was split by department.
+      await srTask('2026-09-08', new Date('2026-09-08T04:00:00.000Z'), [
+        [null, 'Items requested', 'TEXT', 'Salt, Sugar'],
+        [null, 'Needed by', 'DATE', null],
+      ]);
+    });
+
+    afterAll(async () => {
+      await prisma.taskChecklistItem.deleteMany({ where: { task_id: { in: taskIds } } });
+      await prisma.task.deleteMany({ where: { id: { in: taskIds } } });
+      await prisma.taskRoutine.deleteMany({ where: { id: { in: routineIds } } });
+      await prisma.checklistTemplate.delete({ where: { id: templateId } });
+    });
+
+    it('RP-SR1. a row per department asked for, newest first; an unsplit request is Legacy', async () => {
+      const res = await run('tasks.stock_requests');
+      expect(res.status).toBe(200);
+      expect(res.body.name).toBe('Stock Requests');
+      expect(res.body.option_specs).toEqual([
+        {
+          key: 'department',
+          label: 'Department',
+          values: ['Indian', 'Chinese', 'Tandoori', 'BBQ', 'Turkish', 'Staff Food', 'Pick Up', 'Legacy'],
+        },
+      ]);
+      expect(res.body.rows.map((r: any) => [r.date, r.department, r.item_count, r.needed_by])).toEqual([
+        ['9 Sep 2026', 'Indian', 3, '10 Sep 2026'],
+        ['9 Sep 2026', 'BBQ', 1, '10 Sep 2026'],
+        ['8 Sep 2026', 'Legacy', 2, null],
+      ]);
+      const metric = (key: string) => res.body.metrics.find((m: any) => m.key === key).value;
+      expect(metric('total_requests')).toBe(2);
+      expect(metric('total_items')).toBe(6);
+      expect(metric('avg_items')).toBe(3);
+      expect(metric('departments')).toBe(3);
+    });
+
+    it('RP-SR2. the Department filter keeps only that department, and counts its requests', async () => {
+      const res = await run('tasks.stock_requests', { department: 'BBQ' });
+      expect(res.status).toBe(200);
+      expect(res.body.rows.map((r: any) => [r.department, r.items])).toEqual([['BBQ', 'Charcoal 2 bags']]);
+      expect(res.body.metrics.find((m: any) => m.key === 'total_requests').value).toBe(1);
+    });
+
+    it('RP-SR3. both need tasks.reports.view', async () => {
+      for (const key of ['tasks.stock_requests', 'tasks.stock_requests_compliance']) {
         const res = await as(
           request(http).get(`/api/v1/reports/${key}/data`),
           tokenQueueOnlyA,

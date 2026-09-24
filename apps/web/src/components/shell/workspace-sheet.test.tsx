@@ -118,17 +118,25 @@ describe('Workspace — the Reports sheet', () => {
     }
   });
 
-  it('opens the report behind a row, and only closes the sheet for one not built yet', () => {
-    push.mockClear();
+  it('opens the report behind every row, closing the sheet', () => {
+    const expected: Record<string, string> = {
+      'Operational Checklist': '/reports/tasks.operational',
+      'Kitchen Checklist': '/reports/tasks.kitchen',
+      'Branch Head Opening': '/reports/tasks.opening',
+      'Banquet Opening': '/reports/tasks.banquet_opening',
+      'BM Checklist': '/reports/tasks.bm',
+      'Kitchen Balance': '/reports/tasks.kitchen_balance',
+      'Biryani Sales': '/reports/tasks.biryani_sales',
+      'Kitchen Stock Request': '/reports/tasks.stock_requests',
+    };
     const { card } = openReports();
-    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: /Operational Checklist/ }));
-    expect(push).toHaveBeenCalledWith('/reports/tasks.operational');
-
-    push.mockClear();
-    fireEvent.click(card);
-    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: /Kitchen Stock Request/ }));
-    expect(push).not.toHaveBeenCalled();
-    expect(screen.queryByRole('dialog')).toBeNull();
+    for (const [title, href] of Object.entries(expected)) {
+      push.mockClear();
+      if (!screen.queryByRole('dialog')) fireEvent.click(card);
+      fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: new RegExp(`^${title}`) }));
+      expect(push).toHaveBeenCalledWith(href);
+      expect(screen.queryByRole('dialog')).toBeNull();
+    }
   });
 
   it('needs the reports permission and a branch before the card appears', () => {
