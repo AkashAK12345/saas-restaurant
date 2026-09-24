@@ -20,6 +20,10 @@ import {
 import { OPERATIONAL_LOG_METRIC_ICONS } from '@/lib/reports/operational-ui';
 import { KITCHEN_LOG_METRIC_ICONS } from '@/lib/reports/kitchen-ui';
 import {
+  KITCHEN_BALANCE_METRIC_ICONS,
+  KITCHEN_BALANCE_SEARCHABLE_COLUMNS,
+} from '@/lib/reports/kitchen-balance-ui';
+import {
   BANQUET_OPENING_SECTION_LOOKS,
   OPENING_LOG_METRIC_ICONS,
   OPENING_SEARCHABLE_COLUMNS,
@@ -80,6 +84,8 @@ interface ReportUiHint {
     boldFirstColumn?: boolean;
     /** Long text cut to one line with "…". */
     clampColumns?: readonly string[];
+    /** Set in bold, e.g. a row's total. */
+    boldColumns?: readonly string[];
   };
   /** Any column's value shown as a coloured pill, e.g. Yes/No or "5/6". */
   textPills?: Readonly<Record<string, (value: unknown) => BadgeSpec['tone'] | undefined>>;
@@ -265,6 +271,17 @@ const REPORT_UI_HINTS: Readonly<Record<string, ReportUiHint>> = {
     },
   },
   'tasks.bm_compliance': complianceHint('No BM Checklist was scheduled for anyone in this period'),
+  'tasks.kitchen_balance': {
+    title: 'Balance Log',
+    searchPlaceholder: 'Search...',
+    searchableColumns: KITCHEN_BALANCE_SEARCHABLE_COLUMNS,
+    metricIcons: () => KITCHEN_BALANCE_METRIC_ICONS,
+    table: { boldColumns: ['total'] },
+    companion: 'tasks.kitchen_balance_compliance',
+  },
+  'tasks.kitchen_balance_compliance': complianceHint(
+    'No Kitchen Balance Report was scheduled for anyone in this period',
+  ),
 };
 
 /**
@@ -331,6 +348,7 @@ function ReportPanel({
         cellAddons={hint.cellAddons}
         clampColumns={hint.table?.clampColumns}
         textPills={hint.textPills}
+        boldColumns={hint.table?.boldColumns}
         rowAction={
           hint.details && onView
             ? {

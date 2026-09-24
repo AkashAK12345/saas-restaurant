@@ -92,9 +92,17 @@ export type AppIconName =
   | 'hourglass'
   | 'star'
   | 'checkRing'
-  | 'speaking';
+  | 'speaking'
+  | 'barChart';
 
 const FILLED: Partial<Record<AppIconName, ReactNode>> = {
+  barChart: (
+    <>
+      <rect x="5" y="11" width="3.4" height="8" rx="1" />
+      <rect x="10.3" y="6" width="3.4" height="13" rx="1" />
+      <rect x="15.6" y="9" width="3.4" height="10" rx="1" />
+    </>
+  ),
   speaking: (
     <>
       <circle cx="9" cy="8" r="3.6" />
@@ -315,6 +323,7 @@ const STROKED: Record<AppIconName, ReactNode> = {
   checkCircle: null,
   star: null,
   speaking: null,
+  barChart: null,
   noEntry: null,
   share: (
     <>

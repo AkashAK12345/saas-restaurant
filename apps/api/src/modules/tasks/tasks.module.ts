@@ -23,6 +23,7 @@ import { KitchenComplianceReport, KitchenLogReport } from './kitchen.report-prov
 import { OpeningComplianceReport, OpeningLogReport } from './opening.report-provider.js';
 import { BanquetOpeningComplianceReport, BanquetOpeningLogReport } from './banquet-opening.report-provider.js';
 import { BmComplianceReport, BmLogReport } from './bm.report-provider.js';
+import { KitchenBalanceComplianceReport, KitchenBalanceLogReport } from './kitchen-balance.report-provider.js';
 
 /** How often the process wakes to look for due routine occurrences. */
 export const ROUTINE_JOB_NAME = 'tasks.routines.materialize';
@@ -97,6 +98,8 @@ export class RoutineScheduler implements OnModuleInit {
     BanquetOpeningComplianceReport,
     BmLogReport,
     BmComplianceReport,
+    KitchenBalanceLogReport,
+    KitchenBalanceComplianceReport,
     TasksOpenWidget,
     TaskReportRegistrar,
   ],

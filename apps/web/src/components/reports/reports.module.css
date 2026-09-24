@@ -299,6 +299,11 @@
   outline-offset: 2px;
 }
 
+.boldCell {
+  font-weight: 700;
+  color: var(--color-text);
+}
+
 .boldFirst tbody td:first-child {
   font-weight: 700;
   color: var(--color-text);

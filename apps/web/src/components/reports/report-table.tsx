@@ -46,6 +46,7 @@ export function ReportTable({
   rowAction,
   clampColumns,
   textPills,
+  boldColumns,
 }: {
   columns: readonly ReportColumn[];
   rows: ReadonlyArray<Record<string, unknown>>;
@@ -82,6 +83,8 @@ export function ReportTable({
   /** Columns whose long text is cut to one line with "…" (the full text is
    *  in the cell's title, and in the row's details). */
   clampColumns?: readonly string[];
+  /** Columns set in bold — the figure a row is read by, e.g. a total. */
+  boldColumns?: readonly string[];
   /** Column key -> any value shown as a coloured pill, by its raw value —
    *  e.g. "Yes" in green and "No" in red, or a "5/6" score. */
   textPills?: Readonly<Record<string, (value: unknown) => BadgeSpec['tone'] | undefined>>;
@@ -189,7 +192,14 @@ export function ReportTable({
                   return (
                     <td
                       key={column.key}
-                      className={isNumericType(column.type) ? styles.numeric : undefined}
+                      className={
+                        [
+                          isNumericType(column.type) ? styles.numeric : '',
+                          boldColumns?.includes(column.key) ? styles.boldCell : '',
+                        ]
+                          .filter(Boolean)
+                          .join(' ') || undefined
+                      }
                     >
                       {href && columnIndex === 0 ? (
                         <Link href={href}>{content}</Link>

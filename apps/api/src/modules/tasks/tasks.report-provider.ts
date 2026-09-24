@@ -21,6 +21,7 @@ import { KitchenComplianceReport, KitchenLogReport } from './kitchen.report-prov
 import { OpeningComplianceReport, OpeningLogReport } from './opening.report-provider.js';
 import { BanquetOpeningComplianceReport, BanquetOpeningLogReport } from './banquet-opening.report-provider.js';
 import { BmComplianceReport, BmLogReport } from './bm.report-provider.js';
+import { KitchenBalanceComplianceReport, KitchenBalanceLogReport } from './kitchen-balance.report-provider.js';
 import type {
   DashboardWidgetDefinition,
   DashboardWidgetProvider,
@@ -618,6 +619,8 @@ export class TaskReportRegistrar implements OnModuleInit {
     private readonly banquetOpeningCompliance: BanquetOpeningComplianceReport,
     private readonly bm: BmLogReport,
     private readonly bmCompliance: BmComplianceReport,
+    private readonly kitchenBalance: KitchenBalanceLogReport,
+    private readonly kitchenBalanceCompliance: KitchenBalanceComplianceReport,
     private readonly open: TasksOpenWidget,
   ) {}
 
@@ -638,6 +641,8 @@ export class TaskReportRegistrar implements OnModuleInit {
     this.registry.register(this.banquetOpeningCompliance);
     this.registry.register(this.bm);
     this.registry.register(this.bmCompliance);
+    this.registry.register(this.kitchenBalance);
+    this.registry.register(this.kitchenBalanceCompliance);
     this.dashboard.register(this.open);
   }
 }

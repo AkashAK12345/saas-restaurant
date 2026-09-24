@@ -126,7 +126,7 @@ describe('Workspace — the Reports sheet', () => {
 
     push.mockClear();
     fireEvent.click(card);
-    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: /Kitchen Balance/ }));
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: /Biryani Sales/ }));
     expect(push).not.toHaveBeenCalled();
     expect(screen.queryByRole('dialog')).toBeNull();
   });

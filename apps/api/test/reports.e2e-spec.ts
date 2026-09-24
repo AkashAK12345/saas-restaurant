@@ -478,6 +478,8 @@ describe('Phase 10 Reports & Dashboard (e2e)', () => {
         'tasks.eod',
         'tasks.eod_compliance',
         'tasks.kitchen',
+        'tasks.kitchen_balance',
+        'tasks.kitchen_balance_compliance',
         'tasks.kitchen_compliance',
         'tasks.log',
         'tasks.opening',
@@ -1872,6 +1874,150 @@ describe('Phase 10 Reports & Dashboard (e2e)', () => {
 
     it('RP-BM3. both need tasks.reports.view', async () => {
       for (const key of ['tasks.bm', 'tasks.bm_compliance']) {
+        const res = await as(
+          request(http).get(`/api/v1/reports/${key}/data`),
+          tokenQueueOnlyA,
+          companyA.id,
+          branchA.id,
+        ).query(range);
+        expect(res.status).toBe(403);
+      }
+    });
+  });
+
+  describe('Kitchen Balance reports', () => {
+    const range = { from: '2026-09-01', to: '2026-09-02' };
+    const taskIds: string[] = [];
+    const routineIds: string[] = [];
+    let templateId: string;
+
+    const kbTask = async (
+      day: string,
+      completedAt: Date,
+      items: Array<[label: string, section: string, kind: 'NUMBER' | 'DATE', value: string | null]>,
+    ) => {
+      const routine = await prisma.taskRoutine.create({
+        data: {
+          company_id: companyA.id,
+          branch_id: branchA.id,
+          name: `Kitchen Balance ${day} ${taskIds.length}`,
+          frequency: 'DAILY',
+          time_of_day: '00:00',
+          checklist_template_id: templateId,
+        },
+      });
+      routineIds.push(routine.id);
+      const task = await prisma.task.create({
+        data: {
+          company_id: companyA.id,
+          branch_id: branchA.id,
+          title: 'Kitchen Balance Report',
+          status: TaskStatus.COMPLETED,
+          source: 'ROUTINE',
+          routine_id: routine.id,
+          routine_occurrence_date: new Date(`${day}T00:00:00.000Z`),
+          checklist_template_id: templateId,
+          assignee_id: analystA.id,
+          created_at: new Date(`${day}T01:00:00.000Z`),
+          completed_at: completedAt,
+          completed_by: analystA.id,
+        },
+      });
+      taskIds.push(task.id);
+      await prisma.taskChecklistItem.createMany({
+        data: items.map(([label, section, kind, value], position) => ({
+          task_id: task.id,
+          label,
+          section,
+          position,
+          kind,
+          value,
+          is_done: value != null,
+        })),
+      });
+    };
+
+    const run = (key: string) => asAnalyst(request(http).get(`/api/v1/reports/${key}/data`)).query(range);
+
+    beforeAll(async () => {
+      const template = await prisma.checklistTemplate.create({
+        data: { company_id: companyA.id, name: 'Kitchen Balance Report' },
+      });
+      templateId = template.id;
+
+      await kbTask('2026-09-01', new Date('2026-09-01T06:23:00.000Z'), [
+        ['Chicken Biryani Rice', 'Biryani', 'NUMBER', '5'],
+        ['Mutton Biryani Rice', 'Biryani', 'NUMBER', '4'],
+        ['Chicken Mandi Pc', 'Mandi', 'NUMBER', '4'],
+        ['Ribs — last supplied date', 'Mandi', 'DATE', '2026-08-30'],
+        ['Khubus', 'Breads', 'NUMBER', '42'],
+        ['Kurma Gravy', 'Indian', 'NUMBER', '20'],
+        ['Crab Meat (KG)', 'Fish', 'NUMBER', '2.5'],
+        ['Tandoor Chicken', 'Tandoor', 'NUMBER', '9'],
+        ['Shawarma', 'BBQ', 'NUMBER', '11'],
+      ]);
+      await kbTask('2026-09-02', new Date('2026-09-02T06:19:00.000Z'), [
+        ['Chicken Biryani Rice', 'Biryani', 'NUMBER', null],
+        ['Tandoor Chicken', 'Tandoor', 'NUMBER', '10'],
+        ['Khubus', 'Breads', 'NUMBER', '40'],
+      ]);
+    });
+
+    afterAll(async () => {
+      await prisma.taskChecklistItem.deleteMany({ where: { task_id: { in: taskIds } } });
+      await prisma.task.deleteMany({ where: { id: { in: taskIds } } });
+      await prisma.taskRoutine.deleteMany({ where: { id: { in: routineIds } } });
+      await prisma.checklistTemplate.delete({ where: { id: templateId } });
+    });
+
+    it('RP-KB1. a row per submission: the total of every count, then section subtotals', async () => {
+      const res = await run('tasks.kitchen_balance');
+      expect(res.status).toBe(200);
+      expect(res.body.name).toBe('Kitchen Balance');
+      expect(res.body.columns.map((c: any) => c.label)).toEqual([
+        'Date',
+        'Submitted By',
+        'Branch',
+        'Total',
+        'Biryani',
+        'Mandi',
+        'Tandoor',
+        'BBQ',
+        'Breads',
+        'Submitted At',
+      ]);
+      expect(res.body.rows[0]).toMatchObject({
+        date: '2 Sep 2026',
+        total: 50,
+        biryani: 0,
+        mandi: 0,
+        tandoor: 10,
+        breads: 40,
+        submitted_at: '2 Sep, 11:49 AM',
+      });
+      // Indian and Fish count in the total though they have no column; a
+      // last-supplied date counts nowhere.
+      expect(res.body.rows[1]).toMatchObject({
+        date: '1 Sep 2026',
+        total: 97.5,
+        biryani: 9,
+        mandi: 4,
+        tandoor: 9,
+        bbq: 11,
+        breads: 42,
+      });
+    });
+
+    it('RP-KB2. the cards: reports, all items counted, and the average per report', async () => {
+      const res = await run('tasks.kitchen_balance');
+      const metric = (key: string) => res.body.metrics.find((m: any) => m.key === key).value;
+      expect(metric('total_reports')).toBe(2);
+      expect(metric('total_items')).toBe(147.5);
+      expect(metric('avg_items')).toBe(74);
+    });
+
+    it('RP-KB3. both need tasks.reports.view', async () => {
+      for (const key of ['tasks.kitchen_balance', 'tasks.kitchen_balance_compliance']) {
         const res = await as(
           request(http).get(`/api/v1/reports/${key}/data`),
           tokenQueueOnlyA,

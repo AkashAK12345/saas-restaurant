@@ -101,6 +101,8 @@ export interface ChecklistAnswer {
   kind: string;
   value: string | null;
   is_done: boolean;
+  /** The form section the item was filed under, as copied onto the task. */
+  section?: string | null;
 }
 
 /**
@@ -167,6 +169,7 @@ interface ItemRow {
   kind: string;
   value: string | null;
   is_done: boolean;
+  section: string | null;
   position: number;
 }
 
@@ -199,7 +202,7 @@ export async function loadSubmissions(
   const ids = submissions.map((s) => s.task_id);
   const items = ids.length
     ? await prisma.$queryRaw<ItemRow[]>(Prisma.sql`
-        SELECT "task_id", "label", "kind"::text AS "kind", "value", "is_done", "position"
+        SELECT "task_id", "label", "kind"::text AS "kind", "value", "is_done", "section", "position"
         FROM "task_checklist_items"
         WHERE "task_id" = ANY(${ids}::uuid[])
         ORDER BY "position" ASC
@@ -219,6 +222,7 @@ export async function loadSubmissions(
       kind: item.kind,
       value: item.value,
       is_done: item.is_done,
+      section: item.section,
     });
     answers.set(item.task_id, byTask);
   }

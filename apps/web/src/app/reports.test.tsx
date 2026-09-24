@@ -1477,6 +1477,102 @@ describe('tasks.bm report screen', () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════════
+// KITCHEN BALANCE — each submission totalled, and by section
+// ═══════════════════════════════════════════════════════════════════════════
+
+describe('tasks.kitchen_balance report screen', () => {
+  beforeEach(() => {
+    routeKey = 'tasks.kitchen_balance';
+    apiMock.run.mockImplementation(async (_ctx: unknown, key: string) =>
+      key === 'tasks.kitchen_balance_compliance'
+        ? { ...openingComplianceResponse(), key }
+        : reportResponse({
+            key: 'tasks.kitchen_balance',
+            name: 'Kitchen Balance',
+            kind: 'summary',
+            option_specs: [],
+            columns: [
+              { key: 'date', label: 'Date', type: 'string' },
+              { key: 'submitted_by', label: 'Submitted By', type: 'string' },
+              { key: 'branch_name', label: 'Branch', type: 'string' },
+              { key: 'total', label: 'Total', type: 'number' },
+              { key: 'biryani', label: 'Biryani', type: 'number' },
+              { key: 'breads', label: 'Breads', type: 'number' },
+              { key: 'submitted_at', label: 'Submitted At', type: 'string' },
+            ],
+            rows: [
+              {
+                task_id: 'eeeeeeee-0000-4000-8000-000000000001',
+                date: '24 Sep 2026',
+                submitted_by: 'alwarpetba',
+                branch_name: 'Alwarpet',
+                total: 103,
+                biryani: 9,
+                breads: 42,
+                submitted_at: '24 Sep, 11:53 AM',
+              },
+              {
+                task_id: 'eeeeeeee-0000-4000-8000-000000000002',
+                date: '22 Sep 2026',
+                submitted_by: 'teynampetkitchen',
+                branch_name: 'Alwarpet',
+                total: 98,
+                biryani: 3,
+                breads: 22,
+                submitted_at: '23 Sep, 12:28 AM',
+              },
+            ],
+            metrics: [
+              { key: 'total_reports', label: 'Total Reports', value: 17, type: 'number' },
+              { key: 'total_items', label: 'Total Items', value: 1575, type: 'number' },
+              { key: 'avg_items', label: 'Avg Items', value: 93, type: 'number' },
+            ],
+            meta: { total: 2, limit: 50, offset: 0 },
+          }),
+    );
+  });
+
+  it('RF-75. three cards and a Balance Log with each total in bold', async () => {
+    const { container } = render(<ReportPage />);
+    await screen.findByText('Submission Compliance');
+    const cards = [...container.querySelectorAll('dt')].map((dt) => [
+      dt.textContent,
+      dt.parentElement?.querySelector('dd')?.textContent,
+    ]);
+    expect(cards.slice(0, 3)).toEqual([
+      ['Total Reports', '17'],
+      ['Total Items', '1,575'],
+      ['Avg Items', '93'],
+    ]);
+    expect(screen.getByText('Balance Log')).toBeTruthy();
+
+    const table = screen.getAllByRole('table')[0];
+    expect(within(table).getAllByRole('columnheader').map((h) => h.textContent)).toEqual([
+      'Date',
+      'Submitted By',
+      'Branch',
+      'Total',
+      'Biryani',
+      'Breads',
+      'Submitted At',
+    ]);
+    // Only the total is bold; no View column on this screen.
+    const total = within(table).getByText('103');
+    const biryani = within(table).getByText('9');
+    expect(total.className).not.toBe(biryani.className);
+    expect(within(table).queryByRole('button', { name: /^View / })).toBeNull();
+  });
+
+  it('RF-76. search narrows the log by who filed it', async () => {
+    render(<ReportPage />);
+    const table = (await screen.findAllByRole('table'))[0];
+    fireEvent.change(screen.getByPlaceholderText('Search...'), { target: { value: 'teynampet' } });
+    expect(within(table).queryByText('103')).toBeNull();
+    expect(within(table).getByText('98')).toBeTruthy();
+  });
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
 // EXPORT
 // ═══════════════════════════════════════════════════════════════════════════
 
