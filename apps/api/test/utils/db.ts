@@ -110,12 +110,22 @@ export async function purgeTasks(prisma: PrismaService): Promise<void> {
  * `permissions` is intentionally NOT cleared: it is system-defined reference
  * data owned by `prisma db seed`, not per-test fixture data.
  */
+/**
+ * Point-of-sale orders reference branches and companies with ON DELETE
+ * RESTRICT; payments are kept (RESTRICT) and items go with their order.
+ */
+export async function purgePos(prisma: PrismaService): Promise<void> {
+  await prisma.posPayment.deleteMany();
+  await prisma.posOrder.deleteMany();
+}
+
 export async function resetDatabase(prisma: PrismaService): Promise<void> {
   await assertE2eDatabase(prisma);
   await purgeAuditLogs(prisma);
   await purgeQueueHistory(prisma);
   await purgeBanquet(prisma);
   await purgeTasks(prisma);
+  await purgePos(prisma);
   await prisma.userBranchRole.deleteMany();
   await prisma.rolePermission.deleteMany();
   await prisma.userSession.deleteMany();

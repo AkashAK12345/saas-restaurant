@@ -94,9 +94,20 @@ export type AppIconName =
   | 'checkRing'
   | 'speaking'
   | 'barChart'
-  | 'moon';
+  | 'moon'
+  | 'grid'
+  | 'refresh'
+  | 'pie';
 
 const FILLED: Partial<Record<AppIconName, ReactNode>> = {
+  grid: (
+    <>
+      <rect x="3.5" y="3.5" width="7.5" height="9.5" rx="1.2" />
+      <rect x="13" y="3.5" width="7.5" height="5.5" rx="1.2" />
+      <rect x="13" y="11" width="7.5" height="9.5" rx="1.2" />
+      <rect x="3.5" y="15" width="7.5" height="5.5" rx="1.2" />
+    </>
+  ),
   moon: <path d="M15.5 3.2A8.8 8.8 0 1 0 20.8 16 7.3 7.3 0 0 1 15.5 3.2z" />,
   barChart: (
     <>
@@ -327,6 +338,19 @@ const STROKED: Record<AppIconName, ReactNode> = {
   speaking: null,
   barChart: null,
   moon: null,
+  grid: null,
+  refresh: (
+    <>
+      <path d="M19.5 12a7.5 7.5 0 1 1-2.2-5.3" />
+      <path d="M19.5 4.5v4.2h-4.2" />
+    </>
+  ),
+  pie: (
+    <>
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M12 3.5V12h8.5M12 12l-6 6" />
+    </>
+  ),
   noEntry: null,
   share: (
     <>

@@ -15,6 +15,9 @@ import styles from '@/components/reports/reports.module.css';
  * refuse. Grouping is by the domain each report declares, so a report from a
  * future module appears under its own heading with no change here.
  */
+/** A domain's heading where its key is not already a word. */
+const DOMAIN_TITLES: Readonly<Record<string, string>> = { pos: 'Point of Sale' };
+
 export default function ReportsPage() {
   const { selectedCompanyId, selectedBranchId } = useAppContext();
   const ctx = useMemo(
@@ -99,7 +102,7 @@ export default function ReportsPage() {
 
       {byDomain.map(([domain, group]) => (
         <section key={domain}>
-          <h2 className={styles.title}>{domain.charAt(0).toUpperCase() + domain.slice(1)}</h2>
+          <h2 className={styles.title}>{DOMAIN_TITLES[domain] ?? domain.charAt(0).toUpperCase() + domain.slice(1)}</h2>
           <ul className={styles.cards}>
             {group.map((definition) => (
               <li key={definition.key} className={styles.card}>

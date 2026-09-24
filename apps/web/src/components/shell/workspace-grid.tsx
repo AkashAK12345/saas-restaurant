@@ -78,7 +78,8 @@ export function WorkspaceGrid({
   const openReport = useCallback(
     (report: ChecklistReport) => {
       setReportsOpen(false);
-      if (report.reportKey) router.push(`/reports/${report.reportKey}`);
+      if (report.href) router.push(report.href);
+      else if (report.reportKey) router.push(`/reports/${report.reportKey}`);
     },
     [router],
   );

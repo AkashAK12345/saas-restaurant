@@ -158,6 +158,11 @@ export const PERMISSION_KEYS = {
   TASKS_ROUTINE_MANAGE: 'tasks.routine.manage',
   TASKS_REPORTS_VIEW: 'tasks.reports.view',
 
+  // ── Point of sale ───────────────────────────────────────────────────────
+  // Revenue is its own grant: seeing a branch's checklists or banquets says
+  // nothing about whether someone may see its takings.
+  POS_REPORTS_VIEW: 'pos.reports.view',
+
   // ── Reports & Dashboard (Phase 10) ───────────────────────────────────────
   // REPORTS_VIEW (above, reserved since Phase 1) now gates the reporting
   // system itself. It is deliberately NOT sufficient on its own: running a
@@ -574,6 +579,11 @@ export const SYSTEM_PERMISSIONS: Array<{
     name: PERMISSION_KEYS.TASKS_REPORTS_VIEW,
     module: 'tasks',
     description: 'View task and routine completion summaries for a branch',
+  },
+  {
+    name: PERMISSION_KEYS.POS_REPORTS_VIEW,
+    module: 'pos',
+    description: "View a branch's point-of-sale revenue, orders and items sold",
   },
   {
     name: PERMISSION_KEYS.REPORTS_EXPORT,

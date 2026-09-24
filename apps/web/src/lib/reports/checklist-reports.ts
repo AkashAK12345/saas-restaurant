@@ -10,9 +10,10 @@ import { PERMISSION_KEYS, type PermissionKey } from '@/lib/auth/permissions';
  * Quick Access tile in `lib/tasks/quick-access.ts`, so the submission flow and
  * its report always name the same thing.
  *
- * Only the checklists that actually capture data are listed. A report for a
- * module SAMCO does not have yet (point of sale, purchasing) would have
- * nothing behind it, so it is left out rather than shown empty.
+ * Only reports with data behind them are listed. Point of sale leads: its
+ * order tables exist (order taking is still to come), so POS Reports opens
+ * and says honestly when there is nothing yet. Purchasing has no data at all
+ * and stays out.
  */
 export interface ChecklistReport {
   key: string;
@@ -22,9 +23,12 @@ export interface ChecklistReport {
   /** The report screen the row opens. Rows without one only close the sheet
    *  until their report is built. */
   reportKey?: string;
+  /** A dedicated screen instead of a single report, e.g. POS Reports' tabs. */
+  href?: string;
 }
 
 export const CHECKLIST_REPORTS: readonly ChecklistReport[] = [
+  { key: 'pos', title: 'POS Reports', subtitle: 'Sales & orders', icon: 'receipt', href: '/reports/pos' },
   {
     key: 'operational-checklist',
     title: 'Operational Checklist',

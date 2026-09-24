@@ -275,6 +275,7 @@ model Company {
   customers   Customer[]
   queue_tokens QueueToken[]
   banquet_packages BanquetPackage[]
+  pos_orders       PosOrder[]
   banquet_bookings BanquetBooking[]
   banquet_plate_requests BanquetPlateRequest[]
   checklist_templates ChecklistTemplate[]
@@ -329,6 +330,7 @@ model Branch {
   display_devices DisplayDevice[]
   queue_tokens    QueueToken[]
   queue_counters  QueueCounter[]
+  pos_orders       PosOrder[]
   banquet_halls    BanquetHall[]
   banquet_bookings BanquetBooking[]
   banquet_plate_requests BanquetPlateRequest[]
@@ -1257,4 +1259,91 @@ model UserSession {
   @@index([revoked_at])
   @@index([absolute_expires_at])
   @@map("user_sessions")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Point of sale — orders, what was on them, and how they were paid.
+//
+// Reporting comes first: POS Reports reads these tables. Nothing takes orders
+// yet — the order-taking screen is its own module — so until then they stay
+// empty and the reports say so. Money is integer minor units, as everywhere.
+// ─────────────────────────────────────────────────────────────────────────────
+
+enum PosOrderType {
+  DINE_IN
+  TAKEAWAY
+  DELIVERY
+}
+
+enum PosOrderStatus {
+  OPEN
+  PAID
+  CANCELLED
+}
+
+enum PosPaymentMethod {
+  CASH
+  CARD
+  UPI
+  WALLET
+  OTHER
+}
+
+model PosOrder {
+  id           String         @id @default(uuid()) @db.Uuid
+  company_id   String         @db.Uuid
+  branch_id    String         @db.Uuid
+  /// The number printed on the bill, unique within its branch.
+  order_number String         @db.VarChar(40)
+  order_type   PosOrderType
+  status       PosOrderStatus @default(OPEN)
+  /// Table name as it stood when the order was taken (dine-in only).
+  table_label  String?        @db.VarChar(60)
+  /// What the order came to, after discounts and tax.
+  total_minor  Int            @default(0)
+  currency     String         @db.Char(3)
+  opened_at    DateTime       @default(now()) @db.Timestamptz(3)
+  paid_at      DateTime?      @db.Timestamptz(3)
+  cancelled_at DateTime?      @db.Timestamptz(3)
+  created_at   DateTime       @default(now()) @db.Timestamptz(3)
+  updated_at   DateTime       @updatedAt @db.Timestamptz(3)
+
+  company  Company        @relation(fields: [company_id], references: [id], onDelete: Restrict)
+  branch   Branch         @relation(fields: [branch_id], references: [id], onDelete: Restrict)
+  items    PosOrderItem[]
+  payments PosPayment[]
+
+  @@unique([branch_id, order_number])
+  // Every POS report scans one branch over a window of order times.
+  @@index([branch_id, opened_at])
+  @@map("pos_orders")
+}
+
+model PosOrderItem {
+  id               String @id @default(uuid()) @db.Uuid
+  order_id         String @db.Uuid
+  /// Menu item name as it stood when ordered.
+  name             String @db.VarChar(160)
+  quantity         Int
+  unit_price_minor Int
+  line_total_minor Int
+  position         Int    @default(0)
+
+  order PosOrder @relation(fields: [order_id], references: [id], onDelete: Cascade)
+
+  @@index([order_id])
+  @@map("pos_order_items")
+}
+
+model PosPayment {
+  id           String           @id @default(uuid()) @db.Uuid
+  order_id     String           @db.Uuid
+  method       PosPaymentMethod
+  amount_minor Int
+  paid_at      DateTime         @db.Timestamptz(3)
+
+  order PosOrder @relation(fields: [order_id], references: [id], onDelete: Restrict)
+
+  @@index([order_id])
+  @@map("pos_payments")
 }

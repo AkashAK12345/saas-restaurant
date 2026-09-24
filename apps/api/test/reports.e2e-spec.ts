@@ -42,6 +42,7 @@ const ANALYST_PERMS = [
   'banquet.view',
   'tasks.view',
   'tasks.reports.view',
+  'pos.reports.view',
 ];
 const QUEUE_ONLY_PERMS = ['reports.view', 'reports.export', 'dashboard.view', 'queue.view'];
 const NO_EXPORT_PERMS = ['reports.view', 'dashboard.view', 'queue.view'];
@@ -467,6 +468,11 @@ describe('Phase 10 Reports & Dashboard (e2e)', () => {
         'banquet.bookings',
         'banquet.outstanding',
         'banquet.payments',
+        'pos.analytics',
+        'pos.orders',
+        'pos.revenue_by_hour',
+        'pos.revenue_by_type',
+        'pos.summary',
         'queue.summary',
         'queue.tokens',
         'tasks.assignee',
@@ -2292,6 +2298,183 @@ describe('Phase 10 Reports & Dashboard (e2e)', () => {
     });
   });
 
+  describe('POS reports', () => {
+    // 20 Sep on the branch's clock (Asia/Kolkata): 18:30Z on the 19th to 18:30Z on the 20th.
+    const day = { from: '2026-09-20', to: '2026-09-20' };
+    const orderIds: string[] = [];
+
+    const order = async (
+      number: string,
+      opts: {
+        type: 'DINE_IN' | 'TAKEAWAY' | 'DELIVERY';
+        status: 'OPEN' | 'PAID' | 'CANCELLED';
+        at: string;
+        total: number;
+        items?: Array<[name: string, qty: number, lineTotal: number]>;
+        payments?: Array<['CASH' | 'CARD' | 'UPI', number]>;
+        branchId?: string;
+      },
+    ) => {
+      const at = new Date(opts.at);
+      const o = await prisma.posOrder.create({
+        data: {
+          company_id: companyA.id,
+          branch_id: opts.branchId ?? branchA.id,
+          order_number: number,
+          order_type: opts.type,
+          status: opts.status,
+          table_label: opts.type === 'DINE_IN' ? 'T4' : null,
+          total_minor: opts.total,
+          currency: 'INR',
+          opened_at: at,
+          paid_at: opts.status === 'PAID' ? at : null,
+          cancelled_at: opts.status === 'CANCELLED' ? at : null,
+          items: {
+            create: (opts.items ?? []).map(([name, quantity, line], position) => ({
+              name,
+              quantity,
+              unit_price_minor: Math.round(line / quantity),
+              line_total_minor: line,
+              position,
+            })),
+          },
+          payments: {
+            create: (opts.payments ?? []).map(([method, amount]) => ({ method, amount_minor: amount, paid_at: at })),
+          },
+        },
+      });
+      orderIds.push(o.id);
+    };
+
+    const run = (key: string, window = day) =>
+      asAnalyst(request(http).get(`/api/v1/reports/${key}/data`)).query(window);
+
+    beforeAll(async () => {
+      // 1:00 PM local: dine-in, paid in cash and card.
+      await order('A-101', {
+        type: 'DINE_IN',
+        status: 'PAID',
+        at: '2026-09-20T07:30:00.000Z',
+        total: 60_000,
+        items: [
+          ['Chicken Biryani', 2, 50_000],
+          ['Lime Soda', 1, 10_000],
+        ],
+        payments: [
+          ['CASH', 20_000],
+          ['CARD', 40_000],
+        ],
+      });
+      // 7:10 PM local: takeaway, paid by UPI — the biggest hour.
+      await order('A-102', {
+        type: 'TAKEAWAY',
+        status: 'PAID',
+        at: '2026-09-20T13:40:00.000Z',
+        total: 90_000,
+        items: [['Chicken Biryani', 3, 75_000], ['Mutton Mandi', 1, 15_000]],
+        payments: [['UPI', 90_000]],
+      });
+      // Cancelled, and still open: orders, but no revenue.
+      await order('A-103', { type: 'TAKEAWAY', status: 'CANCELLED', at: '2026-09-20T14:00:00.000Z', total: 5_000 });
+      await order('A-104', { type: 'DINE_IN', status: 'OPEN', at: '2026-09-20T15:00:00.000Z', total: 12_000 });
+      // 11:50 PM local on the 19th: the day before, whenever it was settled.
+      await order('A-099', { type: 'DINE_IN', status: 'PAID', at: '2026-09-19T18:20:00.000Z', total: 70_000 });
+      // Another branch's order never counts.
+      await order('B-001', {
+        type: 'DINE_IN',
+        status: 'PAID',
+        at: '2026-09-20T08:00:00.000Z',
+        total: 99_000,
+        branchId: branchA2.id,
+      });
+    });
+
+    afterAll(async () => {
+      await prisma.posPayment.deleteMany({ where: { order_id: { in: orderIds } } });
+      await prisma.posOrder.deleteMany({ where: { id: { in: orderIds } } });
+    });
+
+    it('RP-POS1. summary: revenue from paid orders only, orders by type, and the success rate', async () => {
+      const res = await run('pos.summary');
+      expect(res.status).toBe(200);
+      const metric = (key: string) => res.body.metrics.find((m: any) => m.key === key);
+      expect(metric('total_revenue')).toMatchObject({ value: 150_000, currency: 'INR' });
+      expect(metric('paid_orders').value).toBe(2);
+      expect(metric('total_orders').value).toBe(4);
+      // The cancelled takeaway is not a takeaway sale.
+      expect(metric('dine_in').value).toBe(2);
+      expect(metric('takeaway').value).toBe(1);
+      expect(metric('avg_order').value).toBe(75_000);
+      expect(metric('cancelled').value).toBe(1);
+      expect(metric('success_rate').value).toBe(50);
+      // Payment methods, biggest first.
+      expect(res.body.rows.map((r: any) => [r.method, r.orders, r.amount_minor])).toEqual([
+        ['UPI', 1, 90_000],
+        ['Card', 1, 40_000],
+        ['Cash', 1, 20_000],
+      ]);
+    });
+
+    it('RP-POS2. orders: every order opened that day, newest first', async () => {
+      const res = await run('pos.orders');
+      expect(res.status).toBe(200);
+      expect(res.body.meta.total).toBe(4);
+      expect(res.body.rows.map((r: any) => [r.order_number, r.status, r.items, r.payment])).toEqual([
+        ['A-104', 'OPEN', 0, null],
+        ['A-103', 'CANCELLED', 0, null],
+        ['A-102', 'PAID', 4, 'UPI'],
+        ['A-101', 'PAID', 3, 'Card, Cash'],
+      ]);
+    });
+
+    it('RP-POS3. analytics: peak hour on the branch clock, and items sold', async () => {
+      const res = await run('pos.analytics');
+      const metric = (key: string) => res.body.metrics.find((m: any) => m.key === key).value;
+      expect(metric('revenue')).toBe(150_000);
+      expect(metric('all_orders')).toBe(4);
+      expect(metric('peak_hour')).toBe('7 PM');
+      expect(res.body.rows.map((r: any) => [r.item, r.quantity, r.revenue_minor])).toEqual([
+        ['Chicken Biryani', 5, 125_000],
+        // Tied on quantity: the bigger earner first.
+        ['Mutton Mandi', 1, 15_000],
+        ['Lime Soda', 1, 10_000],
+      ]);
+    });
+
+    it('RP-POS4. revenue by hour and by order type, paid orders only', async () => {
+      const byHour = await run('pos.revenue_by_hour');
+      expect(byHour.body.rows.map((r: any) => [r.hour_label, r.revenue_minor])).toEqual([
+        ['1 PM', 60_000],
+        ['7 PM', 90_000],
+      ]);
+      const byType = await run('pos.revenue_by_type');
+      expect(byType.body.rows.map((r: any) => [r.order_type, r.orders, r.revenue_minor])).toEqual([
+        ['Takeaway', 1, 90_000],
+        ['Dine In', 1, 60_000],
+      ]);
+    });
+
+    it('RP-POS5. an empty day reads as zeros and a dash, in rupees', async () => {
+      const res = await run('pos.analytics', { from: '2026-09-25', to: '2026-09-25' });
+      const metric = (key: string) => res.body.metrics.find((m: any) => m.key === key);
+      expect(metric('revenue')).toMatchObject({ value: 0, currency: 'INR' });
+      expect(metric('peak_hour').value).toBeNull();
+      expect(res.body.rows).toEqual([]);
+    });
+
+    it('RP-POS6. every POS report needs pos.reports.view', async () => {
+      for (const key of ['pos.summary', 'pos.orders', 'pos.analytics', 'pos.revenue_by_hour', 'pos.revenue_by_type']) {
+        const res = await as(
+          request(http).get(`/api/v1/reports/${key}/data`),
+          tokenQueueOnlyA,
+          companyA.id,
+          branchA.id,
+        ).query(day);
+        expect(res.status).toBe(403);
+      }
+    });
+  });
+
   // ═══════════════════════════════════════════════════════════════════════════
   // PII
   // ═══════════════════════════════════════════════════════════════════════════
@@ -2713,14 +2896,15 @@ describe('Phase 10 Reports & Dashboard (e2e)', () => {
     it('RP-49. every registered report came from its own domain module', () => {
       const registry = app.get(ReportRegistry);
       const domains = new Set(registry.definitions().map((d) => d.domain));
-      expect([...domains].sort()).toEqual(['banquet', 'queue', 'tasks']);
+      expect([...domains].sort()).toEqual(['banquet', 'pos', 'queue', 'tasks']);
     });
 
     // The roadmap's later modules do not exist yet, and nothing here pretends
-    // they do.
+    // they do. (Point of sale now has its own order tables and module, so its
+    // reports are real — see "POS reports".)
     it('RP-50. invents no report for a module that does not exist', () => {
       const keys = app.get(ReportRegistry).definitions().map((d) => d.key);
-      for (const absent of ['pos', 'inventory', 'purchase', 'finance', 'sales']) {
+      for (const absent of ['inventory', 'purchase', 'finance', 'sales']) {
         expect(keys.some((k) => k.startsWith(`${absent}.`))).toBe(false);
       }
     });
