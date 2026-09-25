@@ -278,6 +278,8 @@ model Company {
   inventory_categories InventoryCategory[]
   inventory_items      InventoryItem[]
   stock_movements      StockMovement[]
+  menu_products        MenuProduct[]
+  stock_transfers      StockTransfer[]
   vendors          Vendor[]
   purchase_orders  PurchaseOrder[]
   pos_orders       PosOrder[]
@@ -338,6 +340,8 @@ model Branch {
   stock_movements  StockMovement[]
   purchase_orders  PurchaseOrder[]
   pos_orders       PosOrder[]
+  transfers_out    StockTransfer[]  @relation("TransferFrom")
+  transfers_in     StockTransfer[]  @relation("TransferTo")
   banquet_halls    BanquetHall[]
   banquet_bookings BanquetBooking[]
   banquet_plate_requests BanquetPlateRequest[]
@@ -1394,6 +1398,11 @@ model Vendor {
   city       String?  @db.VarChar(80)
   state      String?  @db.VarChar(80)
   pincode    String?  @db.VarChar(10)
+  /// Where payments go. All optional; kept as the supplier gives them.
+  bank_account_name   String? @db.VarChar(120)
+  bank_account_number String? @db.VarChar(34)
+  bank_ifsc           String? @db.VarChar(11)
+  bank_name           String? @db.VarChar(120)
   created_at DateTime @default(now()) @db.Timestamptz(3)
   updated_at DateTime @updatedAt @db.Timestamptz(3)
 
@@ -1425,13 +1434,16 @@ model PurchaseOrder {
   received_at      DateTime?           @db.Timestamptz(3)
   cancelled_at     DateTime?           @db.Timestamptz(3)
   notes            String?
+  /// Who recorded it, when it was recorded in SAMCO.
+  created_by       String?             @db.Uuid
   created_at       DateTime            @default(now()) @db.Timestamptz(3)
   updated_at       DateTime            @updatedAt @db.Timestamptz(3)
 
-  company Company             @relation(fields: [company_id], references: [id], onDelete: Restrict)
-  branch  Branch              @relation(fields: [branch_id], references: [id], onDelete: Restrict)
-  vendor  Vendor              @relation(fields: [vendor_id], references: [id], onDelete: Restrict)
-  items   PurchaseOrderItem[]
+  company         Company             @relation(fields: [company_id], references: [id], onDelete: Restrict)
+  branch          Branch              @relation(fields: [branch_id], references: [id], onDelete: Restrict)
+  vendor          Vendor              @relation(fields: [vendor_id], references: [id], onDelete: Restrict)
+  items           PurchaseOrderItem[]
+  stock_movements StockMovement[]
 
   @@unique([branch_id, po_number])
   // Purchase reports scan one branch over a window of order times.
@@ -1449,10 +1461,16 @@ model PurchaseOrderItem {
   /// "kg", "L", "pcs"…; free text, as vendors quote it.
   unit              String? @db.VarChar(16)
   unit_price_minor  Int
+  /// GST on the line: its rate and amount. line_total = quantity × price + tax.
+  tax_rate_bps      Int     @default(0)
+  tax_minor         Int     @default(0)
   line_total_minor  Int
   position          Int     @default(0)
+  /// The inventory product this line bought, when it was one.
+  inventory_item_id String? @db.Uuid
 
-  order PurchaseOrder @relation(fields: [purchase_order_id], references: [id], onDelete: Cascade)
+  order          PurchaseOrder  @relation(fields: [purchase_order_id], references: [id], onDelete: Cascade)
+  inventory_item InventoryItem? @relation(fields: [inventory_item_id], references: [id], onDelete: Restrict)
 
   @@index([purchase_order_id])
   @@map("purchase_order_items")
@@ -1507,9 +1525,11 @@ model InventoryItem {
   created_at  DateTime @default(now()) @db.Timestamptz(3)
   updated_at  DateTime @updatedAt @db.Timestamptz(3)
 
-  company   Company            @relation(fields: [company_id], references: [id], onDelete: Restrict)
-  category  InventoryCategory? @relation(fields: [category_id], references: [id], onDelete: Restrict)
-  movements StockMovement[]
+  company        Company             @relation(fields: [company_id], references: [id], onDelete: Restrict)
+  category       InventoryCategory?  @relation(fields: [category_id], references: [id], onDelete: Restrict)
+  movements      StockMovement[]
+  purchase_lines PurchaseOrderItem[]
+  transfer_lines StockTransferLine[]
 
   @@unique([company_id, name, unit])
   @@index([company_id, name])
@@ -1536,14 +1556,95 @@ model StockMovement {
   occurred_at   DateTime          @default(now()) @db.Timestamptz(3)
   note          String?
   actor_user_id String?           @db.Uuid
+  /// The purchase that brought it in, for a PURCHASE movement.
+  purchase_order_id String?       @db.Uuid
+  /// The transfer that moved it, for TRANSFER_OUT and TRANSFER_IN.
+  transfer_id   String?           @db.Uuid
   created_at    DateTime          @default(now()) @db.Timestamptz(3)
 
-  company Company       @relation(fields: [company_id], references: [id], onDelete: Restrict)
-  branch  Branch        @relation(fields: [branch_id], references: [id], onDelete: Restrict)
-  item    InventoryItem @relation(fields: [item_id], references: [id], onDelete: Restrict)
+  company        Company        @relation(fields: [company_id], references: [id], onDelete: Restrict)
+  branch         Branch         @relation(fields: [branch_id], references: [id], onDelete: Restrict)
+  item           InventoryItem  @relation(fields: [item_id], references: [id], onDelete: Restrict)
+  purchase_order PurchaseOrder? @relation(fields: [purchase_order_id], references: [id], onDelete: Restrict)
+  transfer       StockTransfer? @relation(fields: [transfer_id], references: [id], onDelete: Restrict)
 
   // The grid sums one item at one branch; the period columns scan by time.
   @@index([branch_id, item_id])
   @@index([company_id, occurred_at])
   @@map("stock_movements")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Menu products — what the kitchen sells (Chicken Biriyani, Appam Batter),
+// imported from a spreadsheet. Not stock-tracked: moving one between outlets
+// is recorded on the transfer, but no stock changes.
+// ─────────────────────────────────────────────────────────────────────────────
+
+model MenuProduct {
+  id          String   @id @default(uuid()) @db.Uuid
+  company_id  String   @db.Uuid
+  name        String   @db.VarChar(160)
+  category    String?  @db.VarChar(80)
+  /// What one is counted in when moved ("Kg" of batter), when not a plain count.
+  unit        String?  @db.VarChar(24)
+  short_code  String?  @db.VarChar(40)
+  price_minor Int?
+  is_active   Boolean  @default(true)
+  created_at  DateTime @default(now()) @db.Timestamptz(3)
+  updated_at  DateTime @updatedAt @db.Timestamptz(3)
+
+  company        Company             @relation(fields: [company_id], references: [id], onDelete: Restrict)
+  transfer_lines StockTransferLine[]
+
+  @@unique([company_id, name])
+  @@map("menu_products")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Stock transfers — goods sent from one outlet to another, landing at once.
+// A raw-material line moves stock: a TRANSFER_OUT at the source and a
+// TRANSFER_IN at the destination, both pointing back here. A product line is
+// recorded and moves nothing.
+// ─────────────────────────────────────────────────────────────────────────────
+
+model StockTransfer {
+  id             String   @id @default(uuid()) @db.Uuid
+  company_id     String   @db.Uuid
+  from_branch_id String   @db.Uuid
+  to_branch_id   String   @db.Uuid
+  /// "TR-260925-1": the source's day, then that day's count there.
+  number         String   @db.VarChar(40)
+  note           String?  @db.VarChar(500)
+  created_by     String?  @db.Uuid
+  created_at     DateTime @default(now()) @db.Timestamptz(3)
+
+  company     Company             @relation(fields: [company_id], references: [id], onDelete: Restrict)
+  from_branch Branch              @relation("TransferFrom", fields: [from_branch_id], references: [id], onDelete: Restrict)
+  to_branch   Branch              @relation("TransferTo", fields: [to_branch_id], references: [id], onDelete: Restrict)
+  lines       StockTransferLine[]
+  movements   StockMovement[]
+
+  @@unique([from_branch_id, number])
+  @@index([company_id, created_at])
+  @@map("stock_transfers")
+}
+
+model StockTransferLine {
+  id                String   @id @default(uuid()) @db.Uuid
+  transfer_id       String   @db.Uuid
+  /// Exactly one of the two: a raw material, or a menu product.
+  inventory_item_id String?  @db.Uuid
+  menu_product_id   String?  @db.Uuid
+  /// Name and unit as they stood when sent.
+  name              String   @db.VarChar(160)
+  unit              String?  @db.VarChar(24)
+  quantity          Decimal  @db.Decimal(14, 3)
+  position          Int      @default(0)
+
+  transfer       StockTransfer  @relation(fields: [transfer_id], references: [id], onDelete: Cascade)
+  inventory_item InventoryItem? @relation(fields: [inventory_item_id], references: [id], onDelete: Restrict)
+  menu_product   MenuProduct?   @relation(fields: [menu_product_id], references: [id], onDelete: Restrict)
+
+  @@index([transfer_id])
+  @@map("stock_transfer_lines")
 }

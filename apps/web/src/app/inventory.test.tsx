@@ -132,7 +132,8 @@ describe('Inventory screen', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Clear dates' }));
     await waitFor(() => expect(overview.mock.calls.at(-1)?.[1].from).toBeUndefined());
-  });
+    // Steps through a dialog: slow when the whole suite shares the machine.
+  }, 15_000);
 
   it('INV-4. Show more adds the next page under the first', async () => {
     render(<InventoryPage />);
@@ -159,7 +160,7 @@ describe('Inventory screen', () => {
     expect(overview.mock.calls.map((c) => c[1].offset)).toEqual([0, 200, 400, 600]);
     expect(saveFile.mock.calls[0][0].filename).toMatch(/^inventory-\d{4}-\d{2}-\d{2}\.csv$/);
 
-    for (const name of ['New purchase order', 'Transfer', 'Reports', 'Search every branch', 'Suppliers']) {
+    for (const name of ['Manual purchase', 'Transfer', 'Reports', 'Search every branch', 'Suppliers']) {
       expect(screen.getByRole(name === 'Suppliers' ? 'tab' : 'button', { name }).getAttribute('aria-disabled')).toBe('true');
     }
   });

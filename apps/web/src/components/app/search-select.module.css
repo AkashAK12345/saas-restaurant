@@ -126,7 +126,19 @@
 }
 
 .optionText {
+  display: flex;
+  flex-direction: column;
   min-width: 0;
+}
+
+.optionHint {
+  font-size: 0.8125rem;
+  font-weight: 400;
+  color: var(--color-text-muted);
+}
+
+.placeholder {
+  color: var(--color-text-muted);
 }
 
 .empty {

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useAppContext } from '@/lib/context/app-context-provider';
+import { hasPermission, PERMISSION_KEYS } from '@/lib/auth/permissions';
 import {
   inventoryApi,
   type InventoryFilters,
@@ -38,7 +39,10 @@ const soon = { 'aria-disabled': true, title: 'Coming soon' } as const;
  * inventory.view at every branch it returns.
  */
 export default function InventoryPage() {
-  const { selectedCompanyId } = useAppContext();
+  const { selectedCompanyId, companyPermissions } = useAppContext();
+  // A courtesy: the server checks the right again at the outlet chosen.
+  const mayPurchase = hasPermission(companyPermissions, PERMISSION_KEYS.INVENTORY_PURCHASE_CREATE);
+  const mayTransfer = hasPermission(companyPermissions, PERMISSION_KEYS.INVENTORY_TRANSFER);
   const ctx = useMemo(() => (selectedCompanyId ? { companyId: selectedCompanyId } : null), [selectedCompanyId]);
 
   const [filters, setFilters] = useState<InventoryFilters | null>(null);
@@ -169,13 +173,26 @@ export default function InventoryPage() {
       </header>
 
       <div className={styles.actions}>
-        <button type="button" className={`${styles.action} ${styles.iconOnly}`} aria-label="New purchase order" {...soon}>
-          <AppIcon name="cartPlus" size={22} />
-        </button>
-        <button type="button" className={styles.action} {...soon}>
-          <AppIcon name="transfer" size={20} />
-          Transfer
-        </button>
+        {mayPurchase ? (
+          <Link href="/inventory/manual-purchase" className={`${styles.action} ${styles.iconOnly}`} aria-label="Manual purchase">
+            <AppIcon name="cartPlus" size={22} />
+          </Link>
+        ) : (
+          <button type="button" className={`${styles.action} ${styles.iconOnly}`} aria-label="Manual purchase" {...soon}>
+            <AppIcon name="cartPlus" size={22} />
+          </button>
+        )}
+        {mayTransfer ? (
+          <Link href="/inventory/transfer" className={styles.action}>
+            <AppIcon name="transfer" size={20} />
+            Transfer
+          </Link>
+        ) : (
+          <button type="button" className={styles.action} {...soon}>
+            <AppIcon name="transfer" size={20} />
+            Transfer
+          </button>
+        )}
         <button
           type="button"
           className={`${styles.action} ${styles.iconOnly} ${styles.actionGreen}`}

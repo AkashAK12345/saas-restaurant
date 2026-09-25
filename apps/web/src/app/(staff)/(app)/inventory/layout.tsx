@@ -1,6 +1,7 @@
 'use client';
 
 import type { ReactNode } from 'react';
+import { usePathname } from 'next/navigation';
 import { useAppContext } from '@/lib/context/app-context-provider';
 import { hasInventoryAccess, INVENTORY_SECTIONS } from '@/lib/inventory/sections';
 import { ScreenTabBar } from '@/components/app/screen-tab-bar';
@@ -13,8 +14,11 @@ import chrome from '@/components/app/screen-chrome.module.css';
  * it shows the API's refusal. The bar is a courtesy; the API enforces the
  * real check on every call.
  */
+const TASK_SCREENS = ['/inventory/manual-purchase', '/inventory/transfer'];
+
 export default function InventoryLayout({ children }: { children: ReactNode }) {
   const { selectedCompanyId, companyPermissions, loading } = useAppContext();
+  const pathname = usePathname();
 
   if (loading) {
     return (
@@ -24,6 +28,9 @@ export default function InventoryLayout({ children }: { children: ReactNode }) {
     );
   }
   if (!selectedCompanyId || !hasInventoryAccess(companyPermissions)) return <section>{children}</section>;
+  // A task screen (recording a purchase, a transfer) has its own action bar at the foot
+  // and a back arrow, as the reference draws it: no tab bar under it.
+  if (TASK_SCREENS.some((p) => pathname === p)) return <>{children}</>;
 
   return (
     <div className={chrome.frame}>

@@ -171,6 +171,10 @@ export const PERMISSION_KEYS = {
   // Seeing stock is per branch: the inventory grid shows a column group for
   // every branch where the viewer holds this, and no other.
   INVENTORY_VIEW: 'inventory.view',
+  // Recording a purchase adds stock at ONE branch, so it is checked there.
+  INVENTORY_PURCHASE_CREATE: 'inventory.purchase.create',
+  // Suppliers are the company's; this held at any branch lets one be added.
+  INVENTORY_SUPPLIERS_MANAGE: 'inventory.suppliers.manage',
 
   // ── Reports & Dashboard (Phase 10) ───────────────────────────────────────
   // REPORTS_VIEW (above, reserved since Phase 1) now gates the reporting
@@ -603,6 +607,16 @@ export const SYSTEM_PERMISSIONS: Array<{
     name: PERMISSION_KEYS.INVENTORY_VIEW,
     module: 'inventory',
     description: "View a branch's stock, consumption and purchases, and the company's purchase totals",
+  },
+  {
+    name: PERMISSION_KEYS.INVENTORY_PURCHASE_CREATE,
+    module: 'inventory',
+    description: 'Record a purchase received at a branch, adding its stock there',
+  },
+  {
+    name: PERMISSION_KEYS.INVENTORY_SUPPLIERS_MANAGE,
+    module: 'inventory',
+    description: "Add and edit the company's suppliers",
   },
   {
     name: PERMISSION_KEYS.REPORTS_EXPORT,

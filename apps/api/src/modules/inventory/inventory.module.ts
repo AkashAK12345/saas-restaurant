@@ -3,6 +3,8 @@ import { AuthModule } from '../auth/auth.module.js';
 import { AuthorizationModule } from '../../common/authorization/authorization.module.js';
 import { InventoryController } from './inventory.controller.js';
 import { InventoryService } from './inventory.service.js';
+import { PurchaseService } from './purchase.service.js';
+import { TransferService } from './transfer.service.js';
 
 /** Inventory: products, stock per branch, and the purchase totals above them. */
 @Module({
@@ -11,6 +13,6 @@ import { InventoryService } from './inventory.service.js';
     AuthorizationModule, // AuthorizationService, to prove each branch
   ],
   controllers: [InventoryController],
-  providers: [InventoryService],
+  providers: [InventoryService, PurchaseService, TransferService],
 })
 export class InventoryModule {}

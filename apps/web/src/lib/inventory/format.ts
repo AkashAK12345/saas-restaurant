@@ -30,3 +30,31 @@ export function compactMoney(minor: number, currency = 'INR'): string {
 export function quantity(value: number | null | undefined): string {
   return value === null || value === undefined ? '—' : QTY.format(value);
 }
+
+/** A typed rupee amount ("2,000", "33.5") in paise, or null if it is not one. */
+export function parseRupees(text: string): number | null {
+  const s = text.trim().replace(/,/g, '');
+  if (!/^\d+(\.\d{1,2})?$/.test(s)) return null;
+  return Math.round(Number(s) * 100);
+}
+
+/** A typed quantity above zero with at most three decimals, or null. */
+export function parseQuantity(text: string): number | null {
+  const s = text.trim().replace(/,/g, '');
+  if (!/^\d+(\.\d{1,3})?$/.test(s)) return null;
+  const n = Number(s);
+  return n > 0 ? n : null;
+}
+
+/** Paise as a plain rupee figure for an input: 200000 -> "2000", 3350 -> "33.5". */
+export function rupeesInput(minor: number | null | undefined): string {
+  if (minor === null || minor === undefined) return '';
+  return String(minor / 100);
+}
+
+const STOCK_FRACTION = new Intl.NumberFormat('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 3 });
+
+/** Stock on hand as the transfer list shows it: "56", "11.20", "825.15". */
+export function stockFigure(value: number): string {
+  return Number.isInteger(value) ? QTY.format(value) : STOCK_FRACTION.format(value);
+}

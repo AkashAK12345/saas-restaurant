@@ -58,6 +58,9 @@ export const PERMISSION_KEYS = {
   PURCHASE_REPORTS_VIEW: 'purchase.reports.view',
   // Inventory: stock per branch, shown for every branch where it is held.
   INVENTORY_VIEW: 'inventory.view',
+  INVENTORY_PURCHASE_CREATE: 'inventory.purchase.create',
+  INVENTORY_SUPPLIERS_MANAGE: 'inventory.suppliers.manage',
+  INVENTORY_TRANSFER: 'inventory.transfer',
   // Reports & Dashboard (Phase 10). REPORTS_VIEW opens the catalogue; each
   // report additionally needs its own domain key, which the server checks.
   REPORTS_VIEW: 'reports.view',

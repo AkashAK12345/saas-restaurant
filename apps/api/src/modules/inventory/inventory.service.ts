@@ -53,8 +53,13 @@ export class InventoryService {
     private readonly authorization: AuthorizationService,
   ) {}
 
-  /** The branches whose inventory the caller may see, by name. */
-  async visibleBranches(companyId: string, userId: string): Promise<InventoryBranch[]> {
+  /**
+   * The company's ACTIVE branches where the caller holds any one of
+   * `permissions`, by name — each proved through AuthorizationService (active
+   * company, active membership, branch in company and active). Empty when
+   * none; callers decide whether that is a refusal.
+   */
+  async branchesWith(companyId: string, userId: string, permissions: readonly string[]): Promise<InventoryBranch[]> {
     const candidates = await this.prisma.branch.findMany({
       where: { company_id: companyId, status: BranchStatus.ACTIVE },
       select: { id: true, name: true, timezone: true },
@@ -63,10 +68,15 @@ export class InventoryService {
     const resolved = await Promise.all(
       candidates.map(async (branch) => ({
         branch,
-        permissions: await this.authorization.branchPermissionsFor(userId, companyId, branch.id),
+        held: await this.authorization.branchPermissionsFor(userId, companyId, branch.id),
       })),
     );
-    const visible = resolved.filter((r) => r.permissions?.has(PERMISSION_KEYS.INVENTORY_VIEW)).map((r) => r.branch);
+    return resolved.filter((r) => r.held && permissions.some((p) => r.held!.has(p))).map((r) => r.branch);
+  }
+
+  /** The branches whose inventory the caller may see, by name. */
+  async visibleBranches(companyId: string, userId: string): Promise<InventoryBranch[]> {
+    const visible = await this.branchesWith(companyId, userId, [PERMISSION_KEYS.INVENTORY_VIEW]);
     if (visible.length === 0) {
       throw new ForbiddenException('You do not have inventory access at any branch of this company');
     }

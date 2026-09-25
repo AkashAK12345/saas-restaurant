@@ -45,6 +45,9 @@ const ANALYST_PERMS = [
   'pos.reports.view',
   'purchase.reports.view',
   'inventory.view',
+  'inventory.purchase.create',
+  'inventory.suppliers.manage',
+  'inventory.transfer',
 ];
 const QUEUE_ONLY_PERMS = ['reports.view', 'reports.export', 'dashboard.view', 'queue.view'];
 const NO_EXPORT_PERMS = ['reports.view', 'dashboard.view', 'queue.view'];
@@ -2748,11 +2751,16 @@ describe('Phase 10 Reports & Dashboard (e2e)', () => {
     });
 
     afterAll(async () => {
+      // Movements point at purchases, and purchase lines at items: in that order.
       await prisma.stockMovement.deleteMany({ where: { company_id: companyA.id } });
+      await prisma.stockTransfer.deleteMany({ where: { company_id: companyA.id } });
+      await prisma.menuProduct.deleteMany({ where: { company_id: companyA.id } });
+      await prisma.purchaseOrder.deleteMany({
+        where: { OR: [{ po_number: { startsWith: 'INV-' } }, { po_number: { startsWith: 'MP-' } }] },
+      });
       await prisma.inventoryItem.deleteMany({ where: { company_id: companyA.id } });
       await prisma.inventoryCategory.deleteMany({ where: { company_id: companyA.id } });
-      await prisma.purchaseOrder.deleteMany({ where: { po_number: { startsWith: 'INV-' } } });
-      await prisma.vendor.deleteMany({ where: { name: 'Inventory Metro' } });
+      await prisma.vendor.deleteMany({ where: { name: { in: ['Inventory Metro', 'Fresh Farms', 'Main Kitchen'] } } });
     });
 
     const cellsOf = (res: request.Response, itemId: string) => res.body.items.find((i: any) => i.id === itemId).cells;
@@ -2826,6 +2834,259 @@ describe('Phase 10 Reports & Dashboard (e2e)', () => {
       expect(res.body.branches.map((b: any) => b.name)).toEqual(['Alpha Main', 'Alpha Second']);
       expect(res.body.categories.map((c: any) => c.name)).toEqual(['Beverages', 'Meat']);
       expect(res.body.departments).toEqual(['Indian', 'Chinese', 'Tandoori', 'BBQ', 'Turkish', 'Staff Food', 'Pick Up']);
+    });
+
+    describe('Manual purchase', () => {
+      let sugar: string;
+      let supplierId: string;
+      let saleOnlyId: string;
+
+      const post = (path: string, body: object, token = tokenAnalystA) =>
+        as(request(http).post(`/api/v1/inventory/${path}`), token, companyA.id).send(body);
+
+      beforeAll(async () => {
+        sugar = (
+          await prisma.inventoryItem.create({
+            data: {
+              company_id: companyA.id,
+              name: 'Sugar 50 Kg Bag',
+              unit: 'Kg',
+              purchase_unit: 'Bag',
+              conversion_qty: 50,
+              purchase_price_minor: 200_000,
+              tax_rate_bps: 500,
+            },
+          })
+        ).id;
+        saleOnlyId = (
+          await prisma.vendor.create({ data: { company_id: companyA.id, name: 'Main Kitchen', type: 'SALE' } })
+        ).id;
+      });
+
+      it('MP-1. the outlets are where the caller may record purchases; others are refused', async () => {
+        const res = await inv('purchase/options');
+        expect(res.status).toBe(200);
+        expect(res.body).toEqual({
+          outlets: [
+            { id: branchA.id, name: 'Alpha Main' },
+            { id: branchA2.id, name: 'Alpha Second' },
+          ],
+          may_create_supplier: true,
+        });
+        expect((await inv('purchase/options', {}, tokenKeeperA)).status).toBe(403);
+      });
+
+      it('MP-2. creates a supplier: name and number required, GST and IFSC checked, names unique', async () => {
+        const res = await post('suppliers', {
+          name: '  Fresh Farms ',
+          phone: '98400 12345',
+          gstin: '33ajtpj7001j1z5',
+          address: 'Koyambedu',
+          bank_account_number: '1234567890',
+          bank_ifsc: 'sbin0001234',
+          bank_name: 'SBI',
+        });
+        expect(res.status).toBe(201);
+        expect(res.body).toMatchObject({ name: 'Fresh Farms', phone: '98400 12345' });
+        supplierId = res.body.id;
+        const saved = await prisma.vendor.findUniqueOrThrow({ where: { id: supplierId } });
+        expect(saved).toMatchObject({ gstin: '33AJTPJ7001J1Z5', gst_registered: true, bank_ifsc: 'SBIN0001234', type: 'PURCHASE' });
+
+        expect((await post('suppliers', { name: 'fresh farms', phone: '9840012345' })).status).toBe(409);
+        expect((await post('suppliers', { name: 'X', phone: '9840012345', gstin: '12345' })).status).toBe(400);
+        expect((await post('suppliers', { name: 'X', phone: '9840012345', bank_ifsc: 'SBI1234' })).status).toBe(400);
+        expect((await post('suppliers', { name: '', phone: '9840012345' })).status).toBe(400);
+        expect((await post('suppliers', { name: 'X' })).status).toBe(400);
+        expect((await post('suppliers', { name: 'Y', phone: '9840012345' }, tokenKeeperA)).status).toBe(403);
+      });
+
+      it('MP-3. lists active purchase suppliers, and finds products to add', async () => {
+        const suppliers = await inv('suppliers', { q: 'fresh' });
+        expect(suppliers.body.map((s: any) => s.name)).toEqual(['Fresh Farms']);
+        // A "Sale" party is not one to buy from.
+        expect((await inv('suppliers', { q: 'main kitchen' })).body).toEqual([]);
+
+        const items = await inv('items', { q: 'SUGAR' }, tokenKeeperA);
+        expect(items.status).toBe(200);
+        expect(items.body).toEqual([
+          {
+            id: sugar,
+            name: 'Sugar 50 Kg Bag',
+            unit: 'Kg',
+            purchase_unit: 'Bag',
+            conversion_qty: 50,
+            purchase_price_minor: 200_000,
+            tax_rate_bps: 500,
+            category: null,
+          },
+        ]);
+      });
+
+      it('MP-4. records a purchase: received, unpaid, GST on top, stock added in stock units', async () => {
+        const res = await post('purchases', {
+          branch_id: branchA.id,
+          vendor_id: supplierId,
+          items: [
+            { item_id: sugar, quantity: 2, rate_minor: 200_000 },
+            { item_id: chicken, quantity: 1.5, rate_minor: 24_000 },
+          ],
+        });
+        expect(res.status).toBe(201);
+        // Sugar: 2 × ₹2,000 + 5% = ₹4,200. Chicken: 1.5 × ₹240, no GST = ₹360.
+        expect(res.body).toMatchObject({ total_minor: 456_000, currency: 'INR', branch: 'Alpha Main', vendor: 'Fresh Farms', items: 2 });
+        expect(res.body.po_number).toMatch(/^MP-\d{6}-1$/);
+
+        const order = await prisma.purchaseOrder.findUniqueOrThrow({
+          where: { id: res.body.id },
+          include: { items: { orderBy: { position: 'asc' } }, stock_movements: true },
+        });
+        expect(order).toMatchObject({ status: 'RECEIVED', source: 'MANUAL', paid_minor: 0, created_by: analystA.id });
+        expect(order.received_at).not.toBeNull();
+        expect(order.items.map((i) => [i.name, Number(i.quantity), i.unit, i.unit_price_minor, i.tax_minor, i.line_total_minor])).toEqual([
+          ['Sugar 50 Kg Bag', 2, 'Bag', 200_000, 20_000, 420_000],
+          ['Chicken', 1.5, 'Kg', 24_000, 0, 36_000],
+        ]);
+
+        // Two bags are 100 Kg of stock.
+        const grid = await inv('overview', { branch_id: branchA.id });
+        const sugarCells = grid.body.items.find((i: any) => i.id === sugar).cells[branchA.id];
+        expect(sugarCells).toEqual({ stock: 100, consumed: null, purchase: 100 });
+        expect(grid.body.items.find((i: any) => i.id === chicken).cells[branchA.id].stock).toBe(12.5);
+        // Unpaid: its whole total is now outstanding.
+        expect(grid.body.summary.outstanding_minor).toBe(60_000 + 456_000);
+
+        const again = await post('purchases', {
+          branch_id: branchA.id,
+          vendor_id: supplierId,
+          items: [{ item_id: sugar, quantity: 1, rate_minor: 200_000 }],
+        });
+        expect(again.body.po_number).toMatch(/-2$/);
+      });
+
+      it('MP-5. refuses what it must: another outlet, a sale party, a repeat item, a stranger, nothing to buy', async () => {
+        const line = { item_id: sugar, quantity: 1, rate_minor: 100 };
+        const base = { branch_id: branchA.id, vendor_id: supplierId, items: [line] };
+        expect((await post('purchases', base, tokenKeeperA)).status).toBe(403);
+        expect((await post('purchases', { ...base, vendor_id: saleOnlyId })).status).toBe(400);
+        expect((await post('purchases', { ...base, items: [line, line] })).status).toBe(400);
+        expect(
+          (await post('purchases', { ...base, items: [{ ...line, item_id: '00000000-0000-4000-8000-000000000000' }] })).status,
+        ).toBe(400);
+        expect((await post('purchases', { ...base, items: [{ ...line, quantity: 0 }] })).status).toBe(400);
+        expect((await post('purchases', { ...base, items: [] })).status).toBe(400);
+        expect((await post('purchases', { ...base, branch_id: branchB.id })).status).toBe(403);
+      });
+    });
+
+    describe('Transfer stock', () => {
+      // After the purchases above, Alpha Main holds 12.5 Kg of chicken and
+      // 150 Kg of sugar; Alpha Second 2 Kg of chicken and 4.5 cases of 7 Up.
+      let biriyani: string;
+      let oldDish: string;
+
+      const send = (body: object, token = tokenAnalystA) =>
+        as(request(http).post('/api/v1/inventory/transfers'), token, companyA.id).send(body);
+
+      beforeAll(async () => {
+        const product = (name: string, extra: Record<string, unknown> = {}) =>
+          prisma.menuProduct.create({ data: { company_id: companyA.id, name, ...extra } });
+        biriyani = (await product('Chicken Biriyani', { category: 'Biryani' })).id;
+        await product('Appam Batter', { unit: 'Kg' });
+        oldDish = (await product('Old Dish', { is_active: false })).id;
+      });
+
+      it('TR-1. sends from where the caller may transfer, to any active outlet of the company', async () => {
+        const res = await inv('transfer/options');
+        expect(res.status).toBe(200);
+        expect(res.body.sources.map((b: any) => b.name)).toEqual(['Alpha Main', 'Alpha Second']);
+        expect(res.body.destinations.map((b: any) => b.name)).toEqual(expect.arrayContaining(['Alpha Main', 'Alpha Second']));
+        expect(res.body.destinations.some((b: any) => b.id === branchB.id)).toBe(false);
+        expect((await inv('transfer/options', {}, tokenKeeperA)).status).toBe(403);
+      });
+
+      it('TR-2. lists what an outlet can send: raw materials it has on hand, and the menu products', async () => {
+        const bare = await inv('transfer/stock');
+        expect(bare.status).toBe(200);
+        expect(bare.body.raw_materials).toEqual([]);
+        expect(bare.body.products.map((p: any) => [p.name, p.category, p.unit])).toEqual([
+          ['Appam Batter', null, 'Kg'],
+          ['Chicken Biriyani', 'Biryani', null],
+        ]);
+
+        const main = await inv('transfer/stock', { branch_id: branchA.id });
+        expect(main.body.raw_materials).toEqual([
+          { id: chicken, name: 'Chicken', unit: 'Kg', on_hand: 12.5 },
+          { id: expect.any(String), name: 'Sugar 50 Kg Bag', unit: 'Kg', on_hand: 150 },
+        ]);
+        expect((await inv('transfer/stock', { branch_id: branchA.id }, tokenKeeperA)).status).toBe(403);
+        expect((await inv('transfer/stock', { branch_id: branchB.id })).status).toBe(403);
+      });
+
+      it('TR-3. a transfer lands at once: out of the source, into the destination; a product moves no stock', async () => {
+        const res = await send({
+          from_branch_id: branchA.id,
+          to_branch_id: branchA2.id,
+          lines: [
+            { kind: 'RAW', id: chicken, quantity: 2.5 },
+            { kind: 'PRODUCT', id: biriyani, quantity: 3 },
+          ],
+          note: ' Evening top-up ',
+        });
+        expect(res.status).toBe(201);
+        expect(res.body).toMatchObject({ from: 'Alpha Main', to: 'Alpha Second', items: 2 });
+        expect(res.body.number).toMatch(/^TR-\d{6}-1$/);
+
+        const saved = await prisma.stockTransfer.findUniqueOrThrow({
+          where: { id: res.body.id },
+          include: { lines: { orderBy: { position: 'asc' } }, movements: { orderBy: { quantity: 'asc' } } },
+        });
+        expect(saved).toMatchObject({ note: 'Evening top-up', created_by: analystA.id });
+        expect(saved.lines.map((l) => [l.name, l.unit, Number(l.quantity), !!l.inventory_item_id, !!l.menu_product_id])).toEqual([
+          ['Chicken', 'Kg', 2.5, true, false],
+          ['Chicken Biriyani', null, 3, false, true],
+        ]);
+        expect(saved.movements.map((m) => [m.branch_id, m.kind, Number(m.quantity)])).toEqual([
+          [branchA.id, 'TRANSFER_OUT', -2.5],
+          [branchA2.id, 'TRANSFER_IN', 2.5],
+        ]);
+
+        const grid = await inv('overview');
+        const cells = grid.body.items.find((i: any) => i.id === chicken).cells;
+        expect([cells[branchA.id].stock, cells[branchA2.id].stock]).toEqual([10, 4.5]);
+
+        const next = await send({
+          from_branch_id: branchA.id,
+          to_branch_id: branchA2.id,
+          lines: [{ kind: 'RAW', id: chicken, quantity: 10 }],
+        });
+        expect(next.status).toBe(201);
+        expect(next.body.number).toMatch(/-2$/);
+        // Every last gram may go; then chicken is no longer there to send.
+        const after = await inv('transfer/stock', { branch_id: branchA.id });
+        expect(after.body.raw_materials.map((r: any) => r.name)).toEqual(['Sugar 50 Kg Bag']);
+      });
+
+      it('TR-4. refuses what it must: more than on hand, the same outlet, repeats, strangers, nothing to send', async () => {
+        const line = { kind: 'RAW', id: sevenUp, quantity: 1 };
+        const base = { from_branch_id: branchA2.id, to_branch_id: branchA.id, lines: [line] };
+        const over = await send({ ...base, lines: [{ ...line, quantity: 4.6 }] });
+        expect(over.status).toBe(400);
+        expect(over.body.message).toBe('Only 4.5 case of 7 Up Can 300 Ml on hand at Alpha Second');
+        // Nothing was saved.
+        expect(await prisma.stockTransfer.count({ where: { from_branch_id: branchA2.id } })).toBe(0);
+
+        expect((await send({ ...base, to_branch_id: branchA2.id })).status).toBe(400);
+        expect((await send({ ...base, lines: [line, line] })).status).toBe(400);
+        expect((await send({ ...base, lines: [{ kind: 'PRODUCT', id: oldDish, quantity: 1 }] })).status).toBe(400);
+        expect((await send({ ...base, lines: [{ ...line, kind: 'ASSET' }] })).status).toBe(400);
+        expect((await send({ ...base, lines: [{ ...line, quantity: 0 }] })).status).toBe(400);
+        expect((await send({ ...base, lines: [] })).status).toBe(400);
+        expect((await send({ ...base, to_branch_id: branchB.id })).status).toBe(404);
+        expect((await send({ ...base, from_branch_id: branchB.id })).status).toBe(403);
+        expect((await send(base, tokenKeeperA)).status).toBe(403);
+
+        expect((await send(base)).status).toBe(201);
+      });
     });
   });
 

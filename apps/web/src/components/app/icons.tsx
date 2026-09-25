@@ -105,7 +105,8 @@ export type AppIconName =
   | 'cartPlus'
   | 'transfer'
   | 'download'
-  | 'globeSearch';
+  | 'globeSearch'
+  | 'bank';
 
 const FILLED: Partial<Record<AppIconName, ReactNode>> = {
   truck: (
@@ -391,6 +392,12 @@ const STROKED: Record<AppIconName, ReactNode> = {
       <path d="M12 4v11" />
       <path d="m7 10.5 5 5 5-5" />
       <path d="M5 20h14" />
+    </>
+  ),
+  bank: (
+    <>
+      <path d="M3 9.5 12 4l9 5.5" />
+      <path d="M4 9.5h16M5.5 9.5v8M10 9.5v8M14 9.5v8M18.5 9.5v8M3.5 20h17" />
     </>
   ),
   globeSearch: (

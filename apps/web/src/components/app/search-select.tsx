@@ -7,6 +7,8 @@ import styles from './search-select.module.css';
 export interface SearchSelectOption {
   value: string;
   label: string;
+  /** A muted second line, e.g. what a supplier is known for. Searched too. */
+  hint?: string | null;
 }
 
 /**
@@ -15,11 +17,13 @@ export interface SearchSelectOption {
  * on Escape, or on a tap anywhere else — a panel that ignores taps elsewhere
  * gets stuck open on a tablet, where there is no Escape key to hand.
  *
- * `value` null means the "all" choice.
+ * `value` null means the "all" choice — or, with no `allLabel`, nothing
+ * chosen yet: the pill then shows `placeholder` and offers no "all" row.
  */
 export function SearchSelect({
   label,
   allLabel,
+  placeholder,
   options,
   value,
   onChange,
@@ -27,7 +31,10 @@ export function SearchSelect({
 }: {
   /** Names the control for assistive technology, e.g. "Category". */
   label: string;
-  allLabel: string;
+  /** The "everything" choice; omit for a pick-one list. */
+  allLabel?: string;
+  /** Shown while nothing is chosen, when there is no "all" choice. */
+  placeholder?: string;
   options: readonly SearchSelectOption[];
   value: string | null;
   onChange: (value: string | null) => void;
@@ -59,7 +66,9 @@ export function SearchSelect({
 
   const matches = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return q ? options.filter((o) => o.label.toLowerCase().includes(q)) : options;
+    return q
+      ? options.filter((o) => o.label.toLowerCase().includes(q) || (o.hint ?? '').toLowerCase().includes(q))
+      : options;
   }, [options, query]);
 
   const chosen = options.find((o) => o.value === value);
@@ -69,7 +78,8 @@ export function SearchSelect({
     setOpen(false);
   };
 
-  const option = (optionValue: string | null, text: string) => {
+  const shown = chosen?.label ?? allLabel ?? placeholder ?? '';
+  const option = (optionValue: string | null, text: string, hint?: string | null) => {
     const active = optionValue === value;
     return (
       <li key={optionValue ?? '__all'}>
@@ -79,7 +89,10 @@ export function SearchSelect({
           aria-current={active ? 'true' : undefined}
           onClick={() => choose(optionValue)}
         >
-          <span className={styles.optionText}>{text}</span>
+          <span className={styles.optionText}>
+            {text}
+            {hint ? <span className={styles.optionHint}>{hint}</span> : null}
+          </span>
           {active ? <AppIcon name="check" size={20} /> : null}
         </button>
       </li>
@@ -91,13 +104,13 @@ export function SearchSelect({
       <button
         type="button"
         className={styles.trigger}
-        aria-label={`${label}: ${chosen?.label ?? allLabel}`}
+        aria-label={`${label}: ${chosen?.label ?? allLabel ?? 'none chosen'}`}
         aria-haspopup="true"
         aria-expanded={open}
         aria-controls={open ? panelId : undefined}
         onClick={() => setOpen((o) => !o)}
       >
-        <span className={styles.triggerText}>{chosen?.label ?? allLabel}</span>
+        <span className={`${styles.triggerText} ${!chosen && !allLabel ? styles.placeholder : ''}`}>{shown}</span>
         <AppIcon name={open ? 'chevronUp' : 'chevronDown'} size={18} />
       </button>
       {open ? (
@@ -115,8 +128,8 @@ export function SearchSelect({
             />
           </div>
           <ul className={styles.list}>
-            {query.trim() ? null : option(null, allLabel)}
-            {matches.map((o) => option(o.value, o.label))}
+            {query.trim() || allLabel === undefined ? null : option(null, allLabel)}
+            {matches.map((o) => option(o.value, o.label, o.hint))}
             {matches.length === 0 ? (
               <li className={styles.empty}>{query.trim() ? 'Nothing matches that search' : 'None yet'}</li>
             ) : null}

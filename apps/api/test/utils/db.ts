@@ -128,6 +128,8 @@ export async function purgePurchasing(prisma: PrismaService): Promise<void> {
 /** Stock movements, items and categories reference branches/companies (RESTRICT). */
 export async function purgeInventory(prisma: PrismaService): Promise<void> {
   await prisma.stockMovement.deleteMany();
+  await prisma.stockTransfer.deleteMany();
+  await prisma.menuProduct.deleteMany();
   await prisma.inventoryItem.deleteMany();
   await prisma.inventoryCategory.deleteMany();
 }
