@@ -35,6 +35,7 @@ const BLURB: Record<string, string> = {
   '/queue': 'Podium, waiters & displays',
   '/banquet': 'Bookings & events',
   '/tasks': 'Routines & to-dos',
+  '/inventory': 'Stock, purchases & suppliers',
   '/reports': 'Analytics & history',
   '/displays': 'Paired screens & devices',
 };

@@ -125,6 +125,13 @@ export async function purgePurchasing(prisma: PrismaService): Promise<void> {
   await prisma.vendor.deleteMany();
 }
 
+/** Stock movements, items and categories reference branches/companies (RESTRICT). */
+export async function purgeInventory(prisma: PrismaService): Promise<void> {
+  await prisma.stockMovement.deleteMany();
+  await prisma.inventoryItem.deleteMany();
+  await prisma.inventoryCategory.deleteMany();
+}
+
 export async function resetDatabase(prisma: PrismaService): Promise<void> {
   await assertE2eDatabase(prisma);
   await purgeAuditLogs(prisma);
@@ -133,6 +140,7 @@ export async function resetDatabase(prisma: PrismaService): Promise<void> {
   await purgeTasks(prisma);
   await purgePos(prisma);
   await purgePurchasing(prisma);
+  await purgeInventory(prisma);
   await prisma.userBranchRole.deleteMany();
   await prisma.rolePermission.deleteMany();
   await prisma.userSession.deleteMany();

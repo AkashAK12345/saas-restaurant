@@ -1,0 +1,135 @@
+/* A dropdown with a search box. Tokens only, so both schemes follow. */
+
+.wrap {
+  position: relative;
+  min-width: 0;
+}
+
+.trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  min-height: var(--tap-min);
+  padding: 0 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.trigger[aria-expanded='true'] {
+  border-color: var(--color-primary);
+}
+
+.trigger svg {
+  flex: none;
+  color: var(--color-text-muted);
+}
+
+.triggerText {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trigger:focus-visible,
+.option:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.panel {
+  position: absolute;
+  z-index: 40;
+  top: calc(100% + 8px);
+  left: 0;
+  width: max(100%, 16rem);
+  max-width: min(22rem, calc(100vw - 32px));
+  padding: 10px 0;
+  border: 1px solid var(--color-border);
+  border-radius: 18px;
+  background: var(--color-surface);
+  box-shadow: 0 12px 32px rgb(0 0 0 / 0.14);
+}
+
+.panelEnd {
+  right: 0;
+  left: auto;
+}
+
+.panelCenter {
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.searchRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 10px 8px;
+  padding: 0 12px;
+  border-radius: 14px;
+  background: var(--color-surface-muted);
+  color: var(--color-text-muted);
+}
+
+.search {
+  flex: 1;
+  min-width: 0;
+  min-height: var(--tap-min);
+  border: 0;
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
+  outline: none;
+}
+
+.list {
+  max-height: 20rem;
+  margin: 0;
+  padding: 0 8px;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  min-height: var(--tap-min);
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 12px;
+  background: none;
+  color: var(--color-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.option:hover {
+  background: var(--color-surface-muted);
+}
+
+.optionActive,
+.optionActive:hover {
+  background: var(--color-danger-bg);
+  color: var(--color-primary);
+  font-weight: 600;
+}
+
+.optionText {
+  min-width: 0;
+}
+
+.empty {
+  padding: 12px;
+  color: var(--color-text-muted);
+}

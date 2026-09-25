@@ -1,0 +1,398 @@
+/*
+ * Inventory (/inventory). Tokens only, so the light and dark schemes both
+ * follow; the grid scrolls sideways inside its own frame, never the page.
+ */
+
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--gap);
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 1200px;
+  min-width: 0;
+  margin: 0 auto;
+  /* The module frame has no gutter of its own. */
+  padding: 16px 16px 24px;
+}
+
+/* ── Products | Suppliers ───────────────────────────────────────────────── */
+
+.segment {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  padding: 6px;
+  border: 1px solid var(--color-border);
+  border-radius: 18px;
+  background: var(--color-surface-muted);
+}
+
+.segmentTab {
+  min-height: var(--tap-min);
+  border: 1px solid transparent;
+  border-radius: 14px;
+  background: none;
+  color: var(--color-text-muted);
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.segmentTab[aria-selected='true'] {
+  border-color: var(--color-primary);
+  background: var(--color-danger-bg);
+  color: var(--color-primary);
+}
+
+/* ── Header ──────────────────────────────────────────────────────────────── */
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: var(--gap);
+}
+
+.back {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: var(--tap-min);
+  height: var(--tap-min);
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.eyebrow {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--color-text-muted);
+}
+
+.title {
+  margin: 0;
+  font-size: var(--text-lg);
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-height: var(--tap-min);
+  padding: 0 16px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--color-danger-bg);
+  color: var(--color-primary);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.iconOnly {
+  width: var(--tap-min);
+  padding: 0;
+}
+
+.actionGreen {
+  background: var(--accent-green-bg);
+  color: var(--accent-green-fg);
+}
+
+.action[aria-disabled='true'] {
+  cursor: default;
+}
+
+.action:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+.back:focus-visible,
+.segmentTab:focus-visible,
+.action:focus-visible,
+.dates:focus-visible,
+.clearDates:focus-visible,
+.more:focus-visible,
+.search:focus-within {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+/* ── Summary strip ───────────────────────────────────────────────────────── */
+
+.summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin: 0;
+  padding: 14px 6px;
+  border: 1px solid var(--color-border);
+  border-radius: 18px;
+  background: var(--color-surface-muted);
+}
+
+.summary > div {
+  min-width: 0;
+  padding: 0 12px;
+  border-left: 1px solid var(--color-border);
+}
+
+.summary > div:first-child {
+  border-left: 0;
+}
+
+.summary dt {
+  font-size: 0.875rem;
+  color: var(--color-text-muted);
+}
+
+.summary dd {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin: 6px 0 0;
+  font-size: 1.125rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.summary dd svg {
+  flex: none;
+  color: var(--color-text-muted);
+}
+
+.summary dd[data-tone='red'] { color: var(--color-primary); }
+.summary dd[data-tone='amber'] { color: var(--accent-amber-fg); }
+.summary dd[data-tone='green'] { color: var(--color-success); }
+
+/* ── Filters ─────────────────────────────────────────────────────────────── */
+
+.filters {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.searchRow {
+  display: flex;
+  gap: 10px;
+}
+
+.search {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  min-height: 52px;
+  padding: 0 16px;
+  border: 1px solid var(--color-border);
+  border-radius: 16px;
+  background: var(--color-surface-muted);
+  color: var(--color-text-muted);
+}
+
+.search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
+  outline: none;
+}
+
+.dateRow {
+  display: flex;
+  gap: 10px;
+}
+
+.dates {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 14px;
+  min-height: 52px;
+  padding: 0 16px;
+  border: 1px solid var(--color-border);
+  border-radius: 16px;
+  background: var(--color-surface-muted);
+  color: var(--color-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.dates svg {
+  color: var(--color-primary);
+}
+
+.clearDates {
+  flex: none;
+  width: 52px;
+  border: 1px solid var(--color-border);
+  border-radius: 16px;
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+/* ── Grid ────────────────────────────────────────────────────────────────── */
+
+.count {
+  display: flex;
+  gap: 24px;
+  margin: var(--gap) 0 0;
+  font-size: 0.9375rem;
+  color: var(--color-text-muted);
+}
+
+.count span {
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.gridWrap {
+  overflow-x: auto;
+  border: 1px solid var(--color-border);
+  border-radius: 16px;
+  background: var(--color-surface);
+}
+
+.grid {
+  min-width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.grid th,
+.grid td {
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--color-border);
+  white-space: nowrap;
+}
+
+.grid thead th {
+  background: var(--color-surface-muted);
+  color: var(--color-text-muted);
+  font-weight: 500;
+}
+
+.itemHead,
+.itemCell {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  min-width: 12rem;
+  max-width: 16rem;
+  border-right: 3px solid var(--color-border);
+  text-align: left;
+}
+
+.itemHead {
+  vertical-align: top;
+}
+
+.itemCell {
+  background: var(--color-surface);
+  font-weight: 400;
+}
+
+.itemName {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.itemUnit {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.875rem;
+  color: var(--color-text-muted);
+}
+
+.branchHead {
+  text-align: center;
+  color: var(--color-text) !important;
+  font-weight: 600 !important;
+}
+
+.subHead,
+.grid td {
+  text-align: right;
+}
+
+.grid td {
+  color: var(--color-text);
+}
+
+.grid tbody tr:last-child th,
+.grid tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.more {
+  align-self: center;
+  min-height: var(--tap-min);
+  padding: 0 20px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  cursor: pointer;
+}
+
+/* ── States ──────────────────────────────────────────────────────────────── */
+
+.empty,
+.soon {
+  margin: 0;
+  padding: 18vh 0;
+  text-align: center;
+  color: var(--color-text-muted);
+}
+
+.error {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--color-danger-bg);
+  color: var(--color-danger);
+}
+
+/* Phones: all four figures stay on one row, as the reference keeps them. */
+@media (max-width: 480px) {
+  .summary > div {
+    padding: 0 8px;
+  }
+
+  .summary dt {
+    font-size: 0.8125rem;
+  }
+
+  .summary dd {
+    font-size: 1rem;
+  }
+
+  .filters {
+    gap: 8px;
+  }
+}

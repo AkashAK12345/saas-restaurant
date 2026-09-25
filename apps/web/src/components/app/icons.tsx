@@ -101,7 +101,11 @@ export type AppIconName =
   | 'rupee'
   | 'truck'
   | 'send'
-  | 'xCircle';
+  | 'xCircle'
+  | 'cartPlus'
+  | 'transfer'
+  | 'download'
+  | 'globeSearch';
 
 const FILLED: Partial<Record<AppIconName, ReactNode>> = {
   truck: (
@@ -368,6 +372,35 @@ const STROKED: Record<AppIconName, ReactNode> = {
   truck: null,
   send: null,
   xCircle: null,
+  cartPlus: (
+    <>
+      <path d="M2.5 3.5h2.2l2.4 11.2a1.5 1.5 0 0 0 1.5 1.2h8.6a1.5 1.5 0 0 0 1.5-1.1L20.5 8H6" />
+      <circle cx="9.5" cy="19.5" r="1.3" />
+      <circle cx="16.5" cy="19.5" r="1.3" />
+      <path d="M13 6.5V2.5M11 4.5h4" />
+    </>
+  ),
+  transfer: (
+    <>
+      <path d="M4 8.5h15l-3.5-3.5" />
+      <path d="M20 15.5H5l3.5 3.5" />
+    </>
+  ),
+  download: (
+    <>
+      <path d="M12 4v11" />
+      <path d="m7 10.5 5 5 5-5" />
+      <path d="M5 20h14" />
+    </>
+  ),
+  globeSearch: (
+    <>
+      <path d="M19.5 11A8.5 8.5 0 1 0 11 19.5" />
+      <path d="M2.5 11h17M11 2.5c2.3 2.4 3.4 5.2 3.4 8.5M11 2.5C8.7 4.9 7.6 7.7 7.6 11s1.1 6.1 3.4 8.5" />
+      <circle cx="17" cy="17" r="3" />
+      <path d="m19.2 19.2 2.3 2.3" />
+    </>
+  ),
   pie: (
     <>
       <circle cx="12" cy="12" r="8.5" />

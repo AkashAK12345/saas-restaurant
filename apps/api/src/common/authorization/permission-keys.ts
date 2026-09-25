@@ -167,6 +167,11 @@ export const PERMISSION_KEYS = {
   // What a branch spends, and with whom, is its own grant too.
   PURCHASE_REPORTS_VIEW: 'purchase.reports.view',
 
+  // ── Inventory ───────────────────────────────────────────────────────────
+  // Seeing stock is per branch: the inventory grid shows a column group for
+  // every branch where the viewer holds this, and no other.
+  INVENTORY_VIEW: 'inventory.view',
+
   // ── Reports & Dashboard (Phase 10) ───────────────────────────────────────
   // REPORTS_VIEW (above, reserved since Phase 1) now gates the reporting
   // system itself. It is deliberately NOT sufficient on its own: running a
@@ -593,6 +598,11 @@ export const SYSTEM_PERMISSIONS: Array<{
     name: PERMISSION_KEYS.PURCHASE_REPORTS_VIEW,
     module: 'purchase',
     description: "View a branch's purchase orders by vendor and by item",
+  },
+  {
+    name: PERMISSION_KEYS.INVENTORY_VIEW,
+    module: 'inventory',
+    description: "View a branch's stock, consumption and purchases, and the company's purchase totals",
   },
   {
     name: PERMISSION_KEYS.REPORTS_EXPORT,

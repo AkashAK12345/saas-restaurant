@@ -78,6 +78,15 @@ export const NAV_ITEMS: readonly NavItem[] = [
     primary: true,
   },
   {
+    // Spans branches, so it needs no branch chosen: the grid shows every
+    // branch where the viewer holds inventory.view.
+    href: '/inventory',
+    label: 'Inventory',
+    icon: 'inventory',
+    accent: 'green',
+    permissions: [PERMISSION_KEYS.INVENTORY_VIEW],
+  },
+  {
     href: '/reports',
     label: 'Reports',
     icon: 'reports',

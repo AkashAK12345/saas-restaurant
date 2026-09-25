@@ -21,6 +21,7 @@ export type NavIconName =
   | 'banquet'
   | 'tasks'
   | 'reports'
+  | 'inventory'
   | 'displays'
   | 'users'
   | 'roles'
@@ -72,6 +73,13 @@ const PATHS: Record<NavIconName, ReactNode> = {
       <path d="m3.5 5 1.3 1.4L7 4.2" />
       <path d="m3.5 12 1.3 1.4L7 11.2" />
       <path d="M3.8 19h.01" />
+    </>
+  ),
+  inventory: (
+    <>
+      <rect x="3.5" y="4" width="17" height="4.5" rx="1.2" />
+      <path d="M5 8.5V19a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8.5" />
+      <path d="M10 12.5h4" />
     </>
   ),
   reports: (

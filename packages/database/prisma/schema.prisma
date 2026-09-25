@@ -275,6 +275,9 @@ model Company {
   customers   Customer[]
   queue_tokens QueueToken[]
   banquet_packages BanquetPackage[]
+  inventory_categories InventoryCategory[]
+  inventory_items      InventoryItem[]
+  stock_movements      StockMovement[]
   vendors          Vendor[]
   purchase_orders  PurchaseOrder[]
   pos_orders       PosOrder[]
@@ -332,6 +335,7 @@ model Branch {
   display_devices DisplayDevice[]
   queue_tokens    QueueToken[]
   queue_counters  QueueCounter[]
+  stock_movements  StockMovement[]
   purchase_orders  PurchaseOrder[]
   pos_orders       PosOrder[]
   banquet_halls    BanquetHall[]
@@ -1370,9 +1374,26 @@ enum PurchaseOrderStatus {
 model Vendor {
   id         String   @id @default(uuid()) @db.Uuid
   company_id String   @db.Uuid
+  /// The business's own name — unique in the company.
   name       String   @db.VarChar(160)
+  /// What staff call them, when not the business name: "Seafood", "Oil".
+  label      String?  @db.VarChar(80)
   /// The number purchase orders are sent to.
   phone      String?  @db.VarChar(32)
+  email      String?  @db.VarChar(160)
+  /// PURCHASE (we buy from them), SALE (we sell to them) or BOTH.
+  type       String   @default("PURCHASE") @db.VarChar(16)
+  is_active  Boolean  @default(true)
+  gst_registered Boolean @default(false)
+  gstin      String?  @db.VarChar(20)
+  /// Tax collected at source, in basis points.
+  tcs_rate_bps Int    @default(0)
+  fssai_no   String?  @db.VarChar(20)
+  pan        String?  @db.VarChar(12)
+  address    String?
+  city       String?  @db.VarChar(80)
+  state      String?  @db.VarChar(80)
+  pincode    String?  @db.VarChar(10)
   created_at DateTime @default(now()) @db.Timestamptz(3)
   updated_at DateTime @updatedAt @db.Timestamptz(3)
 
@@ -1395,6 +1416,9 @@ model PurchaseOrder {
   /// orders raised from a stock request or a reorder level will say so.
   source           String              @default("MANUAL") @db.VarChar(24)
   total_minor      Int                 @default(0)
+  /// What has been paid to the vendor against this order so far. What is
+  /// left (total - paid) is the order's share of "Outstanding".
+  paid_minor       Int                 @default(0)
   currency         String              @db.Char(3)
   ordered_at       DateTime            @default(now()) @db.Timestamptz(3)
   whatsapp_sent_at DateTime?           @db.Timestamptz(3)
@@ -1432,4 +1456,94 @@ model PurchaseOrderItem {
 
   @@index([purchase_order_id])
   @@map("purchase_order_items")
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Inventory — the company's products, and every movement of stock at a branch.
+//
+// Stock is never stored as a number to overwrite: it is the SUM of a branch's
+// movements for an item (opening balance, purchases received, consumption,
+// transfers in and out, adjustments). Quantities are signed: in is positive,
+// out is negative. Consumed and Purchase for a period are the movements of
+// that kind inside it.
+// ─────────────────────────────────────────────────────────────────────────────
+
+model InventoryCategory {
+  id         String   @id @default(uuid()) @db.Uuid
+  company_id String   @db.Uuid
+  name       String   @db.VarChar(80)
+  created_at DateTime @default(now()) @db.Timestamptz(3)
+
+  company Company         @relation(fields: [company_id], references: [id], onDelete: Restrict)
+  items   InventoryItem[]
+
+  @@unique([company_id, name])
+  @@map("inventory_categories")
+}
+
+model InventoryItem {
+  id          String   @id @default(uuid()) @db.Uuid
+  company_id  String   @db.Uuid
+  name        String   @db.VarChar(160)
+  /// The unit stock is counted and consumed in: "case", "Kg", "BOX".
+  unit        String   @db.VarChar(24)
+  category_id String?  @db.Uuid
+  sub_category String? @db.VarChar(80)
+  /// The unit it is bought in, when not the stock unit ("Bag"), and how many
+  /// stock units one of it holds (a 50 Kg bag: 50). Null: bought as counted.
+  purchase_unit  String?  @db.VarChar(24)
+  conversion_qty Decimal? @db.Decimal(12, 3)
+  /// Prices per purchase unit, in minor units, before tax.
+  purchase_price_minor Int?
+  transfer_price_minor Int?
+  /// GST in basis points: 18% is 1800.
+  tax_rate_bps Int?
+  hsn          String? @db.VarChar(16)
+  /// The short code or barcode the kitchen knows it by.
+  short_code   String? @db.VarChar(40)
+  /// A kitchen department (Indian, Chinese, …), or none for general stock.
+  department  String?  @db.VarChar(40)
+  is_active   Boolean  @default(true)
+  created_at  DateTime @default(now()) @db.Timestamptz(3)
+  updated_at  DateTime @updatedAt @db.Timestamptz(3)
+
+  company   Company            @relation(fields: [company_id], references: [id], onDelete: Restrict)
+  category  InventoryCategory? @relation(fields: [category_id], references: [id], onDelete: Restrict)
+  movements StockMovement[]
+
+  @@unique([company_id, name, unit])
+  @@index([company_id, name])
+  @@map("inventory_items")
+}
+
+enum StockMovementKind {
+  OPENING
+  PURCHASE
+  CONSUMPTION
+  TRANSFER_IN
+  TRANSFER_OUT
+  ADJUSTMENT
+}
+
+model StockMovement {
+  id            String            @id @default(uuid()) @db.Uuid
+  company_id    String            @db.Uuid
+  branch_id     String            @db.Uuid
+  item_id       String            @db.Uuid
+  kind          StockMovementKind
+  /// Signed: into the branch is positive, out of it negative.
+  quantity      Decimal           @db.Decimal(14, 3)
+  occurred_at   DateTime          @default(now()) @db.Timestamptz(3)
+  note          String?
+  actor_user_id String?           @db.Uuid
+  created_at    DateTime          @default(now()) @db.Timestamptz(3)
+
+  company Company       @relation(fields: [company_id], references: [id], onDelete: Restrict)
+  branch  Branch        @relation(fields: [branch_id], references: [id], onDelete: Restrict)
+  item    InventoryItem @relation(fields: [item_id], references: [id], onDelete: Restrict)
+
+  // The grid sums one item at one branch; the period columns scan by time.
+  @@index([branch_id, item_id])
+  @@index([company_id, occurred_at])
+  @@map("stock_movements")
 }

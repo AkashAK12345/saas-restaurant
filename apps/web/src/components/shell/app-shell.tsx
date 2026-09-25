@@ -7,6 +7,7 @@ import { useAuth } from '@/lib/auth/auth-provider';
 import { useAppContext } from '@/lib/context/app-context-provider';
 import { hasQueueAccess, isQueuePath } from '@/lib/queue/surfaces';
 import { hasBanquetAccess, isBanquetPath } from '@/lib/banquet/sections';
+import { hasInventoryAccess, isInventoryPath } from '@/lib/inventory/sections';
 import { Nav } from './nav';
 import { NAV_ITEMS, SETTINGS_ITEM } from './nav-items';
 import { BranchChip } from './branch-chip';
@@ -69,11 +70,13 @@ export function AppShell({ children }: { children: ReactNode }) {
   // A module with its own header and tab bar takes the whole screen; the app
   // chrome would only repeat itself. Someone WITHOUT access keeps the shell,
   // so the refusal still sits in context with a way out.
+  // Inventory spans branches, so it needs none chosen.
   const focused =
-    hasBranch &&
     !ctx.loading &&
-    ((isQueuePath(pathname) && hasQueueAccess(ctx.branchPermissions)) ||
-      (isBanquetPath(pathname) && hasBanquetAccess(ctx.branchPermissions)));
+    ((hasBranch &&
+      ((isQueuePath(pathname) && hasQueueAccess(ctx.branchPermissions)) ||
+        (isBanquetPath(pathname) && hasBanquetAccess(ctx.branchPermissions)))) ||
+      (isInventoryPath(pathname) && hasInventoryAccess(ctx.companyPermissions)));
   if (focused) {
     return (
       <main className={styles.focused}>

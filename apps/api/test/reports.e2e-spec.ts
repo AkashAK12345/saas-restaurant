@@ -44,6 +44,7 @@ const ANALYST_PERMS = [
   'tasks.reports.view',
   'pos.reports.view',
   'purchase.reports.view',
+  'inventory.view',
 ];
 const QUEUE_ONLY_PERMS = ['reports.view', 'reports.export', 'dashboard.view', 'queue.view'];
 const NO_EXPORT_PERMS = ['reports.view', 'dashboard.view', 'queue.view'];
@@ -2662,6 +2663,169 @@ describe('Phase 10 Reports & Dashboard (e2e)', () => {
         ).query(range);
         expect(res.status).toBe(403);
       }
+    });
+  });
+
+  describe('Inventory', () => {
+    // 11–15 Sep, each branch on its own clock: Alpha Main is Asia/Kolkata,
+    // Alpha Second is UTC.
+    const range = { from: '2026-09-11', to: '2026-09-15' };
+    let chicken: string;
+    let sevenUp: string;
+    let laptop: string;
+    let meatId: string;
+    let tokenKeeperA: string;
+
+    const inv = (path: string, query: Record<string, string> = {}, token = tokenAnalystA) =>
+      as(request(http).get(`/api/v1/inventory/${path}`), token, companyA.id).query(query);
+
+    const move = (branchId: string, itemId: string, kind: string, quantity: number, at: string) =>
+      prisma.stockMovement.create({
+        data: {
+          company_id: companyA.id,
+          branch_id: branchId,
+          item_id: itemId,
+          kind: kind as never,
+          quantity,
+          occurred_at: new Date(at),
+        },
+      });
+
+    beforeAll(async () => {
+      const beverages = await prisma.inventoryCategory.create({ data: { company_id: companyA.id, name: 'Beverages' } });
+      const meat = await prisma.inventoryCategory.create({ data: { company_id: companyA.id, name: 'Meat' } });
+      meatId = meat.id;
+      const item = (name: string, unit: string, extra: Record<string, unknown> = {}) =>
+        prisma.inventoryItem.create({ data: { company_id: companyA.id, name, unit, ...extra } });
+      sevenUp = (await item('7 Up Can 300 Ml', 'case', { category_id: beverages.id })).id;
+      chicken = (await item('Chicken', 'Kg', { category_id: meat.id, department: 'Indian' })).id;
+      laptop = (await item('Laptop', 'BOX')).id;
+      await item('Old Stock', 'Kg', { is_active: false });
+
+      await move(branchA.id, chicken, 'OPENING', 10, '2026-09-01T00:00:00.000Z');
+      // 20:00 UTC on the 10th: the 11th in Kolkata, still the 10th in UTC.
+      await move(branchA.id, chicken, 'PURCHASE', 5, '2026-09-10T20:00:00.000Z');
+      await move(branchA.id, chicken, 'CONSUMPTION', -3, '2026-09-12T06:00:00.000Z');
+      await move(branchA.id, chicken, 'CONSUMPTION', -1, '2026-09-20T06:00:00.000Z');
+      await move(branchA2.id, chicken, 'PURCHASE', 2, '2026-09-10T20:00:00.000Z');
+      await move(branchA2.id, sevenUp, 'OPENING', 4.5, '2026-09-01T00:00:00.000Z');
+
+      const vendor = await prisma.vendor.create({ data: { company_id: companyA.id, name: 'Inventory Metro' } });
+      const po = (branchId: string, n: string, status: string, total: number, paid: number, at: string) =>
+        prisma.purchaseOrder.create({
+          data: {
+            company_id: companyA.id,
+            branch_id: branchId,
+            vendor_id: vendor.id,
+            po_number: n,
+            status: status as never,
+            total_minor: total,
+            paid_minor: paid,
+            currency: 'INR',
+            ordered_at: new Date(at),
+            received_at: status === 'RECEIVED' ? new Date(at) : null,
+            cancelled_at: status === 'CANCELLED' ? new Date(at) : null,
+          },
+        });
+      await po(branchA.id, 'INV-1', 'ORDERED', 100_000, 40_000, '2026-09-11T05:00:00.000Z');
+      await po(branchA.id, 'INV-2', 'RECEIVED', 50_000, 50_000, '2026-09-12T05:00:00.000Z');
+      await po(branchA2.id, 'INV-3', 'ORDERED', 30_000, 0, '2026-09-01T05:00:00.000Z');
+      await po(branchA.id, 'INV-4', 'CANCELLED', 99_999, 0, '2026-09-12T05:00:00.000Z');
+
+      // A stock keeper who may see Alpha Main's inventory, and nothing else.
+      const keeperRole = await prisma.role.create({ data: { company_id: companyA.id, name: 'Stock Keeper' } });
+      const perm = await prisma.permission.findUniqueOrThrow({ where: { name: 'inventory.view' } });
+      await prisma.rolePermission.create({ data: { role_id: keeperRole.id, permission_id: perm.id } });
+      const keeper = await prisma.user.create({
+        data: { email: 'r-keeper-a@test.com', password_hash: await bcrypt.hash(PASSWORD, SALT) },
+      });
+      await prisma.companyMembership.create({
+        data: { user_id: keeper.id, company_id: companyA.id, status: MembershipStatus.ACTIVE },
+      });
+      await prisma.userBranchRole.create({ data: { user_id: keeper.id, branch_id: branchA.id, role_id: keeperRole.id } });
+      tokenKeeperA = (await request(http).post('/api/v1/auth/login').send({ email: 'r-keeper-a@test.com', password: PASSWORD }))
+        .body.accessToken;
+    });
+
+    afterAll(async () => {
+      await prisma.stockMovement.deleteMany({ where: { company_id: companyA.id } });
+      await prisma.inventoryItem.deleteMany({ where: { company_id: companyA.id } });
+      await prisma.inventoryCategory.deleteMany({ where: { company_id: companyA.id } });
+      await prisma.purchaseOrder.deleteMany({ where: { po_number: { startsWith: 'INV-' } } });
+      await prisma.vendor.deleteMany({ where: { name: 'Inventory Metro' } });
+    });
+
+    const cellsOf = (res: request.Response, itemId: string) => res.body.items.find((i: any) => i.id === itemId).cells;
+
+    it('IN-1. a column group for every branch the caller may see; stock, consumed and purchase per branch', async () => {
+      const res = await inv('overview', range);
+      expect(res.status).toBe(200);
+      expect(res.body.branches.map((b: any) => b.name)).toEqual(['Alpha Main', 'Alpha Second']);
+      // Active items only, by name.
+      expect(res.body.items.map((i: any) => [i.name, i.unit, i.category, i.department])).toEqual([
+        ['7 Up Can 300 Ml', 'case', 'Beverages', null],
+        ['Chicken', 'Kg', 'Meat', 'Indian'],
+        ['Laptop', 'BOX', null, null],
+      ]);
+      expect(res.body.meta.total).toBe(3);
+      // Stock is everything ever; consumption on the 20th is outside the period.
+      expect(cellsOf(res, chicken)[branchA.id]).toEqual({ stock: 11, consumed: 3, purchase: 5 });
+      // The same instant is the 10th in UTC: before the period at Alpha Second.
+      expect(cellsOf(res, chicken)[branchA2.id]).toEqual({ stock: 2, consumed: null, purchase: null });
+      expect(cellsOf(res, sevenUp)[branchA2.id]).toEqual({ stock: 4.5, consumed: null, purchase: null });
+      expect(cellsOf(res, laptop)[branchA.id]).toEqual({ stock: null, consumed: null, purchase: null });
+    });
+
+    it('IN-2. the summary: purchase, open and received in the period; outstanding whatever the period', async () => {
+      const res = await inv('overview', range);
+      expect(res.body.summary).toEqual({
+        purchase_minor: 150_000,
+        outstanding_minor: 90_000,
+        open: 1,
+        received: 1,
+        currency: 'INR',
+      });
+      const allTime = await inv('overview');
+      expect(allTime.body.summary).toMatchObject({ purchase_minor: 180_000, outstanding_minor: 90_000, open: 2 });
+      expect(cellsOf(allTime, chicken)[branchA.id]).toEqual({ stock: 11, consumed: 4, purchase: 5 });
+    });
+
+    it('IN-3. category, department, search and branch each narrow what is shown', async () => {
+      const names = async (q: Record<string, string>) =>
+        (await inv('overview', q)).body.items.map((i: any) => i.name);
+      expect(await names({ category_id: meatId })).toEqual(['Chicken']);
+      expect(await names({ department: 'Indian' })).toEqual(['Chicken']);
+      expect(await names({ q: 'LAP' })).toEqual(['Laptop']);
+
+      const second = await inv('overview', { ...range, branch_id: branchA2.id });
+      expect(second.body.branches.map((b: any) => b.name)).toEqual(['Alpha Second']);
+      expect(Object.keys(cellsOf(second, chicken))).toEqual([branchA2.id]);
+      expect(second.body.summary).toMatchObject({ purchase_minor: 0, outstanding_minor: 30_000, open: 0 });
+    });
+
+    it('IN-4. a branch the caller has no inventory access at never appears, and cannot be asked for', async () => {
+      const res = await inv('overview', range, tokenKeeperA);
+      expect(res.status).toBe(200);
+      expect(res.body.branches.map((b: any) => b.name)).toEqual(['Alpha Main']);
+      expect(res.body.summary.outstanding_minor).toBe(60_000);
+      expect((await inv('overview', { branch_id: branchA2.id }, tokenKeeperA)).status).toBe(403);
+      expect((await inv('filters', {}, tokenKeeperA)).body.branches.map((b: any) => b.name)).toEqual(['Alpha Main']);
+    });
+
+    it('IN-5. refuses without inventory.view anywhere, without a company, or with half a period', async () => {
+      expect((await inv('overview', {}, tokenPlainA)).status).toBe(403);
+      expect((await request(http).get('/api/v1/inventory/overview').set('Authorization', `Bearer ${tokenAnalystA}`)).status).toBe(400);
+      expect((await inv('overview', { from: '2026-09-11' })).status).toBe(400);
+      expect((await inv('overview', { from: '2026-09-15', to: '2026-09-11' })).status).toBe(400);
+      expect((await inv('overview', { department: 'Continental' })).status).toBe(400);
+    });
+
+    it('IN-6. the filters: branches, the company categories, and the kitchen departments', async () => {
+      const res = await inv('filters');
+      expect(res.status).toBe(200);
+      expect(res.body.branches.map((b: any) => b.name)).toEqual(['Alpha Main', 'Alpha Second']);
+      expect(res.body.categories.map((c: any) => c.name)).toEqual(['Beverages', 'Meat']);
+      expect(res.body.departments).toEqual(['Indian', 'Chinese', 'Tandoori', 'BBQ', 'Turkish', 'Staff Food', 'Pick Up']);
     });
   });
 
