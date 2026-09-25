@@ -7,7 +7,7 @@ import { hasAnyPermission } from '@/lib/auth/permissions';
 import { hasQueueAccess, visibleSurfaces } from '@/lib/queue/surfaces';
 import { QueueSheet } from '@/components/queue/queue-sheet';
 import { ReportsSheet } from '@/components/reports/reports-sheet';
-import { CHECKLIST_REPORTS, type ChecklistReport } from '@/lib/reports/checklist-reports';
+import { CHECKLIST_REPORTS, reportHref, type ChecklistReport } from '@/lib/reports/checklist-reports';
 import { NavIcon } from './nav-icons';
 import { NAV_ITEMS, type NavItem } from './nav-items';
 import styles from './workspace.module.css';
@@ -78,8 +78,8 @@ export function WorkspaceGrid({
   const openReport = useCallback(
     (report: ChecklistReport) => {
       setReportsOpen(false);
-      if (report.href) router.push(report.href);
-      else if (report.reportKey) router.push(`/reports/${report.reportKey}`);
+      const href = reportHref(report);
+      if (href) router.push(href);
     },
     [router],
   );

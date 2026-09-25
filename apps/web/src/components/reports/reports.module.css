@@ -64,6 +64,37 @@
   font-size: 0.8125rem;
 }
 
+/* ── Reports page list ───────────────────────────────────────────────────── */
+
+/* The dashboard sheet's list, framed as a card on the page. */
+.reportList {
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+}
+
+/* A link row is an inline element by default; give it the button's box. */
+.reportList a {
+  text-decoration: none;
+}
+
+/* A row whose report is not built yet: shown, but not a control. */
+.reportList [aria-disabled='true'] {
+  cursor: default;
+}
+
+.reportList [aria-disabled='true']:hover {
+  background: none;
+}
+
+.moreTitle {
+  margin: var(--gap) 0 var(--gap);
+  font-size: var(--text-lg);
+  font-weight: 600;
+  color: var(--color-text);
+}
+
 /* ── Filters ─────────────────────────────────────────────────────────────── */
 
 .filters {

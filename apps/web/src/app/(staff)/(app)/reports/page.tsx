@@ -4,20 +4,23 @@ import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useAppContext } from '@/lib/context/app-context-provider';
 import { reportsApi } from '@/lib/reports/api';
+import { CHECKLIST_REPORTS, coveredByChecklistReports, reportHref } from '@/lib/reports/checklist-reports';
 import type { ReportDefinition } from '@/lib/reports/types';
+import { ReportRowContent } from '@/components/reports/report-row';
 import styles from '@/components/reports/reports.module.css';
+import listStyles from '@/components/reports/reports-sheet.module.css';
 
 /**
- * The report catalogue.
+ * The Reports page — the same list as the dashboard's Reports sheet, row for
+ * row (both read CHECKLIST_REPORTS and draw rows with ReportRowContent), so
+ * the module and the dashboard never disagree about what reports there are.
  *
- * The list comes from the SERVER, already filtered to the reports this user
- * may actually run — the page never enumerates a menu of reports it would then
- * refuse. Grouping is by the domain each report declares, so a report from a
- * future module appears under its own heading with no change here.
+ * Beneath it, "More reports" lists what the server offers this user that no
+ * row above already opens — the smaller reports such as outstanding banquet
+ * balances or tasks by assignee — so nothing built stays out of reach. That
+ * part comes from the SERVER, already filtered to the reports this user may
+ * run.
  */
-/** A domain's heading where its key is not already a word. */
-const DOMAIN_TITLES: Readonly<Record<string, string>> = { pos: 'Point of Sale', purchase: 'Purchasing' };
-
 export default function ReportsPage() {
   const { selectedCompanyId, selectedBranchId } = useAppContext();
   const ctx = useMemo(
@@ -52,15 +55,13 @@ export default function ReportsPage() {
     };
   }, [ctx]);
 
-  const byDomain = useMemo(() => {
-    const groups = new Map<string, ReportDefinition[]>();
-    for (const definition of definitions) {
-      const list = groups.get(definition.domain) ?? [];
-      list.push(definition);
-      groups.set(definition.domain, list);
-    }
-    return [...groups.entries()].sort(([a], [b]) => a.localeCompare(b));
-  }, [definitions]);
+  const more = useMemo(
+    () =>
+      definitions
+        .filter((d) => !coveredByChecklistReports(d.key))
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    [definitions],
+  );
 
   if (!ctx) {
     return (
@@ -82,6 +83,28 @@ export default function ReportsPage() {
         </div>
       </header>
 
+      <nav aria-label="Reports" className={styles.reportList}>
+        <ul className={listStyles.list}>
+          {CHECKLIST_REPORTS.map((report) => {
+            const href = reportHref(report);
+            return (
+              <li key={report.key}>
+                {href ? (
+                  <Link className={listStyles.item} href={href}>
+                    <ReportRowContent icon={report.icon} title={report.title} subtitle={report.subtitle} />
+                  </Link>
+                ) : (
+                  // Not built yet: shown, as on the dashboard, but goes nowhere.
+                  <div className={listStyles.item} aria-disabled="true">
+                    <ReportRowContent icon={report.icon} title={report.title} subtitle={report.subtitle} />
+                  </div>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      </nav>
+
       {error ? (
         <p className={styles.error} role="alert">
           {error}
@@ -94,28 +117,22 @@ export default function ReportsPage() {
         </p>
       ) : null}
 
-      {!loading && definitions.length === 0 && !error ? (
-        <p className={styles.notice}>
-          No reports are available to you at this branch.
-        </p>
-      ) : null}
-
-      {byDomain.map(([domain, group]) => (
-        <section key={domain}>
-          <h2 className={styles.title}>{DOMAIN_TITLES[domain] ?? domain.charAt(0).toUpperCase() + domain.slice(1)}</h2>
-          <ul className={styles.cards}>
-            {group.map((definition) => (
-              <li key={definition.key} className={styles.card}>
-                <Link className={styles.cardTitle} href={`/reports/${definition.key}`}>
-                  {definition.name}
+      {more.length > 0 ? (
+        <section aria-labelledby="more-reports">
+          <h2 className={styles.moreTitle} id="more-reports">
+            More reports
+          </h2>
+          <ul className={`${listStyles.list} ${styles.reportList}`}>
+            {more.map((definition) => (
+              <li key={definition.key}>
+                <Link className={listStyles.item} href={`/reports/${definition.key}`}>
+                  <ReportRowContent icon="barChart" title={definition.name} subtitle={definition.description} />
                 </Link>
-                <p className={styles.subtitle}>{definition.description}</p>
-                <span className={styles.domain}>{definition.kind}</span>
               </li>
             ))}
           </ul>
         </section>
-      ))}
+      ) : null}
     </section>
   );
 }

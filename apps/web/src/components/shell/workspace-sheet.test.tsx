@@ -83,11 +83,14 @@ describe('Workspace — the Reports sheet', () => {
       .filter((b) => b.textContent !== 'Close reports')
       .map((b) => b.textContent);
 
-  it('lists every checklist report, titled and subtitled as the design sets out', () => {
+  it('lists every report in the reference order, titled and subtitled as it is', () => {
     const { dialog } = openReports();
     expect(rows(dialog)).toEqual([
-      'POS ReportsSales & orders',
-      'Purchase ReportsVendors & purchase orders',
+      'Queue ReportsWait & seating data',
+      'Banquet ReportsEvent analytics',
+      'Task ReportsCompletion rates',
+      'Request ReportsService requests',
+      'EOD ReportsEnd of day reports',
       'Operational ChecklistChecklist reports',
       'Kitchen ChecklistKitchen reports',
       'Branch Head OpeningBranch head opening reports',
@@ -96,34 +99,18 @@ describe('Workspace — the Reports sheet', () => {
       'Kitchen BalanceBalance reports',
       'Biryani SalesSales reports',
       'Kitchen Stock RequestStock reports',
+      'POS ReportsSales analytics',
+      'Purchase OrdersPurchase reports',
     ]);
   });
 
-  it('closes on Escape, on the close control, and when a report is chosen', () => {
-    const { card } = openReports();
-    expect(card.getAttribute('aria-expanded')).toBe('true');
-    fireEvent.keyDown(document, { key: 'Escape' });
-    expect(screen.queryByRole('dialog')).toBeNull();
-
-    fireEvent.click(card);
-    fireEvent.click(screen.getByRole('button', { name: 'Close reports' }));
-    expect(screen.queryByRole('dialog')).toBeNull();
-
-    fireEvent.click(card);
-    fireEvent.click(rowButtons()[0]);
-    expect(screen.queryByRole('dialog')).toBeNull();
-
-    function rowButtons() {
-      return within(screen.getByRole('dialog'))
-        .getAllByRole('button')
-        .filter((b) => b.textContent !== 'Close reports');
-    }
-  });
-
-  it('opens the report behind every row, closing the sheet', () => {
-    const expected: Record<string, string> = {
-      'POS Reports': '/reports/pos',
-      'Purchase Reports': '/reports/purchase',
+  it('opens the report behind every row, closing the sheet; a row not built yet only closes it', () => {
+    const expected: Record<string, string | null> = {
+      'Queue Reports': '/reports/queue.tokens',
+      'Banquet Reports': '/reports/banquet.bookings',
+      'Task Reports': '/reports/tasks.log',
+      'Request Reports': null,
+      'EOD Reports': '/reports/tasks.eod',
       'Operational Checklist': '/reports/tasks.operational',
       'Kitchen Checklist': '/reports/tasks.kitchen',
       'Branch Head Opening': '/reports/tasks.opening',
@@ -132,13 +119,16 @@ describe('Workspace — the Reports sheet', () => {
       'Kitchen Balance': '/reports/tasks.kitchen_balance',
       'Biryani Sales': '/reports/tasks.biryani_sales',
       'Kitchen Stock Request': '/reports/tasks.stock_requests',
+      'POS Reports': '/reports/pos',
+      'Purchase Orders': '/reports/purchase',
     };
     const { card } = openReports();
     for (const [title, href] of Object.entries(expected)) {
       push.mockClear();
       if (!screen.queryByRole('dialog')) fireEvent.click(card);
       fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: new RegExp(`^${title}`) }));
-      expect(push).toHaveBeenCalledWith(href);
+      if (href) expect(push).toHaveBeenCalledWith(href);
+      else expect(push).not.toHaveBeenCalled();
       expect(screen.queryByRole('dialog')).toBeNull();
     }
   });

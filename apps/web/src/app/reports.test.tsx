@@ -248,22 +248,47 @@ describe('report formatting', () => {
 // ═══════════════════════════════════════════════════════════════════════════
 
 describe('reports catalogue', () => {
-  it('RF-7. shows only what the server offered, grouped by domain', async () => {
+  it('RF-7. lists exactly the dashboard sheet’s reports, in its order, each opening where the sheet does', async () => {
+    const { CHECKLIST_REPORTS, reportHref } = await import('@/lib/reports/checklist-reports');
     render(<ReportsPage />);
 
-    const link = await screen.findByRole('link', { name: 'Queue summary' });
-    expect(link.getAttribute('href')).toBe('/reports/queue.summary');
-    expect(screen.getByRole('link', { name: 'Task completion' })).toBeTruthy();
-    expect(screen.getByRole('heading', { name: 'Queue' })).toBeTruthy();
-    expect(screen.getByRole('heading', { name: 'Tasks' })).toBeTruthy();
-    // The page never invents an entry the server did not send.
-    expect(screen.queryByText(/banquet/i)).toBeNull();
+    const list = screen.getByRole('navigation', { name: 'Reports' });
+    // Every row, in order — built or not.
+    expect([...list.querySelectorAll('li')].map((li) => li.querySelector('span span')?.textContent)).toEqual(
+      CHECKLIST_REPORTS.map((r) => r.title),
+    );
+    // Each built row links where the sheet goes; a row not built yet is not a link.
+    const built = CHECKLIST_REPORTS.filter((r) => reportHref(r));
+    const links = within(list).getAllByRole('link');
+    expect(links.map((l) => l.getAttribute('href'))).toEqual(built.map((r) => reportHref(r)));
+    expect(within(list).queryByRole('link', { name: /Request Reports/ })).toBeNull();
+    expect(within(list).getByRole('link', { name: /POS Reports/ }).getAttribute('href')).toBe('/reports/pos');
+    expect(within(list).getByRole('link', { name: /Kitchen Stock Request/ }).getAttribute('href')).toBe(
+      '/reports/tasks.stock_requests',
+    );
   });
 
-  it('RF-8. says so plainly when nothing is available', async () => {
+  it('RF-8. "More reports" holds only what the server offered and no row above already opens', async () => {
+    apiMock.list.mockImplementation(async () => ({
+      data: [
+        { key: 'queue.summary', name: 'Queue summary', description: 'Tokens by the day', domain: 'queue', kind: 'summary' },
+        { key: 'tasks.eod', name: 'EOD Reports', description: 'End-of-Day reports', domain: 'tasks', kind: 'summary' },
+        // Already a row, or shown with its row: never listed twice.
+        { key: 'tasks.kitchen', name: 'Kitchen Checklist', description: '', domain: 'tasks', kind: 'summary' },
+        { key: 'tasks.eod_compliance', name: 'EOD compliance', description: '', domain: 'tasks', kind: 'summary' },
+        { key: 'pos.summary', name: 'POS Summary', description: '', domain: 'pos', kind: 'summary' },
+      ],
+      meta: { total: 5 },
+    }));
+    render(<ReportsPage />);
+    const more = (await screen.findByRole('heading', { name: 'More reports' })).closest('section')!;
+    // EOD Reports is a row of its own now, so only the queue summary is left.
+    expect(within(more).getAllByRole('link').map((l) => l.getAttribute('href'))).toEqual(['/reports/queue.summary']);
+
+    // Nothing extra on offer: no "More reports" at all, the list still there.
     apiMock.list.mockImplementation(async () => ({ data: [], meta: { total: 0 } }));
     render(<ReportsPage />);
-    expect(await screen.findByText(/no reports are available/i)).toBeTruthy();
+    await waitFor(() => expect(screen.getAllByRole('navigation', { name: 'Reports' })).toHaveLength(2));
   });
 
   it('RF-9. surfaces a refusal instead of rendering an empty page', async () => {

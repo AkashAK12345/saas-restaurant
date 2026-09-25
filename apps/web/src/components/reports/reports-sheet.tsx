@@ -1,9 +1,9 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
-import { AppIcon } from '@/components/app/icons';
 import { NavIcon } from '@/components/shell/nav-icons';
 import type { ChecklistReport } from '@/lib/reports/checklist-reports';
+import { ReportRowContent } from './report-row';
 import styles from './reports-sheet.module.css';
 
 /**
@@ -65,16 +65,7 @@ export function ReportsSheet({
                 className={styles.item}
                 onClick={() => onSelect(report)}
               >
-                <span className={styles.tile}>
-                  <AppIcon name={report.icon} size={24} />
-                </span>
-                <span className={styles.text}>
-                  <span className={styles.itemTitle}>{report.title}</span>
-                  <span className={styles.itemSub}>{report.subtitle}</span>
-                </span>
-                <span className={styles.chevron}>
-                  <AppIcon name="chevronRight" />
-                </span>
+                <ReportRowContent icon={report.icon} title={report.title} subtitle={report.subtitle} />
               </button>
             </li>
           ))}

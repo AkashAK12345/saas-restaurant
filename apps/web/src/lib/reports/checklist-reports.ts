@@ -10,9 +10,10 @@ import { PERMISSION_KEYS, type PermissionKey } from '@/lib/auth/permissions';
  * Quick Access tile in `lib/tasks/quick-access.ts`, so the submission flow and
  * its report always name the same thing.
  *
- * Point of sale and purchasing lead: their tables exist (taking orders and
- * raising purchase orders are still to come), so their screens open and say
- * honestly when there is nothing yet. The checklist reports follow.
+ * The list, its order and its wording follow the reference app's Reports
+ * sheet. Point of sale and purchasing have tables but nothing that fills them
+ * yet, so their screens open and say honestly when there is nothing.
+ * Request Reports has no data at all yet: its row is shown and does nothing.
  */
 export interface ChecklistReport {
   key: string;
@@ -27,14 +28,19 @@ export interface ChecklistReport {
 }
 
 export const CHECKLIST_REPORTS: readonly ChecklistReport[] = [
-  { key: 'pos', title: 'POS Reports', subtitle: 'Sales & orders', icon: 'receipt', href: '/reports/pos' },
+  // The reference's own order and wording, row for row.
+  { key: 'queue', title: 'Queue Reports', subtitle: 'Wait & seating data', icon: 'people', reportKey: 'queue.tokens' },
   {
-    key: 'purchase',
-    title: 'Purchase Reports',
-    subtitle: 'Vendors & purchase orders',
-    icon: 'truck',
-    href: '/reports/purchase',
+    key: 'banquet',
+    title: 'Banquet Reports',
+    subtitle: 'Event analytics',
+    icon: 'building',
+    reportKey: 'banquet.bookings',
   },
+  { key: 'tasks', title: 'Task Reports', subtitle: 'Completion rates', icon: 'checklist', reportKey: 'tasks.log' },
+  // Not built yet: SAMCO records no service requests to report on.
+  { key: 'requests', title: 'Request Reports', subtitle: 'Service requests', icon: 'document' },
+  { key: 'eod', title: 'EOD Reports', subtitle: 'End of day reports', icon: 'clock', reportKey: 'tasks.eod' },
   {
     key: 'operational-checklist',
     title: 'Operational Checklist',
@@ -67,7 +73,7 @@ export const CHECKLIST_REPORTS: readonly ChecklistReport[] = [
     key: 'branch-manager-checklist',
     title: 'BM Checklist',
     subtitle: 'BM reports',
-    icon: 'notes',
+    icon: 'document',
     reportKey: 'tasks.bm',
   },
   {
@@ -91,7 +97,31 @@ export const CHECKLIST_REPORTS: readonly ChecklistReport[] = [
     icon: 'archive',
     reportKey: 'tasks.stock_requests',
   },
+  { key: 'pos', title: 'POS Reports', subtitle: 'Sales analytics', icon: 'receipt', href: '/reports/pos' },
+  { key: 'purchase', title: 'Purchase Orders', subtitle: 'Purchase reports', icon: 'truck', href: '/reports/purchase' },
 ];
+
+/**
+ * Where a row opens: its own screen, else its report. Null for a row whose
+ * report is not built yet. The dashboard sheet and the Reports page both ask
+ * here, so they can never send the same row to two places.
+ */
+export function reportHref(report: ChecklistReport): string | null {
+  if (report.href) return report.href;
+  return report.reportKey ? `/reports/${report.reportKey}` : null;
+}
+
+/**
+ * Whether a catalogue report is already reached through a row above: a row's
+ * own report, a report shown on a row's screen (POS, purchasing), or the
+ * compliance panel that sits under its log. The Reports page lists only the
+ * rest under "More reports", so nothing appears twice.
+ */
+export function coveredByChecklistReports(key: string): boolean {
+  if (CHECKLIST_REPORTS.some((r) => r.reportKey === key)) return true;
+  if (key.startsWith('pos.') || key.startsWith('purchase.')) return true;
+  return key.endsWith('_compliance');
+}
 
 /** Reading a checklist report is reading a report. */
 export const CHECKLIST_REPORTS_PERMISSION: PermissionKey = PERMISSION_KEYS.REPORTS_VIEW;
