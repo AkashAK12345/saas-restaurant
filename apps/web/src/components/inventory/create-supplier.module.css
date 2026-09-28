@@ -144,3 +144,58 @@
   color: var(--color-text-muted);
   cursor: not-allowed;
 }
+
+/* ── Edit Supplier: sections, the switch, and labelled fields ───────────── */
+
+.section {
+  margin: 8px 0 -4px;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.current {
+  margin: 0;
+  color: var(--color-text-muted);
+}
+
+.createLink {
+  display: inline-flex;
+  align-self: flex-start;
+  align-items: center;
+  gap: 14px;
+  min-height: var(--tap-min);
+  padding: 0 4px;
+  border: 0;
+  background: none;
+  color: var(--color-primary);
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+/* The label rides the top border once there is a value, as the reference draws it. */
+.labelled {
+  position: relative;
+}
+
+.labelled .tag {
+  position: absolute;
+  top: -8px;
+  left: 18px;
+  padding: 0 6px;
+  background: var(--color-bg);
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+}
+
+.field input:read-only {
+  color: var(--color-text-muted);
+}
+
+.createLink:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}

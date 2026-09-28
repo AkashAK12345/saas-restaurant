@@ -17,15 +17,14 @@ import {
 import { dayTime, parseQuantity, parseRupees, quantity } from '@/lib/inventory/format';
 import { formatMoney } from '@/lib/reports/format';
 import { AppIcon } from '@/components/app/icons';
-import { printOrder, sendOnWhatsApp } from '@/components/inventory/order-actions';
+import { printOrder } from '@/components/inventory/order-actions';
+import { EditSupplierSheet } from '@/components/inventory/edit-supplier-sheet';
+import { SendOrderSheet } from '@/components/inventory/send-order-sheet';
 import styles from '@/components/inventory/order.module.css';
 
 const ACCEPT = 'image/jpeg,image/png,image/webp,image/gif';
 /** Searching waits this long after the last key before asking the server. */
 const SEARCH_DELAY_MS = 250;
-
-/** A control drawn as the reference has it, whose screen is still to come. */
-const soon = { 'aria-disabled': true, title: 'Coming soon' } as const;
 
 /** An awaited line as the screen edits it. */
 interface Draft {
@@ -93,6 +92,7 @@ export default function PurchaseOrderPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [sheet, setSheet] = useState<'supplier' | 'send' | null>(null);
 
   const adopt = useCallback((o: OrderDetail) => {
     setOrder(o);
@@ -199,13 +199,11 @@ export default function PurchaseOrderPage() {
     }
   };
 
-  const send = async () => {
-    setError(null);
-    try {
-      adopt(await sendOnWhatsApp(ctx, order.id, order));
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Could not send the order');
-    }
+  /** A change made in a sheet: the order anew, keeping what is being typed here. */
+  const refreshed = (o: OrderDetail) => {
+    setOrder(o);
+    setVendorId(o.vendor.id);
+    setSheet(null);
   };
 
   const update = (key: string, patch: Partial<Draft>) =>
@@ -231,12 +229,19 @@ export default function PurchaseOrderPage() {
             className={styles.tool}
             data-tone="green"
             aria-label="Send on WhatsApp"
-            onClick={() => void send()}
+            onClick={() => setSheet('send')}
           >
             <AppIcon name="send" size={24} />
           </button>
         ) : null}
-        <button type="button" className={styles.tool} data-tone="terracotta" aria-label="Edit order" {...soon}>
+        <button
+          type="button"
+          className={styles.tool}
+          data-tone="terracotta"
+          aria-label="Edit supplier"
+          disabled={!order.may_edit && !order.may_manage_suppliers}
+          onClick={() => setSheet('supplier')}
+        >
           <AppIcon name="pencil" size={22} />
         </button>
         <button
@@ -265,10 +270,14 @@ export default function PurchaseOrderPage() {
       </div>
 
       <div className={styles.body}>
-        {editing ? (
+        {editing || order.receipts.length ? (
           <div className={styles.invoice}>
             <span className={styles.invoiceLabel}>Invoice Number</span>
-            <span className={styles.invoiceValue}>Auto-generated on receive</span>
+            {editing ? (
+              <span className={styles.invoiceValue}>Auto-generated on receive</span>
+            ) : (
+              <span className={styles.invoiceNumber}>{order.receipts[order.receipts.length - 1].invoice_number}</span>
+            )}
           </div>
         ) : null}
 
@@ -400,6 +409,13 @@ export default function PurchaseOrderPage() {
           </p>
         ) : null}
       </div>
+
+      {sheet === 'supplier' ? (
+        <EditSupplierSheet ctx={ctx} order={order} onClose={() => setSheet(null)} onSaved={refreshed} />
+      ) : null}
+      {sheet === 'send' ? (
+        <SendOrderSheet ctx={ctx} orderId={order.id} known={order} onClose={() => setSheet(null)} onSent={refreshed} />
+      ) : null}
 
       <footer className={styles.foot}>
         <div className={styles.footInner}>

@@ -1,0 +1,230 @@
+/* "Send to <supplier>": the two-step WhatsApp guide. Tokens only. */
+
+.screen {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-bg);
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 10px 16px;
+  background: var(--color-surface);
+}
+
+.close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--tap-min);
+  height: var(--tap-min);
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.title {
+  margin: 0;
+  min-width: 0;
+  font-size: var(--text-lg);
+  font-weight: 500;
+  color: var(--color-text);
+  overflow-wrap: anywhere;
+}
+
+.body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 14px;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 16px;
+  overflow-y: auto;
+}
+
+.info {
+  display: flex;
+  gap: 12px;
+  margin: 0;
+  padding: 14px 18px;
+  border: 1px solid var(--color-border);
+  border-radius: 16px;
+  background: var(--color-surface-muted);
+  color: var(--color-text-muted);
+  line-height: 1.5;
+}
+
+.info svg {
+  flex: none;
+  margin-top: 2px;
+}
+
+.step {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 18px 20px;
+  border: 1px solid var(--color-border);
+  border-radius: 18px;
+  background: var(--color-surface);
+}
+
+.stepMain {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.num {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: var(--accent-green-bg);
+  color: var(--color-text);
+  font-weight: 500;
+}
+
+.num[data-done='true'] {
+  background: var(--color-success);
+  color: var(--color-primary-contrast);
+}
+
+.stepText {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.stepTitle {
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+.stepSub {
+  font-size: 0.875rem;
+  color: var(--color-text-muted);
+}
+
+.go {
+  flex: none;
+  min-height: var(--tap-min);
+  padding: 0 4px;
+  border: 0;
+  background: none;
+  color: var(--color-success);
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.go:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.confirm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  color: var(--color-text-muted);
+  font-size: 0.9375rem;
+}
+
+.confirm button {
+  min-height: 40px;
+  padding: 0 16px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.confirm button[data-yes] {
+  border-color: var(--color-success);
+  background: var(--accent-green-bg);
+  color: var(--accent-green-fg);
+}
+
+.skip {
+  align-self: flex-end;
+  min-height: 40px;
+  padding: 0 4px;
+  border: 0;
+  background: none;
+  color: var(--color-text-muted);
+  font: inherit;
+  font-size: 0.9375rem;
+  cursor: pointer;
+}
+
+.error {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--color-danger-bg);
+  color: var(--color-danger);
+}
+
+.foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 16px calc(16px + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--color-border);
+  background: var(--color-surface);
+}
+
+.footNote {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--color-text-muted);
+}
+
+.done {
+  flex: none;
+  min-width: 110px;
+  min-height: 56px;
+  padding: 0 24px;
+  border: 0;
+  border-radius: 16px;
+  background: var(--color-primary);
+  color: var(--color-primary-contrast);
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.done:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.close:focus-visible,
+.go:focus-visible,
+.skip:focus-visible,
+.confirm button:focus-visible,
+.done:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}

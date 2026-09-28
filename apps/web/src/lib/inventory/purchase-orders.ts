@@ -117,6 +117,8 @@ export interface OrderDetail {
   receipts: OrderReceipt[];
   photos: OrderPhoto[];
   may_edit: boolean;
+  /** The caller may edit suppliers' details. */
+  may_manage_suppliers: boolean;
 }
 
 /** A line as the Receive Order screen sends it back. */
@@ -144,7 +146,8 @@ export const purchaseOrdersApi = {
   list: (ctx: InventoryContext, query: OrderQuery = {}) =>
     api.get<OrderList>(`${base}${qs(query)}`, { companyId: ctx.companyId }),
   get: (ctx: InventoryContext, id: string) => api.get<OrderDetail>(`${base}/${id}`, { companyId: ctx.companyId }),
-  update: (ctx: InventoryContext, id: string, body: { vendor_id?: string; lines: OrderLineInput[] }) =>
+  /** Without lines, only the supplier changes. */
+  update: (ctx: InventoryContext, id: string, body: { vendor_id?: string; lines?: OrderLineInput[] }) =>
     api.patch<OrderDetail>(`${base}/${id}`, body, { companyId: ctx.companyId }),
   receive: (
     ctx: InventoryContext,
@@ -161,6 +164,8 @@ export const purchaseOrdersApi = {
     api.delete<void>(`${base}/${id}/photos/${photoId}`, { companyId: ctx.companyId }),
   photo: (ctx: InventoryContext, id: string, photoId: string) =>
     apiDownload(`${base}/${id}/photos/${photoId}`, 'photo', { companyId: ctx.companyId }),
+  pdf: (ctx: InventoryContext, id: string) =>
+    apiDownload(`${base}/${id}/pdf`, 'purchase-order.pdf', { companyId: ctx.companyId }),
 };
 
 // ── Sending an order on WhatsApp ────────────────────────────────────────────

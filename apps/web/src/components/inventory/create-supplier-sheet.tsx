@@ -29,6 +29,8 @@ export function CreateSupplierSheet({
   const [accountNumber, setAccountNumber] = useState('');
   const [ifsc, setIfsc] = useState('');
   const [bankName, setBankName] = useState('');
+  const [bankBranch, setBankBranch] = useState('');
+  const [upi, setUpi] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const first = useRef<HTMLInputElement>(null);
@@ -58,6 +60,8 @@ export function CreateSupplierSheet({
         bank_account_number: optional(accountNumber),
         bank_ifsc: optional(ifsc),
         bank_name: optional(bankName),
+        bank_branch: optional(bankBranch),
+        upi_id: optional(upi),
       });
       onCreated(created);
     } catch (e) {
@@ -127,6 +131,8 @@ export function CreateSupplierSheet({
             {field('Account number', accountNumber, setAccountNumber, { inputMode: 'numeric' })}
             {field('IFSC', ifsc, setIfsc)}
             {field('Bank name', bankName, setBankName)}
+            {field('Bank branch', bankBranch, setBankBranch)}
+            {field('UPI ID', upi, setUpi)}
           </div>
         ) : null}
 

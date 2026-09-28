@@ -12,12 +12,18 @@ const orders = vi.hoisted(() => ({
   uploadPhoto: vi.fn(),
   deletePhoto: vi.fn(),
   photo: vi.fn(),
+  pdf: vi.fn(),
 }));
 const inventory = vi.hoisted(() => ({
   filters: vi.fn(),
   suppliers: vi.fn(),
   searchItems: vi.fn(),
+  supplier: vi.fn(),
+  updateSupplier: vi.fn(),
+  createSupplier: vi.fn(),
 }));
+const reportsApi = vi.hoisted(() => ({ saveFile: vi.fn() }));
+vi.mock('@/lib/reports/api', () => reportsApi);
 vi.mock('@/lib/inventory/purchase-orders', async (real) => ({
   ...(await real<typeof import('@/lib/inventory/purchase-orders')>()),
   purchaseOrdersApi: orders,
@@ -119,6 +125,7 @@ const detail = (over: Partial<OrderDetail> = {}): OrderDetail => ({
   receipts: [],
   photos: [],
   may_edit: true,
+  may_manage_suppliers: true,
   ...over,
 });
 
@@ -189,21 +196,17 @@ describe('Purchase list', () => {
     expect(screen.getByPlaceholderText('Search items')).toBeTruthy();
   });
 
-  it('POW-3. cancels after asking, and sends on WhatsApp, marking it sent', async () => {
+  it('POW-3. cancels after asking; send opens the two-step WhatsApp guide', async () => {
     vi.spyOn(window, 'confirm').mockReturnValue(true);
-    const tab = { location: { href: '' }, close: vi.fn() };
-    vi.spyOn(window, 'open').mockReturnValue(tab as unknown as Window);
     orders.cancel.mockResolvedValue(detail({ status: 'CANCELLED' }));
     orders.get.mockResolvedValue(detail());
-    orders.markSent.mockResolvedValue(detail({ whatsapp_sent_at: '2026-09-28T07:00:00.000Z' }));
     render(<PurchasePage />);
     const list = await screen.findByRole('list', { name: 'Purchase orders' });
     const awaiting = within(list).getAllByRole('listitem')[0];
 
     fireEvent.click(within(awaiting).getByRole('button', { name: /^Send the order/ }));
-    await waitFor(() => expect(orders.markSent).toHaveBeenCalledWith({ companyId: 'co-1' }, 'po-1'));
-    expect(tab.location.href).toMatch(/^https:\/\/wa\.me\/919840012345\?text=/);
-    expect(decodeURIComponent(tab.location.href)).toContain('1. Aquafina Water Bottle 1 Ltr — 1 case');
+    expect(await screen.findByRole('dialog', { name: 'Send to Sri Ganeshr Trd' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
 
     fireEvent.click(within(awaiting).getByRole('button', { name: /^Cancel the order/ }));
     await waitFor(() => expect(orders.cancel).toHaveBeenCalledWith({ companyId: 'co-1' }, 'po-1'));
@@ -325,12 +328,126 @@ describe('Receive Order', () => {
     render(<OrderPage />);
     expect(await screen.findByRole('heading', { name: 'Order' })).toBeTruthy();
     expect(screen.getByText('Received · 1 item')).toBeTruthy();
+    expect(screen.getByText('Invoice Number')).toBeTruthy();
+    expect(screen.getAllByText(/INV-CEN-2609-0135/)[0].textContent).toBe('INV-CEN-2609-0135');
     expect(screen.getByText(/Inv INV-CEN-2609-0135 · 1 item · 28 Sep/)).toBeTruthy();
     expect(screen.getByText('GST 18% · ₹1,766.90')).toBeTruthy();
     expect(screen.getByText('Reference Photos (1/10)')).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'Save' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Remove photo 1' })).toBeNull();
     expect(screen.getAllByText('₹11,582.99').length).toBeGreaterThan(0);
+  });
+});
+
+describe('Send to supplier', () => {
+  beforeEach(() => {
+    for (const fn of [...Object.values(orders), ...Object.values(inventory), reportsApi.saveFile]) fn.mockReset();
+    orders.get.mockResolvedValue(detail());
+    inventory.suppliers.mockResolvedValue([]);
+    orders.photo.mockResolvedValue({ blob: new Blob(['x']), filename: 'p.png' });
+    globalThis.URL.createObjectURL = vi.fn(() => 'blob:x');
+    globalThis.URL.revokeObjectURL = vi.fn();
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  it('SND-1. message then PDF, each confirmed; marked sent only once the PDF went', async () => {
+    const open = vi.spyOn(window, 'open').mockReturnValue(null);
+    orders.pdf.mockResolvedValue({ blob: new Blob(['%PDF-']), filename: 'PO-1.pdf' });
+    orders.markSent.mockResolvedValue(detail({ whatsapp_sent_at: '2026-09-28T07:00:00.000Z' }));
+    render(<OrderPage />);
+    await screen.findByRole('heading', { name: 'Receive Order' });
+    fireEvent.click(screen.getByRole('button', { name: 'Send on WhatsApp' }));
+    const sheet = screen.getByRole('dialog', { name: 'Send to Sri Ganeshr Trd' });
+    expect(within(sheet).getByText(/^Not marked sent until you confirm the PDF went/)).toBeTruthy();
+
+    fireEvent.click(within(sheet).getByRole('button', { name: 'Send message' }));
+    expect(open.mock.calls[0][0]).toMatch(/^https:\/\/wa\.me\/919840012345\?text=/);
+    fireEvent.click(within(sheet).getByRole('button', { name: 'Yes, sent' }));
+    expect(within(sheet).queryByText('Skip message — send PDF only')).toBeNull();
+
+    fireEvent.click(within(sheet).getByRole('button', { name: 'Send PDF' }));
+    await within(sheet).findByText('Did the PDF go?');
+    // No share sheet in a test browser: the PDF is saved, to attach.
+    expect(reportsApi.saveFile).toHaveBeenCalledWith({ blob: expect.any(Blob), filename: 'PO-1.pdf' });
+    fireEvent.click(within(sheet).getByRole('button', { name: 'Yes, sent' }));
+    fireEvent.click(within(sheet).getByRole('button', { name: 'Done' }));
+    await waitFor(() => expect(orders.markSent).toHaveBeenCalledWith({ companyId: 'co-1' }, 'po-1'));
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: /^Send to/ })).toBeNull());
+  });
+
+  it('SND-2. without the PDF confirmed, Done just closes; the message may be skipped', async () => {
+    render(<OrderPage />);
+    await screen.findByRole('heading', { name: 'Receive Order' });
+    fireEvent.click(screen.getByRole('button', { name: 'Send on WhatsApp' }));
+    const sheet = screen.getByRole('dialog', { name: 'Send to Sri Ganeshr Trd' });
+    fireEvent.click(within(sheet).getByRole('button', { name: 'Skip message — send PDF only' }));
+    expect(within(sheet).getByText('Skipped — the PDF alone.')).toBeTruthy();
+    fireEvent.click(within(sheet).getByRole('button', { name: 'Done' }));
+    expect(screen.queryByRole('dialog', { name: /^Send to/ })).toBeNull();
+    expect(orders.markSent).not.toHaveBeenCalled();
+  });
+});
+
+describe('Edit Supplier', () => {
+  const CURRENT = {
+    id: 'v1',
+    name: 'Sri Ganeshr Trd',
+    label: null,
+    phone: '9884511100',
+    gstin: null,
+    address: null,
+    bank_account_name: 'Sri Ganeshr',
+    bank_account_number: '282073000002662',
+    bank_ifsc: 'SIBL0000282',
+    bank_name: null,
+    bank_branch: null,
+    upi_id: null,
+    may_edit: true,
+  };
+  beforeEach(() => {
+    for (const fn of [...Object.values(orders), ...Object.values(inventory)]) fn.mockReset();
+    orders.get.mockResolvedValue(detail());
+    inventory.suppliers.mockResolvedValue([
+      { id: 'v1', name: 'Sri Ganeshr Trd', label: null, phone: null },
+      { id: 'v9', name: 'Fresh Green', label: 'Veg', phone: null },
+    ]);
+    inventory.supplier.mockImplementation(async (_c: unknown, id: string) =>
+      id === 'v9' ? { ...CURRENT, id: 'v9', name: 'Fresh Green', bank_ifsc: null } : CURRENT,
+    );
+  });
+
+  it('EDS-1. shows the current supplier and its bank details, as the reference does', async () => {
+    render(<OrderPage />);
+    await screen.findByRole('heading', { name: 'Receive Order' });
+    fireEvent.click(screen.getByRole('button', { name: 'Edit supplier' }));
+    const sheet = screen.getByRole('dialog', { name: 'Edit Supplier' });
+    expect(within(sheet).getByText('Current: Sri Ganeshr Trd')).toBeTruthy();
+    expect(within(sheet).getByRole('button', { name: 'Switch supplier: none chosen' })).toBeTruthy();
+    expect(((await within(sheet).findByLabelText('Phone')) as HTMLInputElement).value).toBe('9884511100');
+    expect((within(sheet).getByLabelText('IFSC code') as HTMLInputElement).value).toBe('SIBL0000282');
+    for (const label of ['Bank name', 'Bank branch', 'UPI ID', 'GSTIN']) expect(within(sheet).getByLabelText(label)).toBeTruthy();
+    expect((within(sheet).getByRole('button', { name: 'Save' }) as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('EDS-2. saves edited details and switches the order to the supplier picked', async () => {
+    inventory.updateSupplier.mockResolvedValue({});
+    orders.update.mockResolvedValue(detail({ vendor: { id: 'v9', name: 'Fresh Green', phone: null, label: 'Veg' } }));
+    render(<OrderPage />);
+    await screen.findByRole('heading', { name: 'Receive Order' });
+    fireEvent.click(screen.getByRole('button', { name: 'Edit supplier' }));
+    const sheet = screen.getByRole('dialog', { name: 'Edit Supplier' });
+    await within(sheet).findByLabelText('Phone');
+    fireEvent.click(within(sheet).getByRole('button', { name: 'Switch supplier: none chosen' }));
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'Switch supplier' })).getByText('Fresh Green'));
+    await waitFor(() => expect(inventory.supplier).toHaveBeenLastCalledWith({ companyId: 'co-1' }, 'v9'));
+    expect(await within(sheet).findByText('Edit new supplier')).toBeTruthy();
+    fireEvent.change(await within(sheet).findByLabelText('UPI ID'), { target: { value: 'freshgreen@okaxis' } });
+    fireEvent.click(within(sheet).getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Edit Supplier' })).toBeNull());
+    expect(inventory.updateSupplier).toHaveBeenCalledWith({ companyId: 'co-1' }, 'v9', { upi_id: 'freshgreen@okaxis' });
+    expect(orders.update).toHaveBeenCalledWith({ companyId: 'co-1' }, 'po-1', { vendor_id: 'v9' });
+    expect(screen.getByText('Fresh Green')).toBeTruthy();
   });
 });
 

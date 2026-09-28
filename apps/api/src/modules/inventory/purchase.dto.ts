@@ -20,6 +20,8 @@ const trim = ({ value }: { value: unknown }) => (typeof value === 'string' ? val
 /** An optional text field left blank is simply not given. */
 const trimOrNone = ({ value }: { value: unknown }) =>
   typeof value === 'string' ? value.trim() || undefined : value;
+/** name@bank: what a UPI app shows as the payee's address. */
+const UPI = /^[A-Za-z0-9._-]{2,64}@[A-Za-z0-9.-]{2,32}$/;
 const upperOrNone = ({ value }: { value: unknown }) =>
   typeof value === 'string' ? value.trim().toUpperCase().replace(/\s+/g, '') || undefined : value;
 
@@ -68,6 +70,82 @@ export class CreateSupplierDto {
   @IsString()
   @MaxLength(120)
   bank_name?: string;
+
+  @IsOptional()
+  @Transform(trimOrNone)
+  @IsString()
+  @MaxLength(120)
+  bank_branch?: string;
+
+  @IsOptional()
+  @Transform(trimOrNone)
+  @Matches(UPI, { message: 'A UPI ID looks like name@bank' })
+  upi_id?: string;
+}
+
+/** A field sent blank is cleared; one left out is left alone. */
+const trimOrNull = ({ value }: { value: unknown }) => (typeof value === 'string' ? value.trim() || null : value);
+const upperOrNull = ({ value }: { value: unknown }) =>
+  typeof value === 'string' ? value.trim().toUpperCase().replace(/\s+/g, '') || null : value;
+
+/** "Edit current supplier": any of its details; name and number cannot be blanked. */
+export class UpdateSupplierDto {
+  @IsOptional()
+  @Transform(trim)
+  @IsString()
+  @IsNotEmpty({ message: 'Enter the supplier name' })
+  @MaxLength(160)
+  name?: string;
+
+  @IsOptional()
+  @Transform(trim)
+  @IsString()
+  @Matches(/^\+?[0-9][0-9 -]{5,18}[0-9]$/, { message: 'Enter a contact number (digits, 7–20 long)' })
+  phone?: string;
+
+  @IsOptional()
+  @Transform(upperOrNull)
+  @Matches(/^[0-9]{2}[A-Z0-9]{13}$/, { message: 'A GST number is 15 characters, starting with the 2-digit state code' })
+  gstin?: string | null;
+
+  @IsOptional()
+  @Transform(trimOrNull)
+  @IsString()
+  @MaxLength(500)
+  address?: string | null;
+
+  @IsOptional()
+  @Transform(trimOrNull)
+  @IsString()
+  @MaxLength(120)
+  bank_account_name?: string | null;
+
+  @IsOptional()
+  @Transform(upperOrNull)
+  @Matches(/^[0-9A-Z]{6,34}$/, { message: 'An account number is 6–34 letters or digits' })
+  bank_account_number?: string | null;
+
+  @IsOptional()
+  @Transform(upperOrNull)
+  @Matches(/^[A-Z]{4}0[A-Z0-9]{6}$/, { message: 'An IFSC is 11 characters, like SBIN0001234' })
+  bank_ifsc?: string | null;
+
+  @IsOptional()
+  @Transform(trimOrNull)
+  @IsString()
+  @MaxLength(120)
+  bank_name?: string | null;
+
+  @IsOptional()
+  @Transform(trimOrNull)
+  @IsString()
+  @MaxLength(120)
+  bank_branch?: string | null;
+
+  @IsOptional()
+  @Transform(trimOrNull)
+  @Matches(UPI, { message: 'A UPI ID looks like name@bank' })
+  upi_id?: string | null;
 }
 
 export class PurchaseLineDto {

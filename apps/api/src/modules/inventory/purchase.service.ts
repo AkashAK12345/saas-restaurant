@@ -3,7 +3,7 @@ import { Prisma } from '@samco/database';
 import { PrismaService } from '../../core/database/prisma.service.js';
 import { PERMISSION_KEYS } from '../../common/authorization/permission-keys.js';
 import { InventoryService } from './inventory.service.js';
-import type { CreateSupplierDto, RecordPurchaseDto, SearchQueryDto } from './purchase.dto.js';
+import type { CreateSupplierDto, RecordPurchaseDto, SearchQueryDto, UpdateSupplierDto } from './purchase.dto.js';
 
 const CURRENCY = 'INR';
 /** The largest total an order may carry: an INTEGER column of paise. */
@@ -20,6 +20,34 @@ export function priceLine(quantity: number, rateMinor: number, taxRateBps: numbe
 export function stockQuantity(quantity: number, conversion: number | null): number {
   return Math.round(quantity * (conversion ?? 1) * 1000) / 1000;
 }
+
+/** What "Edit current supplier" shows and may change. */
+const SUPPLIER_DETAIL = {
+  id: true,
+  name: true,
+  label: true,
+  phone: true,
+  gstin: true,
+  address: true,
+  bank_account_name: true,
+  bank_account_number: true,
+  bank_ifsc: true,
+  bank_name: true,
+  bank_branch: true,
+  upi_id: true,
+} as const;
+const SUPPLIER_EDITABLE = [
+  'name',
+  'phone',
+  'gstin',
+  'address',
+  'bank_account_name',
+  'bank_account_number',
+  'bank_ifsc',
+  'bank_name',
+  'bank_branch',
+  'upi_id',
+] as const;
 
 /**
  * "INV-CEN-2609-": the start of every invoice number a branch gives a
@@ -132,9 +160,44 @@ export class PurchaseService {
         bank_account_number: dto.bank_account_number ?? null,
         bank_ifsc: dto.bank_ifsc ?? null,
         bank_name: dto.bank_name ?? null,
+        bank_branch: dto.bank_branch ?? null,
+        upi_id: dto.upi_id ?? null,
       },
       select: { id: true, name: true, label: true, phone: true },
     });
+  }
+
+  /** One supplier's details, for "Edit current supplier". */
+  async supplier(companyId: string, userId: string, vendorId: string) {
+    await this.assertMayRead(companyId, userId);
+    const vendor = await this.prisma.vendor.findFirst({
+      where: { id: vendorId, company_id: companyId },
+      select: SUPPLIER_DETAIL,
+    });
+    if (!vendor) throw new NotFoundException('Supplier not found');
+    const managers = await this.inventory.branchesWith(companyId, userId, [PERMISSION_KEYS.INVENTORY_SUPPLIERS_MANAGE]);
+    return { ...vendor, may_edit: managers.length > 0 };
+  }
+
+  async updateSupplier(companyId: string, userId: string, vendorId: string, dto: UpdateSupplierDto) {
+    const managers = await this.inventory.branchesWith(companyId, userId, [PERMISSION_KEYS.INVENTORY_SUPPLIERS_MANAGE]);
+    if (managers.length === 0) throw new ForbiddenException("You cannot edit this company's suppliers");
+    const vendor = await this.prisma.vendor.findFirst({ where: { id: vendorId, company_id: companyId }, select: { id: true } });
+    if (!vendor) throw new NotFoundException('Supplier not found');
+    if (dto.name) {
+      const clash = await this.prisma.vendor.findFirst({
+        where: { company_id: companyId, id: { not: vendorId }, name: { equals: dto.name, mode: 'insensitive' } },
+        select: { id: true },
+      });
+      if (clash) throw new ConflictException(`A supplier named "${dto.name}" already exists`);
+    }
+    const data: Prisma.VendorUpdateInput = {};
+    for (const key of SUPPLIER_EDITABLE) {
+      if (dto[key] !== undefined) (data as Record<string, unknown>)[key] = dto[key];
+    }
+    if (dto.gstin !== undefined) data.gst_registered = !!dto.gstin;
+    const saved = await this.prisma.vendor.update({ where: { id: vendorId }, data, select: SUPPLIER_DETAIL });
+    return { ...saved, may_edit: true };
   }
 
   /** Active products whose name or short code matches, for adding to a purchase. */

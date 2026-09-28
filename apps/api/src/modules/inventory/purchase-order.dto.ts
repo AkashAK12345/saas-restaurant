@@ -114,18 +114,22 @@ export class OrderLineDto {
   receive?: boolean;
 }
 
-/** "Save": the order's supplier and its lines still awaited. */
+/**
+ * "Save": the order's supplier and its lines still awaited. Without lines,
+ * only the supplier changes (Edit Supplier's switch).
+ */
 export class UpdatePurchaseOrderDto {
   @IsOptional()
   @IsUUID()
   vendor_id?: string;
 
+  @IsOptional()
   @IsArray()
   @ArrayMinSize(1, { message: 'An order needs at least one item' })
   @ArrayMaxSize(200)
   @ValidateNested({ each: true })
   @Type(() => OrderLineDto)
-  lines!: OrderLineDto[];
+  lines?: OrderLineDto[];
 }
 
 /** "Receive": save, then take the ticked lines in as one delivery. */

@@ -257,6 +257,11 @@
   color: var(--color-text-muted);
 }
 
+.invoiceNumber {
+  font-weight: 500;
+  color: var(--color-text);
+}
+
 .panel {
   display: flex;
   flex-direction: column;

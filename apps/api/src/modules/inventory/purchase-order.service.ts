@@ -11,6 +11,7 @@ import { PERMISSION_KEYS } from '../../common/authorization/permission-keys.js';
 import { branchLocalToInstant } from '../../common/scheduler/branch-time.js';
 import { InventoryService, type InventoryBranch } from './inventory.service.js';
 import { invoiceNumber, priceLine, stockQuantity } from './purchase.service.js';
+import { orderPdf } from './purchase-order-pdf.js';
 import {
   MAX_ORDER_PHOTOS,
   MAX_ORDER_PHOTO_BYTES,
@@ -228,6 +229,13 @@ export class PurchaseOrderService {
     return this.view(companyId, userId, orderId);
   }
 
+  /** The order as an A4 PDF, to send the supplier. */
+  async pdf(companyId: string, userId: string, orderId: string) {
+    const { branch } = await this.find(companyId, orderId, await this.readers(companyId, userId), 'see');
+    const order = await this.view(companyId, userId, orderId);
+    return { po_number: order.po_number, data: await orderPdf(order, branch.timezone) };
+  }
+
   private async view(companyId: string, userId: string, orderId: string) {
     const order = await this.prisma.purchaseOrder.findUniqueOrThrow({
       where: { id: orderId },
@@ -281,7 +289,10 @@ export class PurchaseOrderService {
       },
     });
     const creators = await this.names([order.created_by]);
-    const writable = await this.writers(companyId, userId);
+    const [writable, managers] = await Promise.all([
+      this.writers(companyId, userId),
+      this.inventory.branchesWith(companyId, userId, [PERMISSION_KEYS.INVENTORY_SUPPLIERS_MANAGE]),
+    ]);
     return {
       id: order.id,
       po_number: order.po_number,
@@ -315,6 +326,7 @@ export class PurchaseOrderService {
       receipts: order.receipts.map(({ _count, ...r }) => ({ ...r, items: _count.lines })),
       photos: order.photos.map(({ receipt_id, ...p }) => ({ ...p, received: !!receipt_id })),
       may_edit: order.status === 'ORDERED' && writable.some((b) => b.id === order.branch.id),
+      may_manage_suppliers: managers.length > 0,
     };
   }
 
@@ -358,6 +370,8 @@ export class PurchaseOrderService {
       }
       await tx.purchaseOrder.update({ where: { id: order.id }, data: { vendor_id: dto.vendor_id } });
     }
+    if (!dto.lines) return [];
+    const lines = dto.lines;
 
     const existing = await tx.purchaseOrderItem.findMany({
       where: { purchase_order_id: order.id },
@@ -372,18 +386,18 @@ export class PurchaseOrderService {
       },
     });
     const byId = new Map(existing.map((l) => [l.id, l]));
-    for (const line of dto.lines) {
+    for (const line of lines) {
       if (!line.id) continue;
       const found = byId.get(line.id);
       if (!found) throw new BadRequestException('A line is not on this order');
       if (found.receipt_id) throw new BadRequestException('A line already received cannot be changed');
     }
-    for (const line of dto.lines) {
+    for (const line of lines) {
       if (!line.id && !line.item_id) throw new BadRequestException('A new line needs an item');
     }
     // A line keeps its item unless the screen names another.
     const itemOf = (l: OrderLineDto) => l.item_id ?? (l.id ? byId.get(l.id)!.inventory_item_id : null);
-    const itemIds = dto.lines.map(itemOf).filter((id): id is string => !!id);
+    const itemIds = lines.map(itemOf).filter((id): id is string => !!id);
     if (new Set(itemIds).size !== itemIds.length) throw new BadRequestException('An item is on the order twice');
 
     const products = await tx.inventoryItem.findMany({
@@ -396,13 +410,13 @@ export class PurchaseOrderService {
     }
 
     // Awaited lines the screen dropped go.
-    const kept = new Set(dto.lines.flatMap((l) => (l.id ? [l.id] : [])));
+    const kept = new Set(lines.flatMap((l) => (l.id ? [l.id] : [])));
     const dropped = existing.filter((l) => !l.receipt_id && !kept.has(l.id)).map((l) => l.id);
     if (dropped.length) await tx.purchaseOrderItem.deleteMany({ where: { id: { in: dropped } } });
 
     let position = existing.reduce((max, l) => Math.max(max, l.position), -1) + 1;
     const ticked: string[] = [];
-    for (const line of dto.lines) {
+    for (const line of lines) {
       const itemId = itemOf(line);
       const p = itemId ? product.get(itemId)! : null;
       const was = line.id ? byId.get(line.id)! : null;
@@ -455,7 +469,7 @@ export class PurchaseOrderService {
 
   async receive(companyId: string, userId: string, orderId: string, dto: ReceivePurchaseOrderDto) {
     const writable = await this.writers(companyId, userId);
-    if (!dto.lines.some((l) => l.receive)) throw new BadRequestException('Tick at least one item to receive');
+    if (!dto.lines?.some((l) => l.receive)) throw new BadRequestException('Tick at least one item to receive');
 
     // The invoice number is the month's next at the branch; two people
     // receiving at once may pick the same one, so a clash is retried.

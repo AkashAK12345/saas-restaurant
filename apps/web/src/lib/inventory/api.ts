@@ -87,7 +87,30 @@ export interface NewSupplier {
   bank_account_number?: string;
   bank_ifsc?: string;
   bank_name?: string;
+  bank_branch?: string;
+  upi_id?: string;
 }
+
+/** A supplier's details, as "Edit current supplier" shows them. */
+export interface SupplierDetail {
+  id: string;
+  name: string;
+  label: string | null;
+  phone: string | null;
+  gstin: string | null;
+  address: string | null;
+  bank_account_name: string | null;
+  bank_account_number: string | null;
+  bank_ifsc: string | null;
+  bank_name: string | null;
+  bank_branch: string | null;
+  upi_id: string | null;
+  /** The caller may change them (inventory.suppliers.manage somewhere). */
+  may_edit: boolean;
+}
+
+/** Fields to change; a blank string clears an optional one. */
+export type SupplierPatch = Partial<Omit<SupplierDetail, 'id' | 'label' | 'may_edit'>>;
 
 /** A product as a purchase picks it: priced per purchase unit, before GST. */
 export interface PurchasableItem {
@@ -160,6 +183,10 @@ export const inventoryApi = {
   suppliers: (ctx: InventoryContext) => api.get<SupplierRef[]>('/inventory/suppliers', { companyId: ctx.companyId }),
   createSupplier: (ctx: InventoryContext, body: NewSupplier) =>
     api.post<SupplierRef>('/inventory/suppliers', body, { companyId: ctx.companyId }),
+  supplier: (ctx: InventoryContext, id: string) =>
+    api.get<SupplierDetail>(`/inventory/suppliers/${id}`, { companyId: ctx.companyId }),
+  updateSupplier: (ctx: InventoryContext, id: string, body: SupplierPatch) =>
+    api.patch<SupplierDetail>(`/inventory/suppliers/${id}`, body, { companyId: ctx.companyId }),
   searchItems: (ctx: InventoryContext, q: string) =>
     api.get<PurchasableItem[]>(`/inventory/items?${new URLSearchParams({ q, limit: '20' })}`, {
       companyId: ctx.companyId,

@@ -17,7 +17,8 @@ import { pillRangeLabel } from '@/lib/reports/purchase-ui';
 import { AppIcon, type AppIconName } from '@/components/app/icons';
 import { SearchSelect } from '@/components/app/search-select';
 import { DateDialog } from '@/components/reports/date-range-dialog';
-import { printOrder, sendOnWhatsApp } from '@/components/inventory/order-actions';
+import { printOrder } from '@/components/inventory/order-actions';
+import { SendOrderSheet } from '@/components/inventory/send-order-sheet';
 import styles from '@/components/inventory/purchase.module.css';
 
 /** Orders asked for at a time; "Show more" asks for the next page. */
@@ -77,6 +78,7 @@ export default function PurchaseOrdersPage() {
   const [more, setMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [sending, setSending] = useState<string | null>(null);
   const sortRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -170,12 +172,12 @@ export default function PurchaseOrdersPage() {
   }
 
   const act = async (order: OrderCard, what: 'send' | 'cancel') => {
-    if (what === 'cancel' && !window.confirm(`Cancel the order to ${order.vendor.name}?`)) return;
+    if (what === 'send') return setSending(order.id);
+    if (!window.confirm(`Cancel the order to ${order.vendor.name}?`)) return;
     setBusy(order.id);
     setError(null);
     try {
-      if (what === 'send') await sendOnWhatsApp(ctx, order.id);
-      else await purchaseOrdersApi.cancel(ctx, order.id);
+      await purchaseOrdersApi.cancel(ctx, order.id);
       setReads((n) => n + 1);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'That did not work');
@@ -368,6 +370,18 @@ export default function PurchaseOrdersPage() {
         <AppIcon name="cartPlus" size={24} />
         Add purchase
       </button>
+
+      {sending ? (
+        <SendOrderSheet
+          ctx={ctx}
+          orderId={sending}
+          onClose={() => setSending(null)}
+          onSent={() => {
+            setSending(null);
+            setReads((n) => n + 1);
+          }}
+        />
+      ) : null}
 
       {dialog ? (
         <DateDialog

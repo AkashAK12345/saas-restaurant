@@ -22,7 +22,7 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import { InventoryService } from './inventory.service.js';
 import { InventoryOverviewQueryDto } from './inventory.dto.js';
 import { PurchaseService } from './purchase.service.js';
-import { CreateSupplierDto, RecordPurchaseDto, SearchQueryDto } from './purchase.dto.js';
+import { CreateSupplierDto, RecordPurchaseDto, SearchQueryDto, UpdateSupplierDto } from './purchase.dto.js';
 import { TransferService } from './transfer.service.js';
 import { RecordTransferDto, TransferStockQueryDto } from './transfer.dto.js';
 import { PurchaseOrderService } from './purchase-order.service.js';
@@ -101,6 +101,25 @@ export class InventoryController {
     return this.purchases.createSupplier(this.company(companyId), req.user.id, dto);
   }
 
+  @Get('suppliers/:id')
+  supplier(
+    @Headers('x-company-id') companyId: string | undefined,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.purchases.supplier(this.company(companyId), req.user.id, id);
+  }
+
+  @Patch('suppliers/:id')
+  updateSupplier(
+    @Headers('x-company-id') companyId: string | undefined,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateSupplierDto,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.purchases.updateSupplier(this.company(companyId), req.user.id, id, dto);
+  }
+
   @Get('items')
   searchItems(
     @Headers('x-company-id') companyId: string | undefined,
@@ -168,6 +187,19 @@ export class InventoryController {
     @Req() req: AuthenticatedRequest,
   ) {
     return this.orders.detail(this.company(companyId), req.user.id, id);
+  }
+
+  @Get('purchase-orders/:id/pdf')
+  async orderPdf(
+    @Headers('x-company-id') companyId: string | undefined,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Req() req: AuthenticatedRequest,
+    @Res() res: Response,
+  ) {
+    const { po_number, data } = await this.orders.pdf(this.company(companyId), req.user.id, id);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${po_number.replace(/[^A-Za-z0-9._-]/g, '_')}.pdf"`);
+    res.send(data);
   }
 
   @Patch('purchase-orders/:id')

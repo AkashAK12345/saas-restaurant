@@ -1404,6 +1404,8 @@ model Vendor {
   bank_account_number String? @db.VarChar(34)
   bank_ifsc           String? @db.VarChar(11)
   bank_name           String? @db.VarChar(120)
+  bank_branch         String? @db.VarChar(120)
+  upi_id              String? @db.VarChar(80)
   created_at DateTime @default(now()) @db.Timestamptz(3)
   updated_at DateTime @updatedAt @db.Timestamptz(3)
 

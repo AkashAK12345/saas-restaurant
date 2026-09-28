@@ -96,6 +96,7 @@ export type AppIconName =
   | 'sort'
   | 'sortAz'
   | 'arrowUp'
+  | 'info'
   | 'star'
   | 'checkRing'
   | 'speaking'
@@ -721,6 +722,12 @@ const STROKED: Record<AppIconName, ReactNode> = {
     </>
   ),
   arrowUp: <path d="M12 20V4.5M5.5 11 12 4.5l6.5 6.5" />,
+  info: (
+    <>
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M12 11v5.5M12 7.8h.01" />
+    </>
+  ),
 };
 
 export function AppIcon({ name, size = 24 }: { name: AppIconName; size?: number }) {

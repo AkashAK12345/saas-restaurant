@@ -2986,6 +2986,33 @@ describe('Phase 10 Reports & Dashboard (e2e)', () => {
         expect((await post('purchases', { ...base, items: [] })).status).toBe(400);
         expect((await post('purchases', { ...base, branch_id: branchB.id })).status).toBe(403);
       });
+
+      it('MP-6. edits a supplier: details and bank, blanks clear, names stay unique', async () => {
+        const read = await inv(`suppliers/${supplierId}`);
+        expect(read.status).toBe(200);
+        expect(read.body).toMatchObject({ name: 'Fresh Farms', gstin: '33AJTPJ7001J1Z5', bank_ifsc: 'SBIN0001234', may_edit: true });
+        expect((await inv(`suppliers/${supplierId}`, {}, tokenKeeperA)).body.may_edit).toBe(false);
+
+        const patch = (body: object, token = tokenAnalystA) =>
+          as(request(http).patch(`/api/v1/inventory/suppliers/${supplierId}`), token, companyA.id).send(body);
+        const res = await patch({ phone: '9884511100', gstin: '', bank_branch: ' Koyambedu ', upi_id: 'freshfarms@okaxis' });
+        expect(res.status).toBe(200);
+        expect(res.body).toMatchObject({
+          name: 'Fresh Farms',
+          phone: '9884511100',
+          gstin: null,
+          bank_branch: 'Koyambedu',
+          upi_id: 'freshfarms@okaxis',
+          bank_ifsc: 'SBIN0001234',
+        });
+        expect((await prisma.vendor.findUniqueOrThrow({ where: { id: supplierId } })).gst_registered).toBe(false);
+
+        expect((await patch({ name: 'inventory metro' })).status).toBe(409);
+        expect((await patch({ upi_id: 'not-a-upi' })).status).toBe(400);
+        expect((await patch({ name: '' })).status).toBe(400);
+        expect((await patch({ phone: '9840000000' }, tokenKeeperA)).status).toBe(403);
+        expect((await inv('suppliers/00000000-0000-4000-8000-000000000000')).status).toBe(404);
+      });
     });
 
     describe('Transfer stock', () => {
@@ -3313,6 +3340,39 @@ describe('Phase 10 Reports & Dashboard (e2e)', () => {
         expect((await call('post', `${ord1}/cancel`)).status).toBe(409);
         expect((await inv('purchase-orders/00000000-0000-4000-8000-000000000000')).status).toBe(404);
         expect((await orders({ vendor_id: vendorId })).body.counts).toEqual({ all: 1, sent: 0, cancelled: 2 });
+      });
+
+      it('PO-6. switches an awaited order to another supplier alone, and prints any order as a PDF', async () => {
+        const fresh = await prisma.purchaseOrder.create({
+          data: {
+            company_id: companyA.id,
+            branch_id: branchA.id,
+            vendor_id: vendorId,
+            po_number: 'ORD-4',
+            total_minor: 1_000,
+            currency: 'INR',
+            items: { create: [{ name: 'Chicken', quantity: 1, unit: 'Kg', unit_price_minor: 1_000, line_total_minor: 1_000, inventory_item_id: chicken }] },
+          },
+        });
+        const switched = await call('patch', fresh.id, { vendor_id: otherVendorId });
+        expect(switched.status).toBe(200);
+        expect(switched.body.vendor.name).toBe('Order Alt');
+        expect(switched.body.lines).toHaveLength(1);
+        expect(switched.body.may_manage_suppliers).toBe(true);
+        expect((await call('patch', ord1, { vendor_id: otherVendorId })).status).toBe(409);
+
+        const pdf = await as(request(http).get(`/api/v1/inventory/purchase-orders/${ord1}/pdf`), tokenKeeperA, companyA.id)
+          .buffer(true)
+          .parse((res, done) => {
+            const chunks: Buffer[] = [];
+            res.on('data', (c: Buffer) => chunks.push(c));
+            res.on('end', () => done(null, Buffer.concat(chunks)));
+          });
+        expect(pdf.status).toBe(200);
+        expect(pdf.headers['content-type']).toBe('application/pdf');
+        expect(pdf.headers['content-disposition']).toBe('attachment; filename="ORD-1.pdf"');
+        expect((pdf.body as Buffer).subarray(0, 5).toString()).toBe('%PDF-');
+        expect((await as(request(http).get(`/api/v1/inventory/purchase-orders/${ord1}/pdf`), tokenPlainA, companyA.id)).status).toBe(403);
       });
     });
   });
