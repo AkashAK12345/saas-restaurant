@@ -524,6 +524,7 @@
   font-size: 1.0625rem;
   font-weight: 500;
   box-shadow: 0 10px 24px rgb(0 0 0 / 0.2);
+  text-decoration: none;
   cursor: pointer;
 }
 

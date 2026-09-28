@@ -81,7 +81,9 @@ export function purchasePrefix(localDate: string): string {
  * Manual purchases — goods that arrived at an outlet from a supplier,
  * recorded after the fact.
  *
- * Recording one does four things in ONE transaction: saves the purchase as
+ * Saved "as order" it is only raised: ORDERED, awaited in the Purchase tab
+ * to be sent and received, nothing in stock. Otherwise recording one does
+ * four things in ONE transaction: saves the purchase as
  * RECEIVED (source MANUAL, nothing paid yet, so its total is outstanding),
  * saves its lines with their GST, gives the delivery a receipt under our own
  * invoice number, and adds each line's quantity to the
@@ -262,7 +264,7 @@ export class PurchaseService {
 
     const lines = dto.items.map((line, position) => {
       const product = byId.get(line.item_id)!;
-      const taxBps = product.tax_rate_bps ?? 0;
+      const taxBps = line.tax_rate_bps ?? product.tax_rate_bps ?? 0;
       const { tax, total } = priceLine(line.quantity, line.rate_minor, taxBps);
       return {
         position,
@@ -296,13 +298,13 @@ export class PurchaseService {
               branch_id: outlet.id,
               vendor_id: vendor.id,
               po_number: `${prefix}${sameDay + 1 + attempt}`,
-              status: 'RECEIVED',
+              status: dto.as_order ? 'ORDERED' : 'RECEIVED',
               source: 'MANUAL',
               total_minor: total,
               paid_minor: 0,
               currency: CURRENCY,
               ordered_at: now,
-              received_at: now,
+              received_at: dto.as_order ? null : now,
               notes: dto.note ?? null,
               created_by: userId,
               items: {
@@ -319,8 +321,12 @@ export class PurchaseService {
                 })),
               },
             },
-            select: { id: true, po_number: true, total_minor: true, currency: true },
+            select: { id: true, po_number: true, status: true, total_minor: true, currency: true },
           });
+          // An order waits for its delivery: nothing is in stock yet.
+          if (dto.as_order) {
+            return { ...order, invoice_number: null, branch: outlet.name, vendor: vendor.name, items: lines.length };
+          }
           // Goods in hand: one delivery, under an invoice number of our own.
           const receipt = await tx.purchaseReceipt.create({
             data: {

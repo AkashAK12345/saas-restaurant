@@ -3,6 +3,7 @@ import {
   ArrayMaxSize,
   ArrayMinSize,
   IsArray,
+  IsBoolean,
   IsInt,
   IsNotEmpty,
   IsNumber,
@@ -165,6 +166,14 @@ export class PurchaseLineDto {
   @Min(0)
   @Max(1_000_000_000)
   rate_minor!: number;
+
+  /** GST chosen on the line, in basis points; the item's own rate when left out. */
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(10_000)
+  tax_rate_bps?: number;
 }
 
 /** "Record purchase": what arrived at an outlet from a supplier. */
@@ -187,6 +196,14 @@ export class RecordPurchaseDto {
   @IsString()
   @MaxLength(500)
   note?: string;
+
+  /**
+   * "Save as order (send to vendor first)": raised and awaited, nothing in
+   * stock until it is received. Left out: recorded as received now.
+   */
+  @IsOptional()
+  @IsBoolean()
+  as_order?: boolean;
 }
 
 export class SearchQueryDto {

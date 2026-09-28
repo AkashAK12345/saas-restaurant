@@ -10,6 +10,13 @@ const api = vi.hoisted(() => ({
   createSupplier: vi.fn(),
 }));
 vi.mock('@/lib/inventory/api', () => ({ inventoryApi: api }));
+const orders = vi.hoisted(() => ({ uploadPhoto: vi.fn(), get: vi.fn(), receive: vi.fn() }));
+vi.mock('@/lib/inventory/purchase-orders', async (real) => ({
+  ...(await real<typeof import('@/lib/inventory/purchase-orders')>()),
+  purchaseOrdersApi: orders,
+}));
+const search = vi.hoisted(() => ({ value: '' }));
+vi.mock('next/navigation', () => ({ useSearchParams: () => new URLSearchParams(search.value) }));
 vi.mock('@/lib/context/app-context-provider', () => ({
   useAppContext: () => ({ selectedCompanyId: 'co-1' }),
 }));
@@ -50,7 +57,10 @@ async function addItem(query: string, name: string) {
 
 describe('Manual Purchase screen', () => {
   beforeEach(() => {
-    for (const fn of Object.values(api)) fn.mockReset();
+    for (const fn of [...Object.values(api), ...Object.values(orders)]) fn.mockReset();
+    search.value = '';
+    globalThis.URL.createObjectURL = vi.fn(() => 'blob:x');
+    globalThis.URL.revokeObjectURL = vi.fn();
     api.purchaseOptions.mockResolvedValue({
       outlets: [
         { id: 'b1', name: 'Alwarpet' },
@@ -75,10 +85,11 @@ describe('Manual Purchase screen', () => {
     expect(screen.getByRole('button', { name: 'Create new supplier' })).toBeTruthy();
     expect(screen.getByText('No items yet — search above to add.')).toBeTruthy();
     const record = screen.getByRole('button', { name: 'Record purchase (₹0.00)' }) as HTMLButtonElement;
+    expect(screen.getByRole('radio', { name: /Record as received/ })).toBeTruthy();
     expect(record.disabled).toBe(true);
   });
 
-  it('MPW-2. adds items by search, prefilled at their price; GST on top; the total follows every edit', async () => {
+  it('MPW-2. lines as the reference draws them: qty, rate, GST slab, into stock; totals follow every edit', async () => {
     render(<ManualPurchasePage />);
     await screen.findByRole('button', { name: 'Outlet: none chosen' });
     await addItem('sug', 'Sugar 50 Kg Bag');
@@ -86,21 +97,20 @@ describe('Manual Purchase screen', () => {
     const line = screen.getByRole('list', { name: 'Items on this purchase' });
     expect((within(line).getByLabelText('Qty (Bag)') as HTMLInputElement).value).toBe('1');
     expect((within(line).getByLabelText('Rate (₹ / Bag)') as HTMLInputElement).value).toBe('2000');
+    expect((within(line).getByLabelText('GST on Sugar 50 Kg Bag') as HTMLSelectElement).value).toBe('500');
     // 1 × ₹2,000 + 5% GST.
     expect(within(line).getByText('₹2,100.00')).toBeTruthy();
-    expect(within(line).getByText('Adds 50 Kg to stock')).toBeTruthy();
+    expect(within(line).getByText('Into stock: 50 Kg')).toBeTruthy();
 
     fireEvent.change(within(line).getByLabelText('Qty (Bag)'), { target: { value: '2' } });
-    expect(within(line).getByText('₹4,200.00')).toBeTruthy();
-    expect(within(line).getByText('Adds 100 Kg to stock')).toBeTruthy();
-
-    // No price on file: the rate starts empty and the line has no total yet.
-    await addItem('dust', 'Dust Pan');
-    expect((within(line).getByLabelText('Rate (₹ / Piece)') as HTMLInputElement).value).toBe('');
-    expect(screen.getByRole('button', { name: /Record purchase \(₹4,200\.00\)/ })).toBeTruthy();
-    fireEvent.change(within(line).getByLabelText('Rate (₹ / Piece)'), { target: { value: '35' } });
-    // ₹35 + 18% = ₹41.30; ₹4,200 + ₹41.30.
-    expect(screen.getByRole('button', { name: 'Record purchase (₹4,241.30)' })).toBeTruthy();
+    fireEvent.change(within(line).getByLabelText('GST on Sugar 50 Kg Bag'), { target: { value: '1800' } });
+    // 2 × ₹2,000 = ₹4,000 + 18% = ₹4,720.
+    expect(within(line).getByText('₹4,720.00')).toBeTruthy();
+    expect(within(line).getByText('Into stock: 100 Kg')).toBeTruthy();
+    const totals = screen.getByText('Subtotal').closest('dl')!;
+    expect(within(totals).getByText('₹4,000.00')).toBeTruthy();
+    expect(within(totals).getByText('₹720.00')).toBeTruthy();
+    expect(within(totals).getByText('₹4,720.00')).toBeTruthy();
 
     // Picking an item already on the list adds nothing.
     fireEvent.change(screen.getByPlaceholderText('Search raw materials to add…'), { target: { value: 'sug' } });
@@ -108,11 +118,80 @@ describe('Manual Purchase screen', () => {
     expect(((await within(results).findByRole('button', { name: /Sugar 50 Kg Bag/ })) as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it('MPW-3. records with outlet, supplier and every line valid, then clears the list and says what was saved', async () => {
+  it('MPW-3. recorded as received: needs a photo; saved, photographed and received, with the payment', async () => {
     api.recordPurchase.mockResolvedValue({
       id: 'po-1',
-      po_number: 'MP-260925-1',
+      po_number: 'MP-260928-1',
+      status: 'ORDERED',
+      invoice_number: null,
       total_minor: 420_000,
+      currency: 'INR',
+      branch: 'Pallavaram',
+      vendor: 'Abad Foods',
+      items: 1,
+    });
+    orders.uploadPhoto.mockResolvedValue({ id: 'ph1', mime_type: 'image/png', file_name: 'bill.png', position: 0, received: false });
+    orders.get.mockResolvedValue({
+      id: 'po-1',
+      lines: [{ id: 'l1', item_id: 'sugar', quantity: 2, unit_price_minor: 200_000, received: false }],
+    });
+    orders.receive.mockResolvedValue({ receipts: [{ invoice_number: 'INV-PAL-2609-0001' }] });
+
+    render(<ManualPurchasePage />);
+    await screen.findByRole('button', { name: 'Outlet: none chosen' });
+    expect(screen.getByRole('radio', { name: /Record as received/ })).toHaveProperty('checked', true);
+    expect(screen.getByText('Invoice number is generated automatically on receive')).toBeTruthy();
+    expect(screen.getByText('No photos attached')).toBeTruthy();
+    expect(screen.getByText('Add a delivery photo to record the stock')).toBeTruthy();
+
+    await addItem('sug', 'Sugar 50 Kg Bag');
+    fireEvent.change(screen.getByLabelText('Qty (Bag)'), { target: { value: '2' } });
+    fireEvent.change(screen.getByLabelText('GST on Sugar 50 Kg Bag'), { target: { value: '0' } });
+    await pick('Outlet', 'Pallavaram');
+    await pick('Supplier', 'Abad Foods');
+    const record = () => screen.getByRole('button', { name: /^Record purchase/ }) as HTMLButtonElement;
+    // No photo yet.
+    expect(record().disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText('Delivery photos'), {
+      target: { files: [new File(['x'], 'bill.png', { type: 'image/png' })] },
+    });
+    expect(screen.getByText('Reference Photos (1/10)')).toBeTruthy();
+    fireEvent.change(screen.getByPlaceholderText('Paid now (₹, optional)'), { target: { value: '5000' } });
+    expect(record().disabled).toBe(true);
+    expect(screen.getByText('Paid now is more than the total')).toBeTruthy();
+    fireEvent.change(screen.getByPlaceholderText('Paid now (₹, optional)'), { target: { value: '1000' } });
+    fireEvent.change(screen.getByLabelText('Mode'), { target: { value: 'UPI' } });
+    expect(record().textContent).toBe('Record purchase (₹4,000.00)');
+    fireEvent.click(record());
+
+    await screen.findByText(/Recorded MP-260928-1: ₹4,200.00 from Abad Foods at Pallavaram · Invoice INV-PAL-2609-0001/);
+    expect(api.recordPurchase).toHaveBeenCalledWith(
+      { companyId: 'co-1' },
+      {
+        branch_id: 'b2',
+        vendor_id: 'v1',
+        as_order: true,
+        items: [{ item_id: 'sugar', quantity: 2, rate_minor: 200_000, tax_rate_bps: 0 }],
+      },
+    );
+    expect(orders.uploadPhoto).toHaveBeenCalledWith({ companyId: 'co-1' }, 'po-1', expect.objectContaining({ mime_type: 'image/png', file_name: 'bill.png' }));
+    expect(orders.receive).toHaveBeenCalledWith({ companyId: 'co-1' }, 'po-1', {
+      lines: [{ id: 'l1', item_id: 'sugar', quantity: 2, rate_minor: 200_000, receive: true }],
+      paid_minor: 100_000,
+      payment_mode: 'UPI',
+    });
+    expect(screen.getByText('No items yet — search above to add.')).toBeTruthy();
+    expect(screen.getByText('No photos attached')).toBeTruthy();
+  });
+
+  it('MPW-8. saved as an order (the Purchase tab’s Add purchase): no photos or payment, nothing received', async () => {
+    search.value = 'as=order';
+    api.recordPurchase.mockResolvedValue({
+      id: 'po-2',
+      po_number: 'MP-260928-2',
+      status: 'ORDERED',
+      invoice_number: null,
+      total_minor: 210_000,
       currency: 'INR',
       branch: 'Pallavaram',
       vendor: 'Abad Foods',
@@ -120,28 +199,44 @@ describe('Manual Purchase screen', () => {
     });
     render(<ManualPurchasePage />);
     await screen.findByRole('button', { name: 'Outlet: none chosen' });
+    expect(screen.getByRole('radio', { name: /Save as order/ })).toHaveProperty('checked', true);
+    expect(screen.queryByText('Delivery photos (required)')).toBeNull();
+    expect(screen.queryByPlaceholderText('Paid now (₹, optional)')).toBeNull();
     await addItem('sug', 'Sugar 50 Kg Bag');
-    const line = screen.getByRole('list', { name: 'Items on this purchase' });
-    fireEvent.change(within(line).getByLabelText('Qty (Bag)'), { target: { value: '2' } });
-
-    const record = () => screen.getByRole('button', { name: /Record purchase/ }) as HTMLButtonElement;
-    expect(record().disabled).toBe(true);
     await pick('Outlet', 'Pallavaram');
     await pick('Supplier', 'Abad Foods');
-    expect(record().disabled).toBe(false);
+    fireEvent.click(screen.getByRole('button', { name: 'Save order (₹2,100.00)' }));
+    await screen.findByText(/Saved order MP-260928-2: ₹2,100.00 to Abad Foods for Pallavaram/);
+    expect(api.recordPurchase.mock.calls[0][1]).toMatchObject({ as_order: true });
+    expect(orders.receive).not.toHaveBeenCalled();
+    expect(screen.getByRole('link', { name: 'Open it' }).getAttribute('href')).toBe('/inventory/purchase/po-2');
+  });
 
-    // A bad entry holds it back.
-    fireEvent.change(within(line).getByLabelText('Qty (Bag)'), { target: { value: '0' } });
-    expect(record().disabled).toBe(true);
-    fireEvent.change(within(line).getByLabelText('Qty (Bag)'), { target: { value: '2' } });
-
-    fireEvent.click(record());
-    await screen.findByText(/Recorded MP-260925-1/);
-    expect(api.recordPurchase).toHaveBeenCalledWith(
-      { companyId: 'co-1' },
-      { branch_id: 'b2', vendor_id: 'v1', items: [{ item_id: 'sugar', quantity: 2, rate_minor: 200_000 }] },
-    );
-    expect(screen.getByText('No items yet — search above to add.')).toBeTruthy();
+  it('MPW-9. saved but not received: says so, and where to finish', async () => {
+    api.recordPurchase.mockResolvedValue({
+      id: 'po-3',
+      po_number: 'MP-260928-3',
+      status: 'ORDERED',
+      invoice_number: null,
+      total_minor: 210_000,
+      currency: 'INR',
+      branch: 'Pallavaram',
+      vendor: 'Abad Foods',
+      items: 1,
+    });
+    orders.uploadPhoto.mockRejectedValue(new Error('Photo exceeds the 5MB limit'));
+    render(<ManualPurchasePage />);
+    await screen.findByRole('button', { name: 'Outlet: none chosen' });
+    await addItem('sug', 'Sugar 50 Kg Bag');
+    await pick('Outlet', 'Pallavaram');
+    await pick('Supplier', 'Abad Foods');
+    fireEvent.change(screen.getByLabelText('Delivery photos'), {
+      target: { files: [new File(['x'], 'big.jpg', { type: 'image/jpeg' })] },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /^Record purchase/ }));
+    const alert = await screen.findByRole('alert');
+    expect(alert.textContent).toMatch(/MP-260928-3 is saved as an order but was not received: Photo exceeds the 5MB limit/);
+    expect(within(alert).getByRole('link', { name: 'Open the order' }).getAttribute('href')).toBe('/inventory/purchase/po-3');
   });
 
   it('MPW-4. finds a supplier by what it is known for', async () => {

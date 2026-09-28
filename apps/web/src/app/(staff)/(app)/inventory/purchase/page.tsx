@@ -366,10 +366,10 @@ export default function PurchaseOrdersPage() {
         </ul>
       )}
 
-      <button type="button" className={styles.fab} {...soon}>
+      <Link href="/inventory/manual-purchase?as=order" className={styles.fab}>
         <AppIcon name="cartPlus" size={24} />
         Add purchase
-      </button>
+      </Link>
 
       {sending ? (
         <SendOrderSheet

@@ -130,6 +130,10 @@ export interface PurchasableItem {
 export interface RecordedPurchase {
   id: string;
   po_number: string;
+  /** ORDERED when saved as an order; RECEIVED when recorded as received. */
+  status: 'ORDERED' | 'RECEIVED';
+  /** Our invoice number, once received. */
+  invoice_number: string | null;
   total_minor: number;
   currency: string;
   branch: string;
@@ -196,8 +200,10 @@ export const inventoryApi = {
     body: {
       branch_id: string;
       vendor_id: string;
-      items: Array<{ item_id: string; quantity: number; rate_minor: number }>;
+      items: Array<{ item_id: string; quantity: number; rate_minor: number; tax_rate_bps?: number }>;
       note?: string;
+      /** Raise it as an order to send the supplier, rather than record it received. */
+      as_order?: boolean;
     },
   ) => api.post<RecordedPurchase>('/inventory/purchases', body, { companyId: ctx.companyId }),
 

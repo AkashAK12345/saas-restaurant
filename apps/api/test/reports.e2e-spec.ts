@@ -3013,11 +3013,46 @@ describe('Phase 10 Reports & Dashboard (e2e)', () => {
         expect((await patch({ phone: '9840000000' }, tokenKeeperA)).status).toBe(403);
         expect((await inv('suppliers/00000000-0000-4000-8000-000000000000')).status).toBe(404);
       });
+
+      it('MP-7. saved as an order: awaited, GST as chosen, nothing in stock until received with a photo', async () => {
+        const before = await prisma.stockMovement.count({ where: { item_id: sugar } });
+        const res = await post('purchases', {
+          branch_id: branchA.id,
+          vendor_id: supplierId,
+          as_order: true,
+          items: [{ item_id: sugar, quantity: 1, rate_minor: 200_000, tax_rate_bps: 1_800 }],
+        });
+        expect(res.status).toBe(201);
+        // ₹2,000 + 18% chosen on the line, not the item's 5%.
+        expect(res.body).toMatchObject({ status: 'ORDERED', total_minor: 236_000, invoice_number: null });
+        const order = await prisma.purchaseOrder.findUniqueOrThrow({
+          where: { id: res.body.id },
+          include: { items: true, receipts: true },
+        });
+        expect(order.received_at).toBeNull();
+        expect(order.receipts).toEqual([]);
+        expect(order.items.map((i) => [i.tax_rate_bps, i.tax_minor])).toEqual([[1_800, 36_000]]);
+        expect(await prisma.stockMovement.count({ where: { item_id: sugar } })).toBe(before);
+
+        // Received the Receive Order way: a photo, then the lines.
+        const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+        expect((await post(`purchase-orders/${order.id}/photos`, { data: png, mime_type: 'image/png' })).status).toBe(201);
+        const received = await post(`purchase-orders/${order.id}/receive`, {
+          lines: [{ id: order.items[0].id, item_id: sugar, quantity: 1, rate_minor: 200_000, receive: true }],
+          paid_minor: 36_000,
+          payment_mode: 'CASH',
+        });
+        expect(received.status).toBe(200);
+        expect(received.body).toMatchObject({ status: 'RECEIVED', total_minor: 236_000, paid_minor: 36_000 });
+        expect(await prisma.stockMovement.count({ where: { item_id: sugar } })).toBe(before + 1);
+
+        expect((await post('purchases', { branch_id: branchA.id, vendor_id: supplierId, items: [{ item_id: sugar, quantity: 1, rate_minor: 1, tax_rate_bps: 10_001 }] })).status).toBe(400);
+      });
     });
 
     describe('Transfer stock', () => {
       // After the purchases above, Alpha Main holds 12.5 Kg of chicken and
-      // 150 Kg of sugar; Alpha Second 2 Kg of chicken and 4.5 cases of 7 Up.
+      // 200 Kg of sugar; Alpha Second 2 Kg of chicken and 4.5 cases of 7 Up.
       let biriyani: string;
       let oldDish: string;
 
@@ -3053,7 +3088,7 @@ describe('Phase 10 Reports & Dashboard (e2e)', () => {
         const main = await inv('transfer/stock', { branch_id: branchA.id });
         expect(main.body.raw_materials).toEqual([
           { id: chicken, name: 'Chicken', unit: 'Kg', on_hand: 12.5 },
-          { id: expect.any(String), name: 'Sugar 50 Kg Bag', unit: 'Kg', on_hand: 150 },
+          { id: expect.any(String), name: 'Sugar 50 Kg Bag', unit: 'Kg', on_hand: 200 },
         ]);
         expect((await inv('transfer/stock', { branch_id: branchA.id }, tokenKeeperA)).status).toBe(403);
         expect((await inv('transfer/stock', { branch_id: branchB.id })).status).toBe(403);
