@@ -1,0 +1,138 @@
+/*
+ * A purchase order on paper. Plain black on white whatever the app's theme:
+ * this is for the printer. A4 by default; a thermal slip is 72 mm wide.
+ */
+
+.doc {
+  box-sizing: border-box;
+  max-width: 190mm;
+  margin: 0 auto;
+  padding: 16mm 12mm;
+  background: #fff;
+  color: #111;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.doc[data-format='thermal'] {
+  max-width: 72mm;
+  padding: 4mm 2mm;
+  font-size: 11px;
+}
+
+.doc p {
+  margin: 0;
+}
+
+.top {
+  margin-bottom: 14px;
+  padding-bottom: 10px;
+  border-bottom: 2px solid #111;
+  text-align: center;
+}
+
+.title {
+  margin: 0;
+  font-size: 1.6em;
+  letter-spacing: 0.04em;
+}
+
+.number {
+  font-size: 1.15em;
+  font-weight: 600;
+}
+
+.muted {
+  color: #555;
+}
+
+.parties {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.doc[data-format='thermal'] .parties {
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+
+.label {
+  font-size: 0.8em;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #555;
+}
+
+.strong {
+  font-weight: 600;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.table th,
+.table td {
+  padding: 6px 4px;
+  border-bottom: 1px solid #ccc;
+  text-align: left;
+  vertical-align: top;
+}
+
+.table th {
+  border-bottom: 1.5px solid #111;
+  font-size: 0.85em;
+}
+
+.num {
+  text-align: right !important;
+  white-space: nowrap;
+}
+
+.tag {
+  color: #2f8557;
+}
+
+.totals {
+  margin: 12px 0 0 auto;
+  width: min(100%, 260px);
+}
+
+.totals div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 3px 0;
+}
+
+.totals dt,
+.totals dd {
+  margin: 0;
+}
+
+.grand {
+  border-top: 1.5px solid #111;
+  font-size: 1.1em;
+  font-weight: 700;
+}
+
+.receipts {
+  margin-top: 16px;
+  padding-top: 8px;
+  border-top: 1px dashed #999;
+}
+
+.note {
+  padding: 40px 16px;
+  text-align: center;
+}
+
+@media print {
+  @page {
+    margin: 0;
+  }
+}

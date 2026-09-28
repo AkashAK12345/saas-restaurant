@@ -90,6 +90,12 @@ export type AppIconName =
   | 'badgeCheck'
   | 'calendarX'
   | 'hourglass'
+  | 'printer'
+  | 'camera'
+  | 'imagePlus'
+  | 'sort'
+  | 'sortAz'
+  | 'arrowUp'
   | 'star'
   | 'checkRing'
   | 'speaking'
@@ -680,6 +686,41 @@ const STROKED: Record<AppIconName, ReactNode> = {
       <path d="m9.5 4 2.5 2 2.5-2M9.5 20l2.5-2 2.5 2" />
     </>
   ),
+  printer: (
+    <>
+      <path d="M7 8V3.5h10V8" />
+      <rect x="3.5" y="8" width="17" height="8.5" rx="2" />
+      <path d="M7 14h10v6.5H7z" />
+      <path d="M17 11h.01" />
+    </>
+  ),
+  camera: (
+    <>
+      <path d="M4.5 7.5h3l1.6-2.5h5.8l1.6 2.5h3a1.5 1.5 0 0 1 1.5 1.5v9a1.5 1.5 0 0 1-1.5 1.5h-15A1.5 1.5 0 0 1 3 18V9a1.5 1.5 0 0 1 1.5-1.5Z" />
+      <circle cx="12" cy="13" r="3.5" />
+    </>
+  ),
+  imagePlus: (
+    <>
+      <path d="M13.5 4.5h-8a2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h13a2 2 0 0 0 2-2v-6" />
+      <path d="m4 17 5-4.5 3.5 3 3-2.5 4.5 4" />
+      <path d="M18.5 2.5v6M15.5 5.5h6" />
+    </>
+  ),
+  sort: (
+    <>
+      <path d="M8 20V4M4.5 7.5 8 4l3.5 3.5" />
+      <path d="M16 4v16M12.5 16.5 16 20l3.5-3.5" />
+    </>
+  ),
+  sortAz: (
+    <>
+      <path d="M4 10.5 7 3.5l3 7M5 8.5h4" />
+      <path d="M4 13.5h6l-6 7h6" />
+      <path d="M17 4v16M14 17l3 3 3-3" />
+    </>
+  ),
+  arrowUp: <path d="M12 20V4.5M5.5 11 12 4.5l6.5 6.5" />,
 };
 
 export function AppIcon({ name, size = 24 }: { name: AppIconName; size?: number }) {

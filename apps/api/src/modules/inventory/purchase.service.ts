@@ -21,6 +21,29 @@ export function stockQuantity(quantity: number, conversion: number | null): numb
   return Math.round(quantity * (conversion ?? 1) * 1000) / 1000;
 }
 
+/**
+ * "INV-CEN-2609-": the start of every invoice number a branch gives a
+ * delivery in a branch-local month — the first three letters of its name,
+ * then the year and month. Pure, for testing.
+ */
+export function invoicePrefix(branchName: string, localDate: string): string {
+  const code = (branchName.replace(/[^A-Za-z]/g, '').slice(0, 3) || 'BR').toUpperCase().padEnd(3, 'X');
+  return `INV-${code}-${localDate.slice(2, 4)}${localDate.slice(5, 7)}-`;
+}
+
+/** The month's next invoice number at a branch ("INV-CEN-2609-0135"). */
+export async function invoiceNumber(
+  tx: Prisma.TransactionClient,
+  branch: { id: string; name: string; timezone: string },
+  at: Date,
+  attempt = 0,
+): Promise<string> {
+  const localDate = new Intl.DateTimeFormat('en-CA', { timeZone: branch.timezone }).format(at);
+  const prefix = invoicePrefix(branch.name, localDate);
+  const sameMonth = await tx.purchaseReceipt.count({ where: { branch_id: branch.id, invoice_number: { startsWith: prefix } } });
+  return `${prefix}${String(sameMonth + 1 + attempt).padStart(4, '0')}`;
+}
+
 /** "MP-250925-": the start of every manual purchase number on a branch-local day. */
 export function purchasePrefix(localDate: string): string {
   return `MP-${localDate.slice(2).replace(/-/g, '')}-`;
@@ -30,9 +53,10 @@ export function purchasePrefix(localDate: string): string {
  * Manual purchases — goods that arrived at an outlet from a supplier,
  * recorded after the fact.
  *
- * Recording one does three things in ONE transaction: saves the purchase as
+ * Recording one does four things in ONE transaction: saves the purchase as
  * RECEIVED (source MANUAL, nothing paid yet, so its total is outstanding),
- * saves its lines with their GST, and adds each line's quantity to the
+ * saves its lines with their GST, gives the delivery a receipt under our own
+ * invoice number, and adds each line's quantity to the
  * outlet's stock as a PURCHASE movement — converted to the stock unit when
  * the item is bought in another (1 bag = 50 Kg).
  *
@@ -234,6 +258,19 @@ export class PurchaseService {
             },
             select: { id: true, po_number: true, total_minor: true, currency: true },
           });
+          // Goods in hand: one delivery, under an invoice number of our own.
+          const receipt = await tx.purchaseReceipt.create({
+            data: {
+              purchase_order_id: order.id,
+              branch_id: outlet.id,
+              invoice_number: await invoiceNumber(tx, outlet, now, attempt),
+              total_minor: total,
+              received_at: now,
+              received_by: userId,
+            },
+            select: { id: true, invoice_number: true },
+          });
+          await tx.purchaseOrderItem.updateMany({ where: { purchase_order_id: order.id }, data: { receipt_id: receipt.id } });
           await tx.stockMovement.createMany({
             data: lines.map((l) => ({
               company_id: companyId,
@@ -247,7 +284,13 @@ export class PurchaseService {
               purchase_order_id: order.id,
             })),
           });
-          return { ...order, branch: outlet.name, vendor: vendor.name, items: lines.length };
+          return {
+            ...order,
+            invoice_number: receipt.invoice_number,
+            branch: outlet.name,
+            vendor: vendor.name,
+            items: lines.length,
+          };
         });
       } catch (e) {
         const clash = e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002';

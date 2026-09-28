@@ -15,6 +15,8 @@ import chrome from '@/components/app/screen-chrome.module.css';
  * real check on every call.
  */
 const TASK_SCREENS = ['/inventory/manual-purchase', '/inventory/transfer'];
+/** Everything under these is a task screen too: an order, and its print view. */
+const TASK_PREFIXES = ['/inventory/purchase/'];
 
 export default function InventoryLayout({ children }: { children: ReactNode }) {
   const { selectedCompanyId, companyPermissions, loading } = useAppContext();
@@ -28,9 +30,9 @@ export default function InventoryLayout({ children }: { children: ReactNode }) {
     );
   }
   if (!selectedCompanyId || !hasInventoryAccess(companyPermissions)) return <section>{children}</section>;
-  // A task screen (recording a purchase, a transfer) has its own action bar at the foot
+  // A task screen (recording a purchase, a transfer, receiving an order) has its own action bar at the foot
   // and a back arrow, as the reference draws it: no tab bar under it.
-  if (TASK_SCREENS.some((p) => pathname === p)) return <>{children}</>;
+  if (TASK_SCREENS.includes(pathname) || TASK_PREFIXES.some((p) => pathname.startsWith(p))) return <>{children}</>;
 
   return (
     <div className={chrome.frame}>

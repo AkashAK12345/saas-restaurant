@@ -340,6 +340,7 @@ model Branch {
   stock_movements  StockMovement[]
   purchase_orders  PurchaseOrder[]
   pos_orders       PosOrder[]
+  purchase_receipts PurchaseReceipt[]
   transfers_out    StockTransfer[]  @relation("TransferFrom")
   transfers_in     StockTransfer[]  @relation("TransferTo")
   banquet_halls    BanquetHall[]
@@ -1444,6 +1445,8 @@ model PurchaseOrder {
   vendor          Vendor              @relation(fields: [vendor_id], references: [id], onDelete: Restrict)
   items           PurchaseOrderItem[]
   stock_movements StockMovement[]
+  receipts        PurchaseReceipt[]
+  photos          PurchaseOrderPhoto[]
 
   @@unique([branch_id, po_number])
   // Purchase reports scan one branch over a window of order times.
@@ -1468,12 +1471,62 @@ model PurchaseOrderItem {
   position          Int     @default(0)
   /// The inventory product this line bought, when it was one.
   inventory_item_id String? @db.Uuid
+  /// The delivery it arrived in; null while it is still awaited.
+  receipt_id        String? @db.Uuid
 
-  order          PurchaseOrder  @relation(fields: [purchase_order_id], references: [id], onDelete: Cascade)
-  inventory_item InventoryItem? @relation(fields: [inventory_item_id], references: [id], onDelete: Restrict)
+  order          PurchaseOrder    @relation(fields: [purchase_order_id], references: [id], onDelete: Cascade)
+  inventory_item InventoryItem?   @relation(fields: [inventory_item_id], references: [id], onDelete: Restrict)
+  receipt        PurchaseReceipt? @relation(fields: [receipt_id], references: [id], onDelete: SetNull)
 
   @@index([purchase_order_id])
   @@map("purchase_order_items")
+}
+
+/// One delivery against an order: the lines that arrived in it, under an
+/// invoice number of our own ("INV-CEN-2609-0135"), and what was paid then.
+/// An order may arrive in several; it is RECEIVED once every line has.
+model PurchaseReceipt {
+  id                String   @id @default(uuid()) @db.Uuid
+  purchase_order_id String   @db.Uuid
+  branch_id         String   @db.Uuid
+  invoice_number    String   @db.VarChar(40)
+  /// The value of the lines received in it, GST included.
+  total_minor       Int
+  /// Paid to the supplier on receiving, and how (CASH, UPI, BANK, CARD, CHEQUE).
+  paid_minor        Int      @default(0)
+  payment_mode      String?  @db.VarChar(16)
+  received_at       DateTime @db.Timestamptz(3)
+  received_by       String?  @db.Uuid
+  created_at        DateTime @default(now()) @db.Timestamptz(3)
+
+  order  PurchaseOrder        @relation(fields: [purchase_order_id], references: [id], onDelete: Cascade)
+  branch Branch               @relation(fields: [branch_id], references: [id], onDelete: Restrict)
+  lines  PurchaseOrderItem[]
+  photos PurchaseOrderPhoto[]
+
+  @@unique([branch_id, invoice_number])
+  @@index([purchase_order_id])
+  @@map("purchase_receipts")
+}
+
+/// A delivery photo (the supplier's bill, the goods at the door), kept in
+/// Postgres as banquet photos are. Uploaded before receiving; the receipt
+/// that follows claims every photo not yet claimed.
+model PurchaseOrderPhoto {
+  id                String   @id @default(uuid()) @db.Uuid
+  purchase_order_id String   @db.Uuid
+  receipt_id        String?  @db.Uuid
+  data              Bytes
+  mime_type         String   @db.VarChar(64)
+  file_name         String?  @db.VarChar(255)
+  position          Int      @default(0)
+  created_at        DateTime @default(now()) @db.Timestamptz(3)
+
+  order   PurchaseOrder    @relation(fields: [purchase_order_id], references: [id], onDelete: Cascade)
+  receipt PurchaseReceipt? @relation(fields: [receipt_id], references: [id], onDelete: SetNull)
+
+  @@index([purchase_order_id])
+  @@map("purchase_order_photos")
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

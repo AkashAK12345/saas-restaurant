@@ -2756,11 +2756,19 @@ describe('Phase 10 Reports & Dashboard (e2e)', () => {
       await prisma.stockTransfer.deleteMany({ where: { company_id: companyA.id } });
       await prisma.menuProduct.deleteMany({ where: { company_id: companyA.id } });
       await prisma.purchaseOrder.deleteMany({
-        where: { OR: [{ po_number: { startsWith: 'INV-' } }, { po_number: { startsWith: 'MP-' } }] },
+        where: {
+          OR: [
+            { po_number: { startsWith: 'INV-' } },
+            { po_number: { startsWith: 'MP-' } },
+            { po_number: { startsWith: 'ORD-' } },
+          ],
+        },
       });
       await prisma.inventoryItem.deleteMany({ where: { company_id: companyA.id } });
       await prisma.inventoryCategory.deleteMany({ where: { company_id: companyA.id } });
-      await prisma.vendor.deleteMany({ where: { name: { in: ['Inventory Metro', 'Fresh Farms', 'Main Kitchen'] } } });
+      await prisma.vendor.deleteMany({
+        where: { name: { in: ['Inventory Metro', 'Fresh Farms', 'Main Kitchen', 'Order Metro', 'Order Alt'] } },
+      });
     });
 
     const cellsOf = (res: request.Response, itemId: string) => res.body.items.find((i: any) => i.id === itemId).cells;
@@ -2935,6 +2943,8 @@ describe('Phase 10 Reports & Dashboard (e2e)', () => {
         // Sugar: 2 × ₹2,000 + 5% = ₹4,200. Chicken: 1.5 × ₹240, no GST = ₹360.
         expect(res.body).toMatchObject({ total_minor: 456_000, currency: 'INR', branch: 'Alpha Main', vendor: 'Fresh Farms', items: 2 });
         expect(res.body.po_number).toMatch(/^MP-\d{6}-1$/);
+        // It arrived with the purchase: one delivery, under our invoice number.
+        expect(res.body.invoice_number).toMatch(/^INV-ALP-\d{4}-0001$/);
 
         const order = await prisma.purchaseOrder.findUniqueOrThrow({
           where: { id: res.body.id },
@@ -3086,6 +3096,223 @@ describe('Phase 10 Reports & Dashboard (e2e)', () => {
         expect((await send(base, tokenKeeperA)).status).toBe(403);
 
         expect((await send(base)).status).toBe(201);
+      });
+    });
+
+    describe('Purchase orders', () => {
+      // Orders raised to "Order Metro": ORD-1 (two lines, Alpha Main), ORD-2
+      // (Alpha Second), ORD-3 (cancelled, Alpha Main).
+      const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+      let vendorId: string;
+      let otherVendorId: string;
+      let ord1: string;
+      let ord2: string;
+      let chickenLine: string;
+      let upLine: string;
+
+      const orders = (query: Record<string, string> = {}, token = tokenAnalystA) => inv('purchase-orders', query, token);
+      const call = (method: 'post' | 'patch' | 'delete', path: string, body: object = {}, token = tokenAnalystA) =>
+        as(request(http)[method](`/api/v1/inventory/purchase-orders/${path}`), token, companyA.id).send(body);
+      const photo = (id: string, token = tokenAnalystA) =>
+        call('post', `${id}/photos`, { data: PNG, mime_type: 'image/png', file_name: 'bill.png' }, token);
+
+      beforeAll(async () => {
+        vendorId = (await prisma.vendor.create({ data: { company_id: companyA.id, name: 'Order Metro', phone: '9840011111' } })).id;
+        otherVendorId = (await prisma.vendor.create({ data: { company_id: companyA.id, name: 'Order Alt' } })).id;
+        const raise = (branchId: string, n: string, at: string, lines: Array<[string, string, number, number]>, extra = {}) =>
+          prisma.purchaseOrder.create({
+            data: {
+              company_id: companyA.id,
+              branch_id: branchId,
+              vendor_id: vendorId,
+              po_number: n,
+              total_minor: lines.reduce((s, [, , q, p]) => s + q * p, 0),
+              currency: 'INR',
+              ordered_at: new Date(at),
+              created_by: analystA.id,
+              items: {
+                create: lines.map(([itemId, name, quantity, price], position) => ({
+                  name,
+                  quantity,
+                  unit: 'Kg',
+                  unit_price_minor: price,
+                  line_total_minor: quantity * price,
+                  position,
+                  inventory_item_id: itemId,
+                })),
+              },
+              ...extra,
+            },
+            include: { items: { orderBy: { position: 'asc' } } },
+          });
+        const one = await raise(branchA.id, 'ORD-1', '2026-09-26T05:00:00.000Z', [
+          [chicken, 'Chicken', 4, 25_000],
+          [sevenUp, '7 Up Can 300 Ml', 2, 60_000],
+        ]);
+        ord1 = one.id;
+        [chickenLine, upLine] = one.items.map((i) => i.id);
+        ord2 = (await raise(branchA2.id, 'ORD-2', '2026-09-27T05:00:00.000Z', [[chicken, 'Chicken', 1, 25_000]])).id;
+        await raise(branchA.id, 'ORD-3', '2026-09-25T05:00:00.000Z', [[chicken, 'Chicken', 1, 1_000]], {
+          status: 'CANCELLED',
+          cancelled_at: new Date('2026-09-25T06:00:00.000Z'),
+        });
+      });
+
+      it('PO-1. lists orders by tab with counts, cards, the cancelled toggle, filters and sorts', async () => {
+        const res = await orders({ vendor_id: vendorId });
+        expect(res.status).toBe(200);
+        expect(res.body.counts).toEqual({ all: 2, sent: 2, cancelled: 1 });
+        expect(res.body.orders.map((o: any) => o.po_number)).toEqual(['ORD-2', 'ORD-1']);
+        const card = res.body.orders.find((o: any) => o.po_number === 'ORD-1');
+        expect(card).toMatchObject({
+          status: 'ORDERED',
+          vendor: { id: vendorId, name: 'Order Metro', phone: '9840011111' },
+          branch: { id: branchA.id, name: 'Alpha Main' },
+          created_by: expect.any(String),
+          items_count: 2,
+          received_count: 0,
+          chips: [
+            { name: 'Chicken', quantity: 4, unit: 'Kg' },
+            { name: '7 Up Can 300 Ml', quantity: 2, unit: 'Kg' },
+          ],
+          more_items: 0,
+          total_minor: 220_000,
+          invoice_number: null,
+          may_edit: true,
+        });
+
+        const withCancelled = await orders({ vendor_id: vendorId, include_cancelled: 'true', sort: 'oldest' });
+        expect(withCancelled.body.orders.map((o: any) => [o.po_number, o.status])).toEqual([
+          ['ORD-3', 'CANCELLED'],
+          ['ORD-1', 'ORDERED'],
+          ['ORD-2', 'ORDERED'],
+        ]);
+        expect((await orders({ vendor_id: vendorId, tab: 'received' })).body.orders).toEqual([]);
+        expect((await orders({ vendor_id: vendorId, sort: 'amount' })).body.orders[0].po_number).toBe('ORD-1');
+        // 26 Sep, Alpha Main's day: only ORD-1.
+        const day = await orders({ vendor_id: vendorId, from: '2026-09-26', to: '2026-09-26' });
+        expect(day.body.orders.map((o: any) => o.po_number)).toEqual(['ORD-1']);
+        const second = await orders({ vendor_id: vendorId, branch_id: branchA2.id });
+        expect(second.body.orders.map((o: any) => o.po_number)).toEqual(['ORD-2']);
+
+        // A viewer sees only their branch, and may not change it.
+        const keeper = await orders({ vendor_id: vendorId }, tokenKeeperA);
+        expect(keeper.body.orders.map((o: any) => [o.po_number, o.may_edit])).toEqual([['ORD-1', false]]);
+        expect((await orders({ branch_id: branchA2.id }, tokenKeeperA)).status).toBe(403);
+        expect((await orders({ from: '2026-09-26' })).status).toBe(400);
+        expect((await orders({}, tokenPlainA)).status).toBe(403);
+      });
+
+      it('PO-2. saves edits to the awaited lines and the supplier; totals follow', async () => {
+        const res = await call('patch', ord1, {
+          vendor_id: otherVendorId,
+          lines: [
+            { id: chickenLine, item_id: chicken, quantity: 5, rate_minor: 20_000 },
+            { item_id: laptop, quantity: 1, rate_minor: 1_000 },
+          ],
+        });
+        expect(res.status).toBe(200);
+        expect(res.body.vendor.name).toBe('Order Alt');
+        expect(res.body.lines.map((l: any) => [l.name, l.quantity, l.unit_price_minor, l.line_total_minor, l.received])).toEqual([
+          ['Chicken', 5, 20_000, 100_000, false],
+          ['Laptop', 1, 1_000, 1_000, false],
+        ]);
+        expect(res.body.total_minor).toBe(101_000);
+        expect(res.body.may_edit).toBe(true);
+        // Put it back as it was, for what follows.
+        const back = await call('patch', ord1, {
+          vendor_id: vendorId,
+          lines: [
+            { id: chickenLine, item_id: chicken, quantity: 4, rate_minor: 25_000 },
+            { item_id: sevenUp, quantity: 2, rate_minor: 60_000 },
+          ],
+        });
+        upLine = back.body.lines[1].id;
+        expect(back.body.total_minor).toBe(220_000);
+
+        expect((await call('patch', ord1, { lines: [] })).status).toBe(400);
+        expect((await call('patch', ord1, { lines: [{ item_id: chicken, quantity: 1, rate_minor: 1 }, { item_id: chicken, quantity: 1, rate_minor: 1 }] })).status).toBe(400);
+        expect((await call('patch', ord1, { lines: [{ item_id: chicken, quantity: 1, rate_minor: 1 }] }, tokenKeeperA)).status).toBe(403);
+        expect((await inv(`purchase-orders/${ord1}`, {}, tokenKeeperA)).body.may_edit).toBe(false);
+      });
+
+      it('PO-3. delivery photos: up to the limit, served back, removable until received', async () => {
+        const up = await photo(ord1);
+        expect(up.status).toBe(201);
+        expect(up.body).toMatchObject({ mime_type: 'image/png', file_name: 'bill.png', received: false });
+        const bytes = await as(request(http).get(`/api/v1/inventory/purchase-orders/${ord1}/photos/${up.body.id}`), tokenKeeperA, companyA.id);
+        expect(bytes.status).toBe(200);
+        expect(bytes.headers['content-type']).toBe('image/png');
+        expect((await call('delete', `${ord1}/photos/${up.body.id}`)).status).toBe(204);
+        expect((await call('post', `${ord1}/photos`, { data: PNG, mime_type: 'application/pdf' })).status).toBe(400);
+        expect((await photo(ord1, tokenKeeperA)).status).toBe(403);
+      });
+
+      it('PO-4. receives the ticked lines as one delivery; the rest wait for the next', async () => {
+        const lines = [
+          { id: chickenLine, item_id: chicken, quantity: 4, rate_minor: 25_000, receive: true },
+          { id: upLine, item_id: sevenUp, quantity: 2, rate_minor: 60_000 },
+        ];
+        const noPhoto = await call('post', `${ord1}/receive`, { lines, paid_minor: 0, payment_mode: 'CASH' });
+        expect(noPhoto.status).toBe(400);
+        expect(noPhoto.body.message).toBe('Add at least one delivery photo to receive');
+        await photo(ord1);
+        expect((await call('post', `${ord1}/receive`, { lines, paid_minor: 100_001, payment_mode: 'CASH' })).status).toBe(400);
+        expect((await call('post', `${ord1}/receive`, { lines: lines.map((l) => ({ ...l, receive: false })), paid_minor: 0, payment_mode: 'CASH' })).status).toBe(400);
+
+        const first = await call('post', `${ord1}/receive`, { lines, paid_minor: 40_000, payment_mode: 'UPI' });
+        expect(first.status).toBe(200);
+        expect(first.body.status).toBe('ORDERED');
+        expect(first.body.paid_minor).toBe(40_000);
+        expect(first.body.lines.map((l: any) => [l.name, l.received])).toEqual([
+          ['Chicken', true],
+          ['7 Up Can 300 Ml', false],
+        ]);
+        expect(first.body.receipts).toEqual([
+          expect.objectContaining({ total_minor: 100_000, paid_minor: 40_000, payment_mode: 'UPI', items: 1 }),
+        ]);
+        const inv1 = first.body.receipts[0].invoice_number as string;
+        expect(inv1).toMatch(/^INV-ALP-\d{4}-\d{4}$/);
+        expect(first.body.photos).toEqual([expect.objectContaining({ received: true })]);
+
+        // Four more Kg of chicken at Alpha Main (it had none left).
+        const grid = await inv('overview', { branch_id: branchA.id });
+        expect(grid.body.items.find((i: any) => i.id === chicken).cells[branchA.id].stock).toBe(4);
+
+        // A received line cannot change; the next delivery needs its own photo.
+        expect((await call('patch', ord1, { lines: [{ id: chickenLine, item_id: chicken, quantity: 9, rate_minor: 1 }] })).status).toBe(400);
+        const rest = [{ id: upLine, item_id: sevenUp, quantity: 2, rate_minor: 60_000, receive: true }];
+        expect((await call('post', `${ord1}/receive`, { lines: rest, paid_minor: 0, payment_mode: 'CASH' })).status).toBe(400);
+        await photo(ord1);
+        const second = await call('post', `${ord1}/receive`, { lines: rest, paid_minor: 0, payment_mode: 'CASH' });
+        expect(second.status).toBe(200);
+        expect(second.body.status).toBe('RECEIVED');
+        expect(second.body.may_edit).toBe(false);
+        expect(second.body.receipts).toHaveLength(2);
+        const n = (s: string) => Number(s.slice(-4));
+        expect(n(second.body.receipts[1].invoice_number)).toBe(n(inv1) + 1);
+        expect(second.body.receipts[1]).toMatchObject({ paid_minor: 0, payment_mode: null });
+
+        const received = await orders({ vendor_id: vendorId, tab: 'received' });
+        expect(received.body.orders.map((o: any) => [o.po_number, o.invoice_number, o.total_minor - o.paid_minor])).toEqual([
+          ['ORD-1', second.body.receipts[1].invoice_number, 180_000],
+        ]);
+        expect((await call('post', `${ord1}/receive`, { lines: rest, paid_minor: 0, payment_mode: 'CASH' })).status).toBe(409);
+        expect((await photo(ord1)).status).toBe(409);
+      });
+
+      it('PO-5. cancels an order nothing has arrived on; marks one sent; refuses the rest', async () => {
+        const sent = await call('post', `${ord2}/sent`);
+        expect(sent.status).toBe(200);
+        expect(sent.body.whatsapp_sent_at).not.toBeNull();
+        expect((await call('post', `${ord2}/cancel`, {}, tokenKeeperA)).status).toBe(403);
+        const cancelled = await call('post', `${ord2}/cancel`);
+        expect(cancelled.status).toBe(200);
+        expect(cancelled.body.status).toBe('CANCELLED');
+        expect((await call('post', `${ord2}/cancel`)).status).toBe(409);
+        expect((await call('post', `${ord1}/cancel`)).status).toBe(409);
+        expect((await inv('purchase-orders/00000000-0000-4000-8000-000000000000')).status).toBe(404);
+        expect((await orders({ vendor_id: vendorId })).body.counts).toEqual({ all: 1, sent: 0, cancelled: 2 });
       });
     });
   });

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { priceLine, purchasePrefix, stockQuantity } from './purchase.service.js';
+import { invoicePrefix, priceLine, purchasePrefix, stockQuantity } from './purchase.service.js';
 
 describe('manual purchase arithmetic', () => {
   it('prices a line: quantity times rate, then GST on that, in whole paise', () => {
@@ -18,5 +18,16 @@ describe('manual purchase arithmetic', () => {
 
   it('numbers a purchase by its branch-local day', () => {
     expect(purchasePrefix('2026-09-25')).toBe('MP-260925-');
+  });
+});
+
+describe('invoice numbers', () => {
+  it('start with the branch’s first three letters, then its local year and month', () => {
+    expect(invoicePrefix('Central Samco Kitchen - CSK', '2026-09-28')).toBe('INV-CEN-2609-');
+    expect(invoicePrefix('Alpha Main', '2027-01-01')).toBe('INV-ALP-2701-');
+    // Too few letters to go on.
+    expect(invoicePrefix('7 Hills', '2026-09-28')).toBe('INV-HIL-2609-');
+    expect(invoicePrefix('K1', '2026-09-28')).toBe('INV-KXX-2609-');
+    expect(invoicePrefix('123', '2026-09-28')).toBe('INV-BRX-2609-');
   });
 });

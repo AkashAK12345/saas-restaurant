@@ -58,3 +58,17 @@ const STOCK_FRACTION = new Intl.NumberFormat('en-IN', { minimumFractionDigits: 2
 export function stockFigure(value: number): string {
   return Number.isInteger(value) ? QTY.format(value) : STOCK_FRACTION.format(value);
 }
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const TIME = new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit' });
+
+/** "28 Sep" — three letters always ("Sept" is what some locales give). */
+export function dayMonth(iso: string): string {
+  const d = new Date(iso);
+  return `${d.getDate()} ${MONTHS[d.getMonth()]}`;
+}
+
+/** "28 Sep, 11:43 AM". */
+export function dayTime(iso: string): string {
+  return `${dayMonth(iso)}, ${TIME.format(new Date(iso))}`;
+}

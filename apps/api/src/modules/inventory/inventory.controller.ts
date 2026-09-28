@@ -1,4 +1,22 @@
-import { BadRequestException, Body, Controller, Get, Headers, HttpCode, HttpStatus, Post, Query, Req, UseGuards } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Headers,
+  HttpCode,
+  HttpStatus,
+  Param,
+  ParseUUIDPipe,
+  Patch,
+  Post,
+  Query,
+  Req,
+  Res,
+  UseGuards,
+} from '@nestjs/common';
+import type { Response } from 'express';
 import { isUUID } from 'class-validator';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard.js';
 import { InventoryService } from './inventory.service.js';
@@ -7,6 +25,13 @@ import { PurchaseService } from './purchase.service.js';
 import { CreateSupplierDto, RecordPurchaseDto, SearchQueryDto } from './purchase.dto.js';
 import { TransferService } from './transfer.service.js';
 import { RecordTransferDto, TransferStockQueryDto } from './transfer.dto.js';
+import { PurchaseOrderService } from './purchase-order.service.js';
+import {
+  PurchaseOrderListQueryDto,
+  ReceivePurchaseOrderDto,
+  UpdatePurchaseOrderDto,
+  UploadOrderPhotoDto,
+} from './purchase-order.dto.js';
 
 interface AuthenticatedRequest {
   user: { id: string };
@@ -26,6 +51,7 @@ export class InventoryController {
     private readonly inventory: InventoryService,
     private readonly purchases: PurchaseService,
     private readonly transfers: TransferService,
+    private readonly orders: PurchaseOrderService,
   ) {}
 
   private company(companyId: string | undefined): string {
@@ -120,5 +146,104 @@ export class InventoryController {
     @Req() req: AuthenticatedRequest,
   ) {
     return this.transfers.record(this.company(companyId), req.user.id, dto);
+  }
+
+  // ── Purchase orders ─────────────────────────────────────────────────────
+  // Reading proves inventory.view or inventory.purchase.create at the
+  // order's branch; changing it proves inventory.purchase.create there.
+
+  @Get('purchase-orders')
+  listOrders(
+    @Headers('x-company-id') companyId: string | undefined,
+    @Query() query: PurchaseOrderListQueryDto,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.orders.list(this.company(companyId), req.user.id, query);
+  }
+
+  @Get('purchase-orders/:id')
+  order(
+    @Headers('x-company-id') companyId: string | undefined,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.orders.detail(this.company(companyId), req.user.id, id);
+  }
+
+  @Patch('purchase-orders/:id')
+  updateOrder(
+    @Headers('x-company-id') companyId: string | undefined,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdatePurchaseOrderDto,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.orders.update(this.company(companyId), req.user.id, id, dto);
+  }
+
+  @Post('purchase-orders/:id/receive')
+  @HttpCode(HttpStatus.OK)
+  receiveOrder(
+    @Headers('x-company-id') companyId: string | undefined,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ReceivePurchaseOrderDto,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.orders.receive(this.company(companyId), req.user.id, id, dto);
+  }
+
+  @Post('purchase-orders/:id/cancel')
+  @HttpCode(HttpStatus.OK)
+  cancelOrder(
+    @Headers('x-company-id') companyId: string | undefined,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.orders.cancel(this.company(companyId), req.user.id, id);
+  }
+
+  @Post('purchase-orders/:id/sent')
+  @HttpCode(HttpStatus.OK)
+  orderSent(
+    @Headers('x-company-id') companyId: string | undefined,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.orders.markSent(this.company(companyId), req.user.id, id);
+  }
+
+  @Get('purchase-orders/:id/photos/:photoId')
+  async orderPhoto(
+    @Headers('x-company-id') companyId: string | undefined,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('photoId', ParseUUIDPipe) photoId: string,
+    @Req() req: AuthenticatedRequest,
+    @Res() res: Response,
+  ) {
+    const { data, mime_type, file_name } = await this.orders.photo(this.company(companyId), req.user.id, id, photoId);
+    res.setHeader('Content-Type', mime_type);
+    if (file_name) res.setHeader('Content-Disposition', `inline; filename="${file_name.replace(/["\\\r\n]/g, '')}"`);
+    res.send(data);
+  }
+
+  @Post('purchase-orders/:id/photos')
+  @HttpCode(HttpStatus.CREATED)
+  uploadOrderPhoto(
+    @Headers('x-company-id') companyId: string | undefined,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UploadOrderPhotoDto,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.orders.uploadPhoto(this.company(companyId), req.user.id, id, dto);
+  }
+
+  @Delete('purchase-orders/:id/photos/:photoId')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  deleteOrderPhoto(
+    @Headers('x-company-id') companyId: string | undefined,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('photoId', ParseUUIDPipe) photoId: string,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.orders.deletePhoto(this.company(companyId), req.user.id, id, photoId);
   }
 }
