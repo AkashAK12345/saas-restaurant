@@ -9,7 +9,19 @@ import { DateDialog } from '@/components/reports/date-range-dialog';
 import styles from './inventory-reports.module.css';
 
 /** The report screen's frame: back to the list, "Inventory › Reports", the title. */
-export function ReportFrame({ title, children }: { title: string; children: ReactNode }) {
+export function ReportFrame({
+  title,
+  tools,
+  top,
+  children,
+}: {
+  title: string;
+  /** Buttons on the right of the header (download). */
+  tools?: ReactNode;
+  /** A white band under the header, before the body (tabs, dates). */
+  top?: ReactNode;
+  children: ReactNode;
+}) {
   return (
     <section className={styles.page}>
       <header className={styles.head}>
@@ -20,7 +32,9 @@ export function ReportFrame({ title, children }: { title: string; children: Reac
           <p className={styles.eyebrow}>Inventory › Reports</p>
           <h1 className={styles.title}>{title}</h1>
         </div>
+        {tools ? <div className={styles.headTools}>{tools}</div> : null}
       </header>
+      {top ? <div className={styles.topBand}>{top}</div> : null}
       <div className={styles.body}>{children}</div>
     </section>
   );

@@ -235,28 +235,62 @@ export class InventoryReportsService {
     const branches = await this.branches(companyId, userId);
     const lines = this.received(companyId, branches.map((b) => b.id), q.from, q.to);
     const group = q.group ?? 'items';
+    const itemKey = Prisma.sql`COALESCE(l."inventory_item_id"::text, l."name")`;
     const key = {
-      items: { key: Prisma.sql`COALESCE(l."inventory_item_id"::text, l."name")`, name: Prisma.sql`l."name"`, unit: Prisma.sql`l."unit"` },
+      items: { key: itemKey, name: Prisma.sql`l."name"`, unit: Prisma.sql`l."unit"` },
       suppliers: { key: Prisma.sql`l."vendor_id"::text`, name: Prisma.sql`l."vendor"`, unit: Prisma.sql`NULL::text` },
       branches: { key: Prisma.sql`l."branch_id"::text`, name: Prisma.sql`l."branch"`, unit: Prisma.sql`NULL::text` },
     }[group];
     const rows = await this.prisma.$queryRaw<
-      Array<{ key: string; name: string; unit: string | null; orders: bigint; qty: unknown; spend: unknown }>
+      Array<{
+        key: string;
+        name: string;
+        unit: string | null;
+        orders: bigint;
+        items: bigint;
+        qty: unknown;
+        spend: unknown;
+        last_price: number | null;
+        last_buy: string | null;
+      }>
     >(Prisma.sql`
       SELECT ${key.key} AS "key", ${key.name} AS "name", ${key.unit} AS "unit",
-             COUNT(*) AS "orders", SUM(l."quantity") AS "qty", SUM(l."net") AS "spend"
+             COUNT(*) AS "orders",
+             COUNT(DISTINCT ${itemKey}) AS "items",
+             SUM(l."quantity") AS "qty",
+             SUM(l."net") AS "spend",
+             (ARRAY_AGG(l."unit_price_minor" ORDER BY l."received_at" DESC))[1] AS "last_price",
+             MAX(l."local_date") AS "last_buy"
       FROM (${lines}) l
       GROUP BY 1, 2, 3
       ORDER BY SUM(l."net") DESC, 2
     `);
+
+    // A branch's outstanding: what is still owed on the orders it received in the period.
+    const outstanding = new Map<string, number>();
+    if (group === 'branches') {
+      const owed = await this.prisma.$queryRaw<Array<{ branch_id: string; owed: unknown }>>(Prisma.sql`
+        SELECT po."branch_id"::text AS "branch_id", SUM(po."total_minor" - po."paid_minor") AS "owed"
+        FROM "purchase_orders" po
+        WHERE po."id" IN (SELECT DISTINCT l."purchase_order_id" FROM (${lines}) l)
+        GROUP BY po."branch_id"
+      `);
+      for (const o of owed) outstanding.set(o.branch_id, num(o.owed));
+    }
+
     const out = rows.map((r) => ({
       key: r.key,
       name: r.name,
       unit: r.unit,
       orders: num(r.orders),
-      // Quantities only add up within one item.
+      // How many different items: for a supplier or a branch.
+      items: num(r.items),
+      // Quantities and a last price only mean something within one item.
       quantity: group === 'items' ? round3(num(r.qty)) : null,
+      last_price_minor: group === 'items' ? r.last_price : null,
       spend_minor: num(r.spend),
+      last_buy: r.last_buy,
+      outstanding_minor: group === 'branches' ? (outstanding.get(r.key) ?? 0) : null,
     }));
     return {
       group,

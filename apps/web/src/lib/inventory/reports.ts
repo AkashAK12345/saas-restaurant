@@ -59,7 +59,22 @@ export interface Consolidated {
   group: ConsolidatedGroup;
   branches: number;
   summary: { rows: number; orders: number; spend_minor: number; currency: string };
-  rows: Array<{ key: string; name: string; unit: string | null; orders: number; quantity: number | null; spend_minor: number }>;
+  rows: Array<{
+    key: string;
+    name: string;
+    unit: string | null;
+    orders: number;
+    /** Different items bought (suppliers and branches). */
+    items: number;
+    /** Items only: total quantity and the last price paid, per its unit. */
+    quantity: number | null;
+    last_price_minor: number | null;
+    spend_minor: number;
+    /** The last day something arrived (YYYY-MM-DD). */
+    last_buy: string | null;
+    /** Branches only: still owed on the orders it received in the period. */
+    outstanding_minor: number | null;
+  }>;
 }
 
 export interface ClosingStock {
@@ -134,6 +149,11 @@ export function shortDay(date: string): string {
 /** "1 Sep → 30 Sep". */
 export function rangeLabel(from: string, to: string): string {
   return `${shortDay(from)} → ${shortDay(to)}`;
+}
+
+/** "1 Sep → 30 Sep 2026". */
+export function rangeLabelYear(from: string, to: string): string {
+  return `${rangeLabel(from, to)} ${to.slice(0, 4)}`;
 }
 
 const pad = (n: number) => String(n).padStart(2, '0');

@@ -18,6 +18,8 @@ vi.mock('@/lib/context/app-context-provider', () => ({
 }));
 const route = vi.hoisted(() => ({ key: 'monthly-avg' }));
 vi.mock('next/navigation', () => ({ useParams: () => ({ key: route.key }) }));
+const files = vi.hoisted(() => ({ saveFile: vi.fn() }));
+vi.mock('@/lib/reports/api', () => files);
 // A fixed "today": 29 Sep 2026.
 vi.mock('@/lib/reports/format', async (real) => ({
   ...(await real<typeof import('@/lib/reports/format')>()),
@@ -159,23 +161,47 @@ describe('The other reports', () => {
     ]);
   });
 
-  it('IRW-5. Consolidated: by item, then by supplier', async () => {
+  it('IRW-5. Consolidated: tabs and columns as the reference draws them, and a CSV download', async () => {
     route.key = 'consolidated';
+    const row = { unit: null, orders: 0, items: 0, quantity: null, last_price_minor: null, last_buy: null, outstanding_minor: null };
     reports.consolidated.mockImplementation(async (_c: unknown, q: { group: string }) => ({
       group: q.group,
       branches: 6,
       summary: { rows: 1, orders: 4, spend_minor: 90_000, currency: 'INR' },
-      rows:
-        q.group === 'items'
-          ? [{ key: 'i1', name: 'Cardamom', unit: 'Kg', orders: 4, quantity: 3, spend_minor: 90_000 }]
-          : [{ key: 'v1', name: 'ELAGRO SPICES', unit: null, orders: 4, quantity: null, spend_minor: 90_000 }],
+      rows: {
+        items: [
+          { ...row, key: 'i1', name: 'Mutton Biriyani Cut', unit: 'Kg', quantity: 838.29, last_price_minor: 83_000, spend_minor: 69_578_070 },
+        ],
+        suppliers: [{ ...row, key: 'v1', name: 'MOHAMMED SAAHIL MUTTON', items: 4, spend_minor: 74_313_270, last_buy: '2026-09-29' }],
+        branches: [
+          { ...row, key: 'b1', name: 'Central Samco Kitchen - CSK', items: 41, spend_minor: 210_753_076, outstanding_minor: 210_676_576 },
+        ],
+      }[q.group],
     }));
     render(<ReportPage />);
-    const table = await screen.findByRole('table', { name: 'By item' });
-    expect(within(table).getAllByRole('row')[1].textContent).toBe('Cardamom3 Kg4₹900.00');
+    expect(await screen.findByRole('heading', { name: 'Consolidated' })).toBeTruthy();
+    expect(screen.getByText('1 Sep → 30 Sep 2026')).toBeTruthy();
+    const items = await screen.findByRole('table', { name: 'By item' });
+    expect(within(items).getAllByRole('columnheader').map((h) => h.textContent)).toEqual(['Item', 'Total Qty', 'Last Price', 'Total Spend']);
+    expect(within(items).getAllByRole('row')[1].textContent).toBe('Mutton Biriyani Cut838.29 Kg₹830.00₹6,95,780.70');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Download' }));
+    const saved = files.saveFile.mock.calls[0][0];
+    expect(saved.filename).toBe('consolidated-items-2026-09-01-to-2026-09-30.csv');
+    expect(await saved.blob.text()).toBe('Item,Total Qty,Last Price,Total Spend\nMutton Biriyani Cut,838.29 Kg,830.00,695780.70\n');
+
     fireEvent.click(screen.getByRole('tab', { name: 'Suppliers' }));
-    const bySupplier = await screen.findByRole('table', { name: 'By supplier' });
-    expect(within(bySupplier).getAllByRole('columnheader').map((h) => h.textContent)).toEqual(['Supplier', 'Orders', 'Spend']);
+    const suppliers = await screen.findByRole('table', { name: 'By supplier' });
+    expect(within(suppliers).getAllByRole('row').map((r) => r.textContent)).toEqual([
+      'SupplierItemsSpendLast buy',
+      'MOHAMMED SAAHIL MUTTON4₹7,43,132.7029 Sep',
+    ]);
+    fireEvent.click(screen.getByRole('tab', { name: 'Branches' }));
+    const branches = await screen.findByRole('table', { name: 'By branch' });
+    expect(within(branches).getAllByRole('row').map((r) => r.textContent)).toEqual([
+      'BranchItemsSpendOutstanding',
+      'Central Samco Kitchen - CSK41₹21,07,530.76₹21,06,765.76',
+    ]);
   });
 
   it('IRW-6. Closing stock: quantity, price per unit and value; a list price is marked', async () => {

@@ -3535,23 +3535,27 @@ describe('Phase 10 Reports & Dashboard (e2e)', () => {
         expect((await report('comparative', { a_from: today, a_to: today })).status).toBe(400);
       });
 
-      it('IR-3. Head Outlet Consolidated: by item, supplier and branch, across all branches', async () => {
+      it('IR-3. Consolidated: items (qty, last price, spend), suppliers (items, spend, last buy), branches (outstanding)', async () => {
         const items = await report('consolidated', { from: today, to: today });
         expect(items.body.group).toBe('items');
-        expect(items.body.rows.map((r: any) => [r.name, r.quantity, r.orders, r.spend_minor])).toEqual([
-          ['Sugar 50 Kg Bag', 4, 3, 800_000],
-          ['Chicken', 5.5, 2, 136_000],
-          ['7 Up Can 300 Ml', 2, 1, 120_000],
+        // Chicken's last price is ORD-1's ₹250, received after MP-4's ₹240.
+        expect(items.body.rows.map((r: any) => [r.name, r.quantity, r.unit, r.last_price_minor, r.spend_minor])).toEqual([
+          ['Sugar 50 Kg Bag', 4, 'Bag', 200_000, 800_000],
+          ['Chicken', 5.5, 'Kg', 25_000, 136_000],
+          ['7 Up Can 300 Ml', 2, 'case', 60_000, 120_000],
         ]);
         expect(items.body.summary).toEqual({ rows: 3, orders: 6, spend_minor: 1_056_000, currency: 'INR' });
 
         const suppliers = await report('consolidated', { group: 'suppliers' });
-        expect(suppliers.body.rows.map((r: any) => [r.name, r.quantity, r.orders, r.spend_minor])).toEqual([
-          ['Fresh Farms', null, 4, 836_000],
-          ['Order Metro', null, 2, 220_000],
+        expect(suppliers.body.rows.map((r: any) => [r.name, r.items, r.spend_minor, r.last_buy, r.quantity])).toEqual([
+          ['Fresh Farms', 2, 836_000, today, null],
+          ['Order Metro', 2, 220_000, today, null],
         ]);
+        // Owed on Alpha Main's received orders: MP ₹4,560 + ₹2,100 + (₹2,360 − ₹360 paid) + ORD-1 ₹2,200.
         const branches = await report('consolidated', { group: 'branches' });
-        expect(branches.body.rows.map((r: any) => [r.name, r.spend_minor])).toEqual([['Alpha Main', 1_056_000]]);
+        expect(branches.body.rows.map((r: any) => [r.name, r.items, r.spend_minor, r.outstanding_minor])).toEqual([
+          ['Alpha Main', 3, 1_056_000, 1_086_000],
+        ]);
         expect((await report('consolidated', { group: 'vendors' })).status).toBe(400);
       });
 
