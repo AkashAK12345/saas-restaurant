@@ -3611,6 +3611,116 @@ describe('Phase 10 Reports & Dashboard (e2e)', () => {
         expect((await report('options', {}, tokenKeeperA)).body.branches.map((b: any) => b.name)).toEqual(['Alpha Main']);
       });
     });
+
+    describe('Supplier ledger', () => {
+      // Arrived today at Alpha Main: from Fresh Farms ₹4,560 + ₹2,100 + ₹2,360 (₹360 paid on
+      // receiving); from Order Metro ₹1,000 + ₹1,200 (paid, then marked unpaid again).
+      const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date());
+      const cycle = { from: today, to: today };
+      let fresh: string;
+      let metro: string;
+      const ledger = (path = '', query: Record<string, string> = {}, token = tokenAnalystA) =>
+        inv(`supplier-ledger${path}`, { ...cycle, ...query }, token);
+      const post = (path: string, body: object, token = tokenAnalystA) =>
+        as(request(http).post(`/api/v1/inventory/${path}`), token, companyA.id).send(body);
+      const pdf = (path: string, query: Record<string, string> = cycle) =>
+        as(request(http).get(`/api/v1/inventory/${path}`), tokenAnalystA, companyA.id)
+          .query(query)
+          .buffer(true)
+          .parse((res, done) => {
+            const chunks: Buffer[] = [];
+            res.on('data', (c: Buffer) => chunks.push(c));
+            res.on('end', () => done(null, Buffer.concat(chunks)));
+          });
+
+      beforeAll(async () => {
+        fresh = (await prisma.vendor.findFirstOrThrow({ where: { company_id: companyA.id, name: 'Fresh Farms' } })).id;
+        metro = (await prisma.vendor.findFirstOrThrow({ where: { company_id: companyA.id, name: 'Order Metro' } })).id;
+      });
+
+      it('SL-1. each supplier: opening, purchases, paid and closing for the cycle, biggest due first', async () => {
+        const res = await ledger();
+        expect(res.status).toBe(200);
+        expect(res.body.summary).toEqual({ purchases_minor: 1_122_000, paid_minor: 36_000, pending_minor: 1_086_000 });
+        expect(res.body.suppliers.map((s: any) => [s.name, s.opening_minor, s.purchases_minor, s.paid_minor, s.closing_minor])).toEqual([
+          ['Fresh Farms', 0, 902_000, 36_000, 866_000],
+          ['Order Metro', 0, 220_000, 0, 220_000],
+        ]);
+        expect(res.body.suppliers[0].bank).toMatchObject({ ifsc: 'SBIN0001234', account_number: '1234567890' });
+
+        // A later cycle opens with what is still owed.
+        const later = await ledger('', { from: '2099-01-01', to: '2099-01-15' });
+        expect(later.body.suppliers.map((s: any) => [s.name, s.opening_minor, s.purchases_minor, s.closing_minor])).toEqual([
+          ['Fresh Farms', 866_000, 0, 866_000],
+          ['Order Metro', 220_000, 0, 220_000],
+        ]);
+        expect((await ledger('', { from: '2020-01-01', to: '2020-01-15' })).body.suppliers).toEqual([]);
+        expect((await ledger('', { q: 'metro' })).body.suppliers.map((s: any) => s.name)).toEqual(['Order Metro']);
+        expect((await ledger('', { branch_id: branchA2.id })).body.suppliers).toEqual([]);
+        expect((await ledger('', { from: today, to: '2020-01-01' })).status).toBe(400);
+        expect((await inv('supplier-ledger', {})).status).toBe(400);
+        expect((await ledger('', {}, tokenPlainA)).status).toBe(403);
+      });
+
+      it('SL-2. one supplier: its invoices with what is due, and the payments made', async () => {
+        const res = await ledger(`/${fresh}`);
+        expect(res.status).toBe(200);
+        expect(res.body).toMatchObject({ opening_minor: 0, purchases_minor: 902_000, paid_minor: 36_000, closing_minor: 866_000, may_pay_all: true });
+        expect(res.body.invoices.map((i: any) => [i.total_minor, i.paid_minor, i.due_minor, i.may_pay]).sort()).toEqual(
+          [
+            [210_000, 0, 210_000, true],
+            [236_000, 36_000, 200_000, true],
+            [456_000, 0, 456_000, true],
+          ].sort(),
+        );
+        expect(res.body.invoices.every((i: any) => /^INV-ALP-\d{4}-\d{4}$/.test(i.invoice_number) && i.date === today)).toBe(true);
+        expect(res.body.payments).toEqual([expect.objectContaining({ amount_minor: 36_000, payment_mode: 'CASH', date: today })]);
+        // Read-only for someone who may only view.
+        const keeper = await ledger(`/${fresh}`, {}, tokenKeeperA);
+        expect(keeper.body.may_pay_all).toBe(false);
+        expect(keeper.body.invoices.every((i: any) => i.may_pay === false)).toBe(true);
+      });
+
+      it('SL-3. records a payment on one invoice, never more than is due', async () => {
+        const inv2100 = (await ledger(`/${fresh}`)).body.invoices.find((i: any) => i.total_minor === 210_000);
+        expect((await post(`purchase-receipts/${inv2100.receipt_id}/payments`, { amount_minor: 210_001, payment_mode: 'UPI' })).status).toBe(400);
+        expect((await post(`purchase-receipts/${inv2100.receipt_id}/payments`, { amount_minor: 10_000, payment_mode: 'UPI' }, tokenKeeperA)).status).toBe(403);
+        const paid = await post(`purchase-receipts/${inv2100.receipt_id}/payments`, { amount_minor: 10_000, payment_mode: 'UPI' });
+        expect(paid.status).toBe(201);
+        expect(paid.body).toEqual({ paid_minor: 10_000 });
+        const after = await ledger(`/${fresh}`);
+        expect(after.body).toMatchObject({ paid_minor: 46_000, closing_minor: 856_000 });
+        expect(after.body.invoices.find((i: any) => i.receipt_id === inv2100.receipt_id)).toMatchObject({ paid_minor: 10_000, due_minor: 200_000 });
+        expect((await post(`purchase-receipts/${inv2100.receipt_id}/payments`, { amount_minor: 0, payment_mode: 'UPI' })).status).toBe(400);
+      });
+
+      it('SL-4. pay all settles every invoice due; the orders then read paid on the Received tab', async () => {
+        expect((await post(`supplier-ledger/${fresh}/pay-all`, { payment_mode: 'BANK' }, tokenKeeperA)).status).toBe(403);
+        const res = await post(`supplier-ledger/${fresh}/pay-all`, { payment_mode: 'BANK' });
+        expect(res.status).toBe(200);
+        expect(res.body).toEqual({ invoices: 3, paid_minor: 856_000 });
+        const after = await ledger();
+        expect(after.body.suppliers.find((s: any) => s.name === 'Fresh Farms')).toMatchObject({ paid_minor: 902_000, closing_minor: 0 });
+        expect(after.body.summary.pending_minor).toBe(220_000);
+        const orders = await prisma.purchaseOrder.findMany({ where: { vendor_id: fresh, status: 'RECEIVED' } });
+        expect(orders.every((o) => o.paid_minor === o.total_minor && o.payment_mode === 'BANK' && o.paid_at)).toBe(true);
+        expect((await post(`supplier-ledger/${fresh}/pay-all`, { payment_mode: 'BANK' })).status).toBe(409);
+      });
+
+      it('SL-5. PDFs: the ledger, a supplier statement and an invoice', async () => {
+        const all = await pdf('supplier-ledger/pdf');
+        expect(all.status).toBe(200);
+        expect(all.headers['content-type']).toBe('application/pdf');
+        expect((all.body as Buffer).subarray(0, 5).toString()).toBe('%PDF-');
+        const statement = await pdf(`supplier-ledger/${metro}/pdf`);
+        expect(statement.headers['content-disposition']).toBe(`attachment; filename="statement-Order-Metro-${today}-to-${today}.pdf"`);
+        const receipt = (await ledger(`/${metro}`)).body.invoices[0];
+        const invoice = await pdf(`purchase-receipts/${receipt.receipt_id}/pdf`, {});
+        expect(invoice.status).toBe(200);
+        expect(invoice.headers['content-disposition']).toBe(`attachment; filename="${receipt.invoice_number}.pdf"`);
+        expect((invoice.body as Buffer).subarray(0, 5).toString()).toBe('%PDF-');
+      });
+    });
   });
 
   // ═══════════════════════════════════════════════════════════════════════════

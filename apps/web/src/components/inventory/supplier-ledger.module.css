@@ -1,0 +1,629 @@
+/* Inventory › Suppliers: the supplier ledger. Tokens only. */
+
+.page {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 100%;
+  background: var(--color-bg);
+}
+
+.top {
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface);
+}
+
+.topInner {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 16px 16px 20px;
+}
+
+.segmentLink,
+.segmentLink:hover {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+}
+
+.cycleRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.cycles {
+  display: inline-flex;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  border: 1.5px solid var(--color-text-muted);
+  border-radius: 999px;
+}
+
+.cycles button {
+  min-height: 44px;
+  padding: 0 16px;
+  border: 0;
+  background: none;
+  color: var(--color-text);
+  font: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.cycles button + button {
+  border-left: 1.5px solid var(--color-text-muted);
+}
+
+.cycles button[aria-pressed='true'] {
+  background: var(--color-danger-bg);
+  color: var(--color-primary);
+}
+
+.tools {
+  display: flex;
+  gap: 10px;
+  margin-left: auto;
+}
+
+.tool {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 52px;
+  border: 0;
+  border-radius: 14px;
+  background: var(--color-danger-bg);
+  color: var(--color-primary);
+  cursor: pointer;
+}
+
+.tool[data-tone='green'] {
+  background: var(--accent-green-bg);
+  color: var(--accent-green-fg);
+}
+
+.tool:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.range {
+  margin: -4px 0 0;
+  color: var(--color-text-muted);
+}
+
+.stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+}
+
+.stat {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+  min-width: 0;
+  padding: 20px 22px;
+  border: 1px solid var(--color-border);
+  border-radius: 22px;
+  background: var(--color-surface);
+}
+
+.statTop {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--color-text-muted);
+}
+
+.statIcon {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+}
+
+.statIcon[data-tone='red'] {
+  background: var(--color-danger-bg);
+  color: var(--color-primary);
+}
+
+.statIcon[data-tone='green'] {
+  background: var(--accent-green-bg);
+  color: var(--accent-green-fg);
+}
+
+.statIcon[data-tone='amber'] {
+  background: var(--accent-amber-bg);
+  color: var(--accent-amber-fg);
+}
+
+.statValue {
+  margin: 0;
+  font-size: 1.75rem;
+  font-weight: 600;
+  color: var(--color-text);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.filters {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.6fr);
+  gap: 16px;
+}
+
+.search {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 52px;
+  padding: 0 16px;
+  border: 1px solid var(--color-border);
+  border-radius: 16px;
+  background: var(--color-surface-muted);
+  color: var(--color-text-muted);
+}
+
+.search:focus-within {
+  border-color: var(--color-primary);
+}
+
+.search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-text);
+  font: inherit;
+  outline: none;
+}
+
+/* ── Supplier cards ────────────────────────────────────────────────────── */
+
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 20px 16px 32px;
+  list-style: none;
+}
+
+.card {
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: 20px;
+  background: var(--color-surface);
+}
+
+.cardHead {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: 100%;
+  padding: 18px 22px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.nameRow {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.nameRow svg {
+  flex: none;
+  color: var(--color-text-muted);
+}
+
+.name {
+  flex: 1;
+  min-width: 0;
+  font-weight: 500;
+  color: var(--color-text);
+  overflow-wrap: anywhere;
+}
+
+.pill {
+  flex: none;
+  padding: 4px 12px;
+  border-radius: 10px;
+  font-size: 0.9375rem;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.pill[data-tone='due'] {
+  background: var(--color-danger-bg);
+  color: var(--color-danger);
+}
+
+.pill[data-tone='settled'] {
+  background: var(--accent-green-bg);
+  color: var(--accent-green-fg);
+}
+
+.figures {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.figures dt {
+  font-size: 0.8125rem;
+  color: var(--color-text-muted);
+}
+
+.figures dd {
+  margin: 4px 0 0;
+  font-weight: 500;
+  color: var(--color-text);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.figures dd[data-tone='paid'] {
+  color: var(--color-success);
+}
+
+.figures dd[data-tone='due'] {
+  color: var(--color-danger);
+}
+
+/* ── Opened: bank details, actions, invoices ───────────────────────────── */
+
+.detail {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px 22px 20px;
+  border-top: 1px solid var(--color-border);
+}
+
+.bank {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 8px 0 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--color-surface-muted);
+  color: var(--color-text-muted);
+  font-size: 0.9375rem;
+}
+
+.chip strong {
+  font-weight: 600;
+  color: var(--color-text);
+  overflow-wrap: anywhere;
+}
+
+.copy {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 8px;
+  background: none;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 22px;
+}
+
+.action {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: var(--tap-min);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--color-primary);
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.payAll {
+  margin-left: auto;
+  color: var(--color-success);
+}
+
+.action:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.invoices {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.invoice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  padding: 14px 18px;
+  border-radius: 16px;
+  background: var(--color-surface-muted);
+}
+
+.invoiceText {
+  display: flex;
+  flex: 1 1 180px;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.invoiceTitle {
+  font-weight: 500;
+  color: var(--color-text);
+  overflow-wrap: anywhere;
+}
+
+.invoiceSub {
+  font-size: 0.9375rem;
+  color: var(--color-text-muted);
+}
+
+.invoiceDue {
+  font-weight: 500;
+  color: var(--color-danger);
+  white-space: nowrap;
+}
+
+.invoicePaid {
+  font-weight: 500;
+  color: var(--color-success);
+  white-space: nowrap;
+}
+
+.record {
+  min-height: 40px;
+  padding: 0 16px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--accent-green-bg);
+  color: var(--accent-green-fg);
+  font: inherit;
+  font-weight: 500;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.pdf {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border: 0;
+  border-radius: 10px;
+  background: none;
+  color: var(--color-primary);
+  cursor: pointer;
+}
+
+.earlier {
+  font-size: 0.8125rem;
+  color: var(--accent-amber-fg);
+}
+
+.muted {
+  margin: 0;
+  color: var(--color-text-muted);
+}
+
+.empty {
+  margin: 0;
+  padding: 48px 16px;
+  text-align: center;
+  color: var(--color-text-muted);
+}
+
+.error {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--color-danger-bg);
+  color: var(--color-danger);
+}
+
+.toast {
+  margin: 0;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: var(--accent-green-bg);
+  color: var(--accent-green-fg);
+}
+
+/* ── Payment dialogs ───────────────────────────────────────────────────── */
+
+.scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgb(0 0 0 / 0.45);
+}
+
+.dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 420px;
+  padding: 24px;
+  border-radius: 24px;
+  background: var(--color-surface);
+}
+
+.dialogTitle {
+  margin: 0;
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  color: var(--color-text-muted);
+  font-size: 0.9375rem;
+}
+
+.field input,
+.field select {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 52px;
+  padding: 0 16px;
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  background: var(--color-surface-muted);
+  color: var(--color-text);
+  font: inherit;
+  font-size: 1rem;
+}
+
+.field input[aria-invalid='true'] {
+  border-color: var(--color-danger);
+}
+
+.dialogActions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.cancel,
+.confirm {
+  min-height: 52px;
+  border-radius: 14px;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.cancel {
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.confirm {
+  border: 0;
+  background: var(--color-primary);
+  color: var(--color-primary-contrast);
+}
+
+.confirm:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.cycles button:focus-visible,
+.tool:focus-visible,
+.cardHead:focus-visible,
+.copy:focus-visible,
+.action:focus-visible,
+.record:focus-visible,
+.pdf:focus-visible,
+.cancel:focus-visible,
+.confirm:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+@media (max-width: 420px) {
+  .cycleRow {
+    gap: 8px;
+  }
+
+  .cycles button {
+    min-height: 40px;
+    padding: 0 8px;
+    font-size: 0.8125rem;
+  }
+
+  .tools {
+    gap: 6px;
+  }
+
+  .tool {
+    width: 42px;
+    height: 42px;
+    border-radius: 12px;
+  }
+
+  .stats {
+    gap: 12px;
+  }
+
+  .stat {
+    padding: 16px;
+  }
+
+  .statValue {
+    font-size: 1.5rem;
+  }
+
+  .cardHead,
+  .detail {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  .figures dd {
+    font-size: 0.875rem;
+  }
+}

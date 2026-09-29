@@ -7,6 +7,7 @@ import { PurchaseService } from './purchase.service.js';
 import { TransferService } from './transfer.service.js';
 import { PurchaseOrderService } from './purchase-order.service.js';
 import { InventoryReportsService } from './inventory-reports.service.js';
+import { SupplierLedgerService } from './supplier-ledger.service.js';
 
 /** Inventory: products, stock per branch, and the purchase totals above them. */
 @Module({
@@ -15,6 +16,6 @@ import { InventoryReportsService } from './inventory-reports.service.js';
     AuthorizationModule, // AuthorizationService, to prove each branch
   ],
   controllers: [InventoryController],
-  providers: [InventoryService, PurchaseService, TransferService, PurchaseOrderService, InventoryReportsService],
+  providers: [InventoryService, PurchaseService, TransferService, PurchaseOrderService, InventoryReportsService, SupplierLedgerService],
 })
 export class InventoryModule {}

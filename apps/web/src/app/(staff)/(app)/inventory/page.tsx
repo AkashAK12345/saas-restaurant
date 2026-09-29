@@ -157,9 +157,9 @@ export default function InventoryPage() {
         <button type="button" role="tab" aria-selected="true" className={styles.segmentTab}>
           Products
         </button>
-        <button type="button" role="tab" aria-selected="false" className={styles.segmentTab} {...soon}>
+        <Link href="/inventory/suppliers" role="tab" aria-selected="false" className={`${styles.segmentTab} ${styles.segmentLink}`}>
           Suppliers
-        </button>
+        </Link>
       </div>
 
       <header className={styles.head}>

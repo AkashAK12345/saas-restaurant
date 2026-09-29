@@ -39,6 +39,14 @@
   cursor: pointer;
 }
 
+.segmentLink,
+.segmentLink:hover {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+}
+
 .segmentTab[aria-selected='true'] {
   border-color: var(--color-primary);
   background: var(--color-danger-bg);

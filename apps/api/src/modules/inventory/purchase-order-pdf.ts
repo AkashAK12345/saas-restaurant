@@ -2,6 +2,8 @@ import PDFDocument from 'pdfkit';
 
 /** What the order PDF prints: the order as the detail endpoint returns it. */
 export interface OrderForPdf {
+  /** "Purchase Order" unless told otherwise ("Purchase Invoice" for one delivery). */
+  heading?: string;
   po_number: string;
   status: string;
   ordered_at: Date;
@@ -55,7 +57,7 @@ export function orderPdf(order: OrderForPdf, timeZone: string): Promise<Buffer> 
     const width = doc.page.width - left - doc.page.margins.right;
     const status = order.status === 'RECEIVED' ? 'Received' : order.status === 'CANCELLED' ? 'Cancelled' : 'Awaiting delivery';
 
-    doc.font('Helvetica-Bold').fontSize(20).text('Purchase Order', { align: 'center' });
+    doc.font('Helvetica-Bold').fontSize(20).text(order.heading ?? 'Purchase Order', { align: 'center' });
     doc.font('Helvetica').fontSize(12).text(order.po_number, { align: 'center' });
     doc.fontSize(9).fillColor('#555').text(`${when(order.ordered_at, timeZone)} · ${status}`, { align: 'center' });
     doc.fillColor('#000').moveDown(0.6);

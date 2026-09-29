@@ -536,6 +536,22 @@ export class PurchaseOrderService {
             },
             select: { id: true, invoice_number: true },
           });
+          // Paid on receiving: a dated payment against this delivery.
+          if (dto.paid_minor > 0) {
+            await tx.purchasePayment.create({
+              data: {
+                company_id: companyId,
+                vendor_id: dto.vendor_id ?? order.vendor_id,
+                branch_id: order.branch.id,
+                purchase_order_id: order.id,
+                receipt_id: receipt.id,
+                amount_minor: dto.paid_minor,
+                payment_mode: dto.payment_mode,
+                paid_at: now,
+                created_by: userId,
+              },
+            });
+          }
           await tx.purchaseOrderItem.updateMany({ where: { id: { in: ticked } }, data: { receipt_id: receipt.id } });
           await tx.purchaseOrderPhoto.updateMany({
             where: { id: { in: photos.map((p) => p.id) } },
@@ -609,9 +625,9 @@ export class PurchaseOrderService {
   }
 
   /**
-   * On the Received tab: paid in full (and how), or back to unpaid. Unpaid
-   * clears what was noted as paid on its deliveries too, so the order and
-   * its receipts never disagree.
+   * On the Received tab: paid in full (and how) — a dated payment for what
+   * is left on each delivery — or back to unpaid, which withdraws its
+   * payments, so the order, its receipts and the supplier ledger agree.
    */
   async markPaid(companyId: string, userId: string, orderId: string, dto: MarkPaidDto) {
     const writable = await this.writers(companyId, userId);
@@ -620,7 +636,7 @@ export class PurchaseOrderService {
       await tx.$queryRaw`SELECT id FROM purchase_orders WHERE id = ${orderId}::uuid FOR UPDATE`;
       const order = await tx.purchaseOrder.findFirst({
         where: { id: orderId, company_id: companyId },
-        select: { id: true, branch_id: true, status: true, total_minor: true },
+        select: { id: true, branch_id: true, vendor_id: true, status: true, total_minor: true },
       });
       if (!order) throw new NotFoundException('Purchase order not found');
       if (!writable.some((b) => b.id === order.branch_id)) {
@@ -628,11 +644,34 @@ export class PurchaseOrderService {
       }
       if (order.status !== 'RECEIVED') throw new ConflictException('Only a received purchase is marked paid or unpaid');
       if (dto.paid) {
+        // What is left on each delivery is paid now, a dated payment for each.
+        const now = new Date();
+        const receipts = await tx.purchaseReceipt.findMany({
+          where: { purchase_order_id: order.id },
+          select: { id: true, branch_id: true, total_minor: true, paid_minor: true },
+        });
+        for (const r of receipts.filter((x) => x.total_minor > x.paid_minor)) {
+          await tx.purchasePayment.create({
+            data: {
+              company_id: companyId,
+              vendor_id: order.vendor_id,
+              branch_id: r.branch_id,
+              purchase_order_id: order.id,
+              receipt_id: r.id,
+              amount_minor: r.total_minor - r.paid_minor,
+              payment_mode: dto.payment_mode!,
+              paid_at: now,
+              created_by: userId,
+            },
+          });
+          await tx.purchaseReceipt.update({ where: { id: r.id }, data: { paid_minor: r.total_minor } });
+        }
         await tx.purchaseOrder.update({
           where: { id: order.id },
-          data: { paid_minor: order.total_minor, paid_at: new Date(), payment_mode: dto.payment_mode },
+          data: { paid_minor: order.total_minor, paid_at: now, payment_mode: dto.payment_mode },
         });
       } else {
+        await tx.purchasePayment.deleteMany({ where: { purchase_order_id: order.id } });
         await tx.purchaseReceipt.updateMany({
           where: { purchase_order_id: order.id },
           data: { paid_minor: 0, payment_mode: null },

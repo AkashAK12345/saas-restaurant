@@ -27,6 +27,8 @@ import { TransferService } from './transfer.service.js';
 import { RecordTransferDto, TransferStockQueryDto } from './transfer.dto.js';
 import { PurchaseOrderService } from './purchase-order.service.js';
 import { InventoryReportsService } from './inventory-reports.service.js';
+import { SupplierLedgerService } from './supplier-ledger.service.js';
+import { PayAllDto, RecordPaymentDto, SupplierLedgerQueryDto } from './supplier-ledger.dto.js';
 import {
   ClosingStockQueryDto,
   ComparativeQueryDto,
@@ -62,7 +64,14 @@ export class InventoryController {
     private readonly transfers: TransferService,
     private readonly orders: PurchaseOrderService,
     private readonly reports: InventoryReportsService,
+    private readonly ledger: SupplierLedgerService,
   ) {}
+
+  private static pdf(res: Response, file: { filename: string; data: Buffer }) {
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${file.filename.replace(/[^A-Za-z0-9._-]/g, '_')}"`);
+    res.send(file.data);
+  }
 
   private company(companyId: string | undefined): string {
     if (!companyId || !isUUID(companyId)) throw new BadRequestException('X-Company-ID header is required');
@@ -351,5 +360,81 @@ export class InventoryController {
     @Req() req: AuthenticatedRequest,
   ) {
     return this.reports.transfers(this.company(companyId), req.user.id, query);
+  }
+
+  // ── Supplier ledger ─────────────────────────────────────────────────────
+  // Reading covers the branches where the caller holds inventory.view;
+  // paying proves inventory.purchase.create at the invoice's branch.
+
+  @Get('supplier-ledger')
+  supplierLedger(
+    @Headers('x-company-id') companyId: string | undefined,
+    @Query() query: SupplierLedgerQueryDto,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.ledger.ledger(this.company(companyId), req.user.id, query);
+  }
+
+  @Get('supplier-ledger/pdf')
+  async supplierLedgerPdf(
+    @Headers('x-company-id') companyId: string | undefined,
+    @Query() query: SupplierLedgerQueryDto,
+    @Req() req: AuthenticatedRequest,
+    @Res() res: Response,
+  ) {
+    InventoryController.pdf(res, await this.ledger.ledgerDocument(this.company(companyId), req.user.id, query));
+  }
+
+  @Get('supplier-ledger/:vendorId')
+  supplierLedgerOne(
+    @Headers('x-company-id') companyId: string | undefined,
+    @Param('vendorId', ParseUUIDPipe) vendorId: string,
+    @Query() query: SupplierLedgerQueryDto,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.ledger.supplier(this.company(companyId), req.user.id, vendorId, query);
+  }
+
+  @Get('supplier-ledger/:vendorId/pdf')
+  async supplierStatementPdf(
+    @Headers('x-company-id') companyId: string | undefined,
+    @Param('vendorId', ParseUUIDPipe) vendorId: string,
+    @Query() query: SupplierLedgerQueryDto,
+    @Req() req: AuthenticatedRequest,
+    @Res() res: Response,
+  ) {
+    InventoryController.pdf(res, await this.ledger.statement(this.company(companyId), req.user.id, vendorId, query));
+  }
+
+  @Post('supplier-ledger/:vendorId/pay-all')
+  @HttpCode(HttpStatus.OK)
+  payAll(
+    @Headers('x-company-id') companyId: string | undefined,
+    @Param('vendorId', ParseUUIDPipe) vendorId: string,
+    @Body() dto: PayAllDto,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.ledger.payAll(this.company(companyId), req.user.id, vendorId, dto);
+  }
+
+  @Post('purchase-receipts/:id/payments')
+  @HttpCode(HttpStatus.CREATED)
+  recordPayment(
+    @Headers('x-company-id') companyId: string | undefined,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: RecordPaymentDto,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.ledger.recordPayment(this.company(companyId), req.user.id, id, dto);
+  }
+
+  @Get('purchase-receipts/:id/pdf')
+  async invoicePdf(
+    @Headers('x-company-id') companyId: string | undefined,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Req() req: AuthenticatedRequest,
+    @Res() res: Response,
+  ) {
+    InventoryController.pdf(res, await this.ledger.invoice(this.company(companyId), req.user.id, id));
   }
 }
