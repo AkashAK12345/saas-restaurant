@@ -3076,7 +3076,7 @@ describe('Phase 10 Reports & Dashboard (e2e)', () => {
         expect((await inv('transfer/options', {}, tokenKeeperA)).status).toBe(403);
       });
 
-      it('TR-2. lists what an outlet can send: raw materials it has on hand, and the menu products', async () => {
+      it('TR-2. lists what an outlet can send: every raw material (those it holds first), and the menu products', async () => {
         const bare = await inv('transfer/stock');
         expect(bare.status).toBe(200);
         expect(bare.body.raw_materials).toEqual([]);
@@ -3086,9 +3086,12 @@ describe('Phase 10 Reports & Dashboard (e2e)', () => {
         ]);
 
         const main = await inv('transfer/stock', { branch_id: branchA.id });
+        // Held first, then the rest at 0 (listed, not sendable); never an inactive one.
         expect(main.body.raw_materials).toEqual([
           { id: chicken, name: 'Chicken', unit: 'Kg', on_hand: 12.5 },
           { id: expect.any(String), name: 'Sugar 50 Kg Bag', unit: 'Kg', on_hand: 200 },
+          { id: sevenUp, name: '7 Up Can 300 Ml', unit: 'case', on_hand: 0 },
+          { id: laptop, name: 'Laptop', unit: 'BOX', on_hand: 0 },
         ]);
         expect((await inv('transfer/stock', { branch_id: branchA.id }, tokenKeeperA)).status).toBe(403);
         expect((await inv('transfer/stock', { branch_id: branchB.id })).status).toBe(403);
@@ -3133,9 +3136,17 @@ describe('Phase 10 Reports & Dashboard (e2e)', () => {
         });
         expect(next.status).toBe(201);
         expect(next.body.number).toMatch(/-2$/);
-        // Every last gram may go; then chicken is no longer there to send.
+        // Every last gram may go; then chicken is listed at 0, after what is held.
         const after = await inv('transfer/stock', { branch_id: branchA.id });
-        expect(after.body.raw_materials.map((r: any) => r.name)).toEqual(['Sugar 50 Kg Bag']);
+        expect(after.body.raw_materials.map((r: any) => [r.name, r.on_hand])).toEqual([
+          ['Sugar 50 Kg Bag', 200],
+          ['7 Up Can 300 Ml', 0],
+          ['Chicken', 0],
+          ['Laptop', 0],
+        ]);
+        const none = await send({ from_branch_id: branchA.id, to_branch_id: branchA2.id, lines: [{ kind: 'RAW', id: chicken, quantity: 1 }] });
+        expect(none.status).toBe(400);
+        expect(none.body.message).toBe('Only 0 Kg of Chicken on hand at Alpha Main');
       });
 
       it('TR-4. refuses what it must: more than on hand, the same outlet, repeats, strangers, nothing to send', async () => {

@@ -60,8 +60,9 @@ export class TransferService {
   }
 
   /**
-   * What can be sent from an outlet: its raw materials with stock on hand,
-   * and the company's menu products. Without an outlet, the products alone.
+   * What an outlet can send: every raw material with its stock on hand
+   * (those it holds first), and the company's menu products. Without an
+   * outlet, the products alone.
    */
   async stock(companyId: string, userId: string, query: TransferStockQueryDto) {
     const sources = await this.sources(companyId, userId);
@@ -75,15 +76,19 @@ export class TransferService {
       throw new ForbiddenException('You cannot transfer stock from that branch');
     }
 
+    // Every active raw material, with what the outlet holds of it: those it
+    // has come first (they can be sent), then the rest at 0 — listed, so the
+    // outlet can see what it lacks, but not sendable.
     const onHand = await this.onHand(this.prisma, query.branch_id);
-    const positive = [...onHand].filter(([, q]) => milli(q) > 0);
     const items = await this.prisma.inventoryItem.findMany({
-      where: { company_id: companyId, is_active: true, id: { in: positive.map(([id]) => id) } },
+      where: { company_id: companyId, is_active: true },
       select: { id: true, name: true, unit: true },
-      orderBy: { name: 'asc' },
+      orderBy: [{ name: 'asc' }, { id: 'asc' }],
     });
+    const listed = items.map((i) => ({ ...i, on_hand: round3(onHand.get(i.id) ?? 0) }));
+    const held = (r: { on_hand: number }) => milli(r.on_hand) > 0;
     return {
-      raw_materials: items.map((i) => ({ ...i, on_hand: round3(onHand.get(i.id)!) })),
+      raw_materials: [...listed.filter(held), ...listed.filter((r) => !held(r))],
       products,
     };
   }

@@ -21,6 +21,8 @@ const PRODUCTS = [
 const RAW = [
   { id: 'r1', name: 'Capsicum', unit: 'Kg', on_hand: 56 },
   { id: 'r2', name: 'Chicken Curry Cut', unit: 'Kg', on_hand: 11.2 },
+  // None at this outlet: listed after what it holds, not sendable.
+  { id: 'r3', name: 'Ajinomoto', unit: 'Kg', on_hand: 0 },
 ];
 
 function pick(label: string, option: string) {
@@ -70,6 +72,9 @@ describe('Transfer Stock screen', () => {
     expect(await within(list()).findByText('On hand: 56 Kg')).toBeTruthy();
     expect(within(list()).getByText('On hand: 11.20 Kg')).toBeTruthy();
     expect(api.transferStock).toHaveBeenLastCalledWith({ companyId: 'co-1' }, 'ck');
+
+    expect(within(list()).getByText('On hand: 0 Kg · none to send')).toBeTruthy();
+    expect((within(list()).getByRole('checkbox', { name: /Ajinomoto/ }) as HTMLInputElement).disabled).toBe(true);
 
     fireEvent.click(screen.getByRole('button', { name: 'Raw materials' }));
     expect(within(list()).queryByText('Chicken Biriyani')).toBeNull();
@@ -125,9 +130,22 @@ describe('Transfer Stock screen', () => {
     fireEvent.change(screen.getByLabelText('Quantity of Capsicum'), { target: { value: '2' } });
     fireEvent.click(within(list()).getByRole('checkbox', { name: /Chicken Biriyani/ }));
     fireEvent.change(screen.getByLabelText('Quantity of Chicken Biriyani'), { target: { value: '3' } });
+    // A menu product without a unit of its own is counted in pieces.
+    expect(screen.getByLabelText('Quantity of Chicken Biriyani').parentElement!.textContent).toContain('pcs');
     fireEvent.click(transferButton());
 
-    expect((await screen.findByRole('status')).textContent).toBe('Transferred 2 items to Alwarpet (TR-260925-1)');
+    // The success screen: what went where.
+    const done = await screen.findByRole('dialog', { name: 'Transfer complete' });
+    expect(within(done).getByText(/TR-260925-1 · 2 items sent from/).textContent).toBe(
+      'TR-260925-1 · 2 items sent from Central Samco Kitchen to Alwarpet',
+    );
+    expect(within(done).getAllByRole('listitem').map((li) => li.textContent)).toEqual([
+      'Capsicum2 Kg',
+      'Chicken Biriyani3 pcs',
+    ]);
+    expect(within(done).getByRole('link', { name: 'Back to inventory' }).getAttribute('href')).toBe('/inventory');
+    fireEvent.click(within(done).getByRole('button', { name: 'New transfer' }));
+    expect(screen.queryByRole('dialog', { name: 'Transfer complete' })).toBeNull();
     expect(api.recordTransfer).toHaveBeenCalledWith(
       { companyId: 'co-1' },
       {

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useAppContext } from '@/lib/context/app-context-provider';
 import { inventoryApi, type TransferOptions, type TransferStock } from '@/lib/inventory/api';
-import { parseQuantity, stockFigure } from '@/lib/inventory/format';
+import { parseQuantity, quantity, stockFigure } from '@/lib/inventory/format';
 import { AppIcon } from '@/components/app/icons';
 import { SearchSelect } from '@/components/app/search-select';
 import styles from '@/components/inventory/transfer.module.css';
@@ -24,6 +24,19 @@ interface Row {
   unit: string | null;
   /** Raw materials only; products are not stock-tracked. */
   onHand: number | null;
+}
+
+/** The unit a row is counted in: its own, or pieces for a menu product without one. */
+function unitOf(row: Pick<Row, 'unit' | 'kind'>): string {
+  return row.unit ?? (row.kind === 'PRODUCT' ? 'pcs' : '');
+}
+
+/** What the success screen shows of a transfer just made. */
+interface Completed {
+  number: string;
+  from: string;
+  to: string;
+  lines: Array<{ name: string; quantity: number; unit: string }>;
 }
 
 /**
@@ -53,6 +66,7 @@ export default function TransferStockPage() {
   /** Row key -> quantity as typed, in the order ticked. */
   const [picked, setPicked] = useState<Record<string, string>>({});
   const [sending, setSending] = useState(false);
+  const [completed, setCompleted] = useState<Completed | null>(null);
 
   const [snack, setSnack] = useState<string | null>(null);
   const snackTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -165,7 +179,7 @@ export default function TransferStockPage() {
     if (loading) return 'Loading…';
     if (q) return `Nothing matches “${search.trim()}”.`;
     if (filter === 'raw' || (filter === 'all' && !stock?.products.length)) {
-      return sourceId ? 'No raw materials with stock at this outlet.' : 'Select a source outlet to see its raw materials.';
+      return sourceId ? 'No raw materials yet — import them first.' : 'Select a source outlet to see its raw materials.';
     }
     return 'No menu products yet.';
   })();
@@ -188,8 +202,14 @@ export default function TransferStockPage() {
         to_branch_id: destinationId,
         lines: lines.map(({ row, typed }) => ({ kind: row!.kind, id: row!.id, quantity: parseQuantity(typed)! })),
       });
+      setCompleted({
+        number: done.number,
+        from: done.from,
+        to: done.to,
+        lines: lines.map(({ row, typed }) => ({ name: row!.name, quantity: parseQuantity(typed)!, unit: unitOf(row!) })),
+      });
       setPicked({});
-      say(`Transferred ${done.items} ${done.items === 1 ? 'item' : 'items'} to ${done.to} (${done.number})`);
+      setSnack(null);
       setReads((n) => n + 1);
     } catch (e) {
       say(`Failed: ${e instanceof Error ? e.message : 'the transfer was not saved'}`);
@@ -324,10 +344,12 @@ export default function TransferStockPage() {
             {shown.map((row) => {
               const selected = row.key in picked;
               const typed = picked[row.key] ?? '';
+              // Listed so the outlet sees what it lacks, but nothing to send.
+              const empty = row.onHand !== null && row.onHand <= 0;
               return (
-                <li key={row.key} className={styles.row} data-selected={selected}>
+                <li key={row.key} className={styles.row} data-selected={selected} data-empty={empty}>
                   <label className={styles.pick}>
-                    <input type="checkbox" checked={selected} onChange={() => toggle(row.key)} />
+                    <input type="checkbox" checked={selected} disabled={empty} onChange={() => toggle(row.key)} />
                     <span className={styles.box} aria-hidden="true">
                       {selected ? <AppIcon name="check" size={18} /> : null}
                     </span>
@@ -337,9 +359,11 @@ export default function TransferStockPage() {
                         {row.kind === 'PRODUCT' ? <span className={styles.badge}>Product</span> : null}
                       </span>
                       <span className={styles.sub}>
-                        {row.onHand !== null
-                          ? `On hand: ${stockFigure(row.onHand)} ${row.unit}`
-                          : 'Menu product · not stock-tracked'}
+                        {row.onHand === null
+                          ? 'Menu product · not stock-tracked'
+                          : empty
+                            ? `On hand: 0 ${row.unit} · none to send`
+                            : `On hand: ${stockFigure(row.onHand)} ${row.unit}`}
                       </span>
                     </span>
                   </label>
@@ -358,7 +382,7 @@ export default function TransferStockPage() {
                         }
                         onChange={(e) => setPicked((prev) => ({ ...prev, [row.key]: e.target.value }))}
                       />
-                      {row.unit ? <span>{row.unit}</span> : null}
+                      <span>{unitOf(row)}</span>
                     </span>
                   ) : null}
                 </li>
@@ -371,6 +395,41 @@ export default function TransferStockPage() {
           {sourceId ? 'No assets with available units at this outlet.' : 'Select a source outlet to see its assets.'}
         </p>
       )}
+
+      {completed ? (
+        <div className={styles.doneScreen} role="dialog" aria-modal="true" aria-labelledby="transfer-done-title">
+          <div className={styles.doneCard}>
+            <span className={styles.doneTick} aria-hidden="true">
+              <AppIcon name="check" size={40} />
+            </span>
+            <h2 className={styles.doneTitle} id="transfer-done-title">
+              Transfer complete
+            </h2>
+            <p className={styles.doneSub}>
+              {completed.number} · {completed.lines.length} {completed.lines.length === 1 ? 'item' : 'items'} sent from{' '}
+              <strong>{completed.from}</strong> to <strong>{completed.to}</strong>
+            </p>
+            <ul className={styles.doneList} aria-label="Items transferred">
+              {completed.lines.map((l) => (
+                <li key={l.name}>
+                  <span>{l.name}</span>
+                  <span>
+                    {quantity(l.quantity)} {l.unit}
+                  </span>
+                </li>
+              ))}
+            </ul>
+            <div className={styles.doneActions}>
+              <Link href="/inventory" className={styles.doneBack}>
+                Back to inventory
+              </Link>
+              <button type="button" className={styles.doneAgain} autoFocus onClick={() => setCompleted(null)}>
+                New transfer
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <div className={styles.bottom}>
         {snack ? (
