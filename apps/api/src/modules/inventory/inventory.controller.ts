@@ -27,6 +27,7 @@ import { TransferService } from './transfer.service.js';
 import { RecordTransferDto, TransferStockQueryDto } from './transfer.dto.js';
 import { PurchaseOrderService } from './purchase-order.service.js';
 import {
+  MarkPaidDto,
   PurchaseOrderListQueryDto,
   ReceivePurchaseOrderDto,
   UpdatePurchaseOrderDto,
@@ -231,6 +232,17 @@ export class InventoryController {
     @Req() req: AuthenticatedRequest,
   ) {
     return this.orders.cancel(this.company(companyId), req.user.id, id);
+  }
+
+  @Post('purchase-orders/:id/payment')
+  @HttpCode(HttpStatus.OK)
+  orderPayment(
+    @Headers('x-company-id') companyId: string | undefined,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: MarkPaidDto,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.orders.markPaid(this.company(companyId), req.user.id, id, dto);
   }
 
   @Post('purchase-orders/:id/sent')

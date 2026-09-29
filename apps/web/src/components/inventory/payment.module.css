@@ -1,0 +1,133 @@
+/* Paid / Unpaid on a received purchase. Tokens only. */
+
+.wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.state {
+  margin: 0;
+  font-weight: 600;
+}
+
+.state[data-tone='due'] {
+  color: var(--color-danger);
+}
+
+.state[data-tone='paid'] {
+  color: var(--color-success);
+}
+
+.toggle {
+  display: inline-grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--color-surface-muted);
+}
+
+.toggle button {
+  min-width: 84px;
+  min-height: 40px;
+  padding: 0 14px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: none;
+  color: var(--color-text-muted);
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.toggle button[aria-pressed='true'][data-kind='unpaid'] {
+  border-color: var(--color-danger);
+  background: var(--color-danger-bg);
+  color: var(--color-danger);
+}
+
+.toggle button[aria-pressed='true'][data-kind='paid'] {
+  border-color: var(--color-success);
+  background: var(--accent-green-bg);
+  color: var(--accent-green-fg);
+}
+
+.toggle button:disabled {
+  cursor: default;
+}
+
+.confirm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--color-surface-muted);
+}
+
+.confirm label {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 10px;
+  min-width: 180px;
+  color: var(--color-text-muted);
+}
+
+.confirm select {
+  flex: 1;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+}
+
+.save,
+.cancel {
+  min-height: 44px;
+  padding: 0 18px;
+  border-radius: 10px;
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.save {
+  border: 0;
+  background: var(--color-success);
+  color: var(--color-primary-contrast);
+}
+
+.cancel {
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.error {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--color-danger);
+}
+
+.toggle button:focus-visible,
+.save:focus-visible,
+.cancel:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}

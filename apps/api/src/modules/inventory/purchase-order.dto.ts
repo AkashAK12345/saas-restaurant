@@ -20,7 +20,7 @@ import {
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 
-export const ORDER_TABS = ['all', 'sent', 'received'] as const;
+export const ORDER_TABS = ['all', 'draft', 'sent', 'received'] as const;
 export type OrderTab = (typeof ORDER_TABS)[number];
 
 export const ORDER_SORTS = ['newest', 'oldest', 'received', 'supplier', 'amount'] as const;
@@ -34,7 +34,7 @@ export const MAX_ORDER_PHOTOS = 10;
 export const MAX_ORDER_PHOTO_BYTES = 5 * 1024 * 1024;
 
 /**
- * The Purchase list: a tab (All, Sent, Received), and filters that narrow it.
+ * The Purchase list: a tab (All, Draft, Sent, Received), and filters that narrow it.
  * Dates bound when an order was raised — or, on Received, when it arrived.
  */
 export class PurchaseOrderListQueryDto {
@@ -142,6 +142,17 @@ export class ReceivePurchaseOrderDto extends UpdatePurchaseOrderDto {
 
   @IsIn(PAYMENT_MODES)
   payment_mode!: PaymentMode;
+}
+
+/** "Paid" (and how) or "Unpaid", on a received purchase. */
+export class MarkPaidDto {
+  @IsBoolean()
+  paid!: boolean;
+
+  /** Required when paid. */
+  @IsOptional()
+  @IsIn(PAYMENT_MODES)
+  payment_mode?: PaymentMode;
 }
 
 export class UploadOrderPhotoDto {

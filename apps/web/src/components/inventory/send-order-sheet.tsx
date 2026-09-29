@@ -13,8 +13,8 @@ type Step = 'idle' | 'opened' | 'done' | 'skipped';
 /**
  * "Send to <supplier>" — WhatsApp cannot take a file and a message together,
  * so the order goes in two steps into the same chat: the item list as a
- * message, then the order PDF. Each step is confirmed by the sender, and the
- * order is marked sent only once the PDF is confirmed — the PDF is the order.
+ * message, then the order PDF. Each step is confirmed by the sender; the
+ * first "Yes, sent" marks the order sent at once (Draft → Sent) — never before.
  */
 export function SendOrderSheet({
   ctx,
@@ -35,6 +35,8 @@ export function SendOrderSheet({
   const [pdf, setPdf] = useState<Step>('idle');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** The order as it stands once marked sent here. */
+  const [marked, setMarked] = useState<OrderDetail | null>(null);
 
   useEffect(() => {
     if (known) return;
@@ -48,11 +50,18 @@ export function SendOrderSheet({
     };
   }, [ctx, orderId, known]);
 
+  // However the sheet is left — Done, X or Escape — a send that was marked
+  // here reaches the screen behind it.
+  const close = () => (marked ? onSent(marked) : onClose());
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      if (marked) onSent(marked);
+      else onClose();
+    };
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  }, [onClose, onSent, marked]);
 
   const sendMessage = () => {
     if (!order) return;
@@ -85,15 +94,24 @@ export function SendOrderSheet({
     }
   };
 
-  const finish = async () => {
-    if (!order) return onClose();
-    if (pdf !== 'done' || order.status !== 'ORDERED' || !order.may_edit) return onClose();
+  /**
+   * "Yes, sent": the message or the PDF reached the supplier, so the order is
+   * marked sent there and then — it moves from Draft to Sent without waiting
+   * for Done. Only an order still awaited, by someone who may change it.
+   */
+  const confirmSent = async (set: (s: Step) => void) => {
+    set('done');
+    if (!order || marked || order.status !== 'ORDERED' || !order.may_edit) return;
     setBusy(true);
     setError(null);
     try {
-      onSent(await purchaseOrdersApi.markSent(ctx, order.id));
+      const updated = await purchaseOrdersApi.markSent(ctx, order.id);
+      setMarked(updated);
+      setOrder(updated);
     } catch (e) {
+      set('opened');
       setError(e instanceof Error ? e.message : 'Could not mark the order sent');
+    } finally {
       setBusy(false);
     }
   };
@@ -104,7 +122,7 @@ export function SendOrderSheet({
       <button type="button" onClick={() => set('idle')}>
         Not yet
       </button>
-      <button type="button" data-yes onClick={() => set('done')}>
+      <button type="button" data-yes disabled={busy} onClick={() => void confirmSent(set)}>
         Yes, sent
       </button>
     </div>
@@ -115,7 +133,7 @@ export function SendOrderSheet({
   return (
     <div className={styles.screen} role="dialog" aria-modal="true" aria-labelledby="send-order-title">
       <header className={styles.head}>
-        <button type="button" className={styles.close} aria-label="Close" onClick={onClose}>
+        <button type="button" className={styles.close} aria-label="Close" onClick={close}>
           <AppIcon name="close" size={26} />
         </button>
         <h2 className={styles.title} id="send-order-title">
@@ -178,9 +196,11 @@ export function SendOrderSheet({
 
       <footer className={styles.foot}>
         <p className={styles.footNote}>
-          {pdf === 'done' ? 'The PDF went: Done marks the order sent.' : 'Not marked sent until you confirm the PDF went — that’s the order.'}
+          {marked
+            ? 'Marked sent — it is under Sent now.'
+            : 'Not marked sent until you confirm the message or the PDF went.'}
         </p>
-        <button type="button" className={styles.done} disabled={busy} onClick={() => void finish()}>
+        <button type="button" className={styles.done} disabled={busy} onClick={close}>
           Done
         </button>
       </footer>

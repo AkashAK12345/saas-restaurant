@@ -7,7 +7,7 @@ import type { InventoryContext } from '@/lib/inventory/api';
  * order's branch.
  */
 
-export type OrderTab = 'all' | 'sent' | 'received';
+export type OrderTab = 'all' | 'draft' | 'sent' | 'received';
 export type OrderSort = 'newest' | 'oldest' | 'received' | 'supplier' | 'amount';
 export type OrderStatus = 'ORDERED' | 'RECEIVED' | 'CANCELLED';
 export type PaymentMode = 'CASH' | 'UPI' | 'BANK' | 'CARD' | 'CHEQUE';
@@ -34,6 +34,8 @@ export interface OrderCard {
   received_at: string | null;
   invoice_number: string | null;
   whatsapp_sent_at: string | null;
+  paid_at: string | null;
+  payment_mode: PaymentMode | null;
   items_count: number;
   received_count: number;
   /** The first few items still awaited (or, once received, on it). */
@@ -46,7 +48,8 @@ export interface OrderCard {
 }
 
 export interface OrderList {
-  counts: { all: number; sent: number; cancelled: number };
+  /** Draft: raised, not yet sent. Sent: went to the supplier, awaiting delivery. */
+  counts: { all: number; draft: number; sent: number; cancelled: number };
   orders: OrderCard[];
   meta: { total: number; limit: number; offset: number };
 }
@@ -109,6 +112,8 @@ export interface OrderDetail {
   received_at: string | null;
   cancelled_at: string | null;
   whatsapp_sent_at: string | null;
+  paid_at: string | null;
+  payment_mode: PaymentMode | null;
   notes: string | null;
   total_minor: number;
   paid_minor: number;
@@ -119,6 +124,8 @@ export interface OrderDetail {
   may_edit: boolean;
   /** The caller may edit suppliers' details. */
   may_manage_suppliers: boolean;
+  /** Received, and the caller may mark it paid or unpaid. */
+  may_record_payment: boolean;
 }
 
 /** A line as the Receive Order screen sends it back. */
@@ -156,6 +163,9 @@ export const purchaseOrdersApi = {
   ) => api.post<OrderDetail>(`${base}/${id}/receive`, body, { companyId: ctx.companyId }),
   cancel: (ctx: InventoryContext, id: string) =>
     api.post<OrderDetail>(`${base}/${id}/cancel`, {}, { companyId: ctx.companyId }),
+  /** A received purchase, paid in full (and how) or unpaid. */
+  markPaid: (ctx: InventoryContext, id: string, body: { paid: true; payment_mode: PaymentMode } | { paid: false }) =>
+    api.post<OrderDetail>(`${base}/${id}/payment`, body, { companyId: ctx.companyId }),
   markSent: (ctx: InventoryContext, id: string) =>
     api.post<OrderDetail>(`${base}/${id}/sent`, {}, { companyId: ctx.companyId }),
   uploadPhoto: (ctx: InventoryContext, id: string, body: { data: string; mime_type: string; file_name?: string }) =>

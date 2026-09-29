@@ -1431,6 +1431,9 @@ model PurchaseOrder {
   /// What has been paid to the vendor against this order so far. What is
   /// left (total - paid) is the order's share of "Outstanding".
   paid_minor       Int                 @default(0)
+  /// When it was marked paid in full on the Received tab, and how.
+  paid_at          DateTime?           @db.Timestamptz(3)
+  payment_mode     String?             @db.VarChar(16)
   currency         String              @db.Char(3)
   ordered_at       DateTime            @default(now()) @db.Timestamptz(3)
   whatsapp_sent_at DateTime?           @db.Timestamptz(3)

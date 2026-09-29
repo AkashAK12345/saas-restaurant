@@ -3223,7 +3223,11 @@ describe('Phase 10 Reports & Dashboard (e2e)', () => {
       it('PO-1. lists orders by tab with counts, cards, the cancelled toggle, filters and sorts', async () => {
         const res = await orders({ vendor_id: vendorId });
         expect(res.status).toBe(200);
-        expect(res.body.counts).toEqual({ all: 2, sent: 2, cancelled: 1 });
+        // Nothing has gone to the supplier yet: both are drafts, Sent is empty.
+        expect(res.body.counts).toEqual({ all: 2, draft: 2, sent: 0, cancelled: 1 });
+        expect((await orders({ vendor_id: vendorId, tab: 'sent' })).body.orders).toEqual([]);
+        const drafts = await orders({ vendor_id: vendorId, tab: 'draft', include_cancelled: 'true' });
+        expect(drafts.body.orders.map((o: any) => o.po_number)).toEqual(['ORD-2', 'ORD-1', 'ORD-3']);
         expect(res.body.orders.map((o: any) => o.po_number)).toEqual(['ORD-2', 'ORD-1']);
         const card = res.body.orders.find((o: any) => o.po_number === 'ORD-1');
         expect(card).toMatchObject({
@@ -3367,6 +3371,14 @@ describe('Phase 10 Reports & Dashboard (e2e)', () => {
         const sent = await call('post', `${ord2}/sent`);
         expect(sent.status).toBe(200);
         expect(sent.body.whatsapp_sent_at).not.toBeNull();
+        // Now it went: it is under Sent.
+        const sentTab = await orders({ vendor_id: vendorId, tab: 'sent' });
+        expect(sentTab.body.counts.sent).toBe(1);
+        expect(sentTab.body.orders.map((o: any) => o.po_number)).toEqual(['ORD-2']);
+        // ORD-3 was cancelled as a draft: it is not under Sent.
+        const withCancelled = await orders({ vendor_id: vendorId, tab: 'sent', include_cancelled: 'true' });
+        expect(withCancelled.body.orders.map((o: any) => o.po_number)).toEqual(['ORD-2']);
+        expect(sentTab.body.counts.draft).toBe(0);
         expect((await call('post', `${ord2}/cancel`, {}, tokenKeeperA)).status).toBe(403);
         const cancelled = await call('post', `${ord2}/cancel`);
         expect(cancelled.status).toBe(200);
@@ -3374,7 +3386,34 @@ describe('Phase 10 Reports & Dashboard (e2e)', () => {
         expect((await call('post', `${ord2}/cancel`)).status).toBe(409);
         expect((await call('post', `${ord1}/cancel`)).status).toBe(409);
         expect((await inv('purchase-orders/00000000-0000-4000-8000-000000000000')).status).toBe(404);
-        expect((await orders({ vendor_id: vendorId })).body.counts).toEqual({ all: 1, sent: 0, cancelled: 2 });
+        expect((await orders({ vendor_id: vendorId })).body.counts).toEqual({ all: 1, draft: 0, sent: 0, cancelled: 2 });
+      });
+
+      it('PO-7. a received purchase is marked paid (and how) or unpaid, from the Received tab', async () => {
+        const detailRes = await inv(`purchase-orders/${ord1}`);
+        expect(detailRes.body).toMatchObject({ status: 'RECEIVED', paid_minor: 40_000, may_record_payment: true });
+        expect((await inv(`purchase-orders/${ord1}`, {}, tokenKeeperA)).body.may_record_payment).toBe(false);
+
+        expect((await call('post', `${ord1}/payment`, { paid: true })).status).toBe(400);
+        const paid = await call('post', `${ord1}/payment`, { paid: true, payment_mode: 'BANK' });
+        expect(paid.status).toBe(200);
+        expect(paid.body).toMatchObject({ paid_minor: 220_000, payment_mode: 'BANK' });
+        expect(paid.body.paid_at).not.toBeNull();
+        const card = (await orders({ vendor_id: vendorId, tab: 'received' })).body.orders[0];
+        expect(card).toMatchObject({ paid_minor: 220_000, total_minor: 220_000, payment_mode: 'BANK' });
+
+        const unpaid = await call('post', `${ord1}/payment`, { paid: false });
+        expect(unpaid.status).toBe(200);
+        expect(unpaid.body).toMatchObject({ paid_minor: 0, paid_at: null, payment_mode: null });
+        // What was noted on its deliveries goes too.
+        expect(unpaid.body.receipts.map((r: any) => [r.paid_minor, r.payment_mode])).toEqual([
+          [0, null],
+          [0, null],
+        ]);
+
+        expect((await call('post', `${ord1}/payment`, { paid: true, payment_mode: 'CASH' }, tokenKeeperA)).status).toBe(403);
+        expect((await call('post', `${ord2}/payment`, { paid: true, payment_mode: 'CASH' })).status).toBe(409);
+        expect((await call('post', `${ord1}/payment`, { paid: true, payment_mode: 'GOLD' })).status).toBe(400);
       });
 
       it('PO-6. switches an awaited order to another supplier alone, and prints any order as a PDF', async () => {

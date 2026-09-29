@@ -19,6 +19,7 @@ import { SearchSelect } from '@/components/app/search-select';
 import { DateDialog } from '@/components/reports/date-range-dialog';
 import { printOrder } from '@/components/inventory/order-actions';
 import { SendOrderSheet } from '@/components/inventory/send-order-sheet';
+import { PaymentControl } from '@/components/inventory/payment-control';
 import styles from '@/components/inventory/purchase.module.css';
 
 /** Orders asked for at a time; "Show more" asks for the next page. */
@@ -27,11 +28,12 @@ const PAGE = 30;
 /** A control drawn as the reference has it, whose screen is still to come. */
 const soon = { 'aria-disabled': true, title: 'Coming soon' } as const;
 
-type Tab = OrderTab | 'requested';
+type Tab = OrderTab;
 
+/** Draft: saved, not sent. Sent: went on WhatsApp, awaiting delivery. Received: in. */
 const TABS: ReadonlyArray<{ key: Tab; label: string }> = [
   { key: 'all', label: 'All' },
-  { key: 'requested', label: 'Requested' },
+  { key: 'draft', label: 'Draft' },
   { key: 'sent', label: 'Sent' },
   { key: 'received', label: 'Received' },
 ];
@@ -48,9 +50,10 @@ const items = (n: number) => `${n} ${n === 1 ? 'item' : 'items'}`;
 
 /**
  * Purchase — every purchase order at the branches the viewer may see: All,
- * Sent (awaiting delivery) and Received, with the orders outlets have asked
- * for under Requested. Each card sends, prints, cancels or opens its order,
- * where it is received.
+ * Draft (saved, not yet sent to the supplier), Sent (went on WhatsApp,
+ * awaiting delivery) and Received (with its payment, marked paid or unpaid
+ * there). Each card sends, prints, cancels or opens its order, where it is
+ * received.
  */
 export default function PurchaseOrdersPage() {
   const { selectedCompanyId } = useAppContext();
@@ -67,8 +70,6 @@ export default function PurchaseOrdersPage() {
   const [withCancelled, setWithCancelled] = useState(true);
   const [sort, setSort] = useState<OrderSort>('newest');
   const [sortOpen, setSortOpen] = useState(false);
-  const [categoryId, setCategoryId] = useState<string | null>(null);
-  const [requestSearch, setRequestSearch] = useState('');
 
   const [data, setData] = useState<OrderList | null>(null);
   const [orders, setOrders] = useState<OrderCard[]>([]);
@@ -112,7 +113,7 @@ export default function PurchaseOrdersPage() {
 
   const query = useMemo(
     () => ({
-      tab: tab === 'requested' ? ('all' as const) : tab,
+      tab,
       branch_id: branchId ?? undefined,
       vendor_id: vendorId ?? undefined,
       from: range?.from,
@@ -243,7 +244,7 @@ export default function PurchaseOrdersPage() {
 
           <div className={styles.tabs} role="tablist" aria-label="Purchase orders">
             {TABS.map((t) => {
-              const n = t.key === 'all' ? counts?.all : t.key === 'sent' ? counts?.sent : undefined;
+              const n = t.key === 'received' ? undefined : counts?.[t.key];
               return (
                 <button
                   key={t.key}
@@ -260,33 +261,7 @@ export default function PurchaseOrdersPage() {
             })}
           </div>
 
-          {tab === 'requested' ? (
-            <>
-              <div className={styles.filters} data-cols="1">
-                {supplierPick}
-              </div>
-              <div className={styles.filters} data-cols="2">
-                <SearchSelect
-                  label="Category"
-                  allLabel="All categories"
-                  options={(filters?.categories ?? []).map((c) => ({ value: c.id, label: c.name }))}
-                  value={categoryId}
-                  onChange={setCategoryId}
-                />
-                <label className={styles.search}>
-                  <AppIcon name="search" size={22} />
-                  <span className="sr-only">Search items</span>
-                  <input
-                    type="search"
-                    placeholder="Search items"
-                    value={requestSearch}
-                    onChange={(e) => setRequestSearch(e.target.value)}
-                  />
-                </label>
-              </div>
-            </>
-          ) : (
-            <>
+          {            <>
               <div className={styles.filters} data-cols={tab === 'received' ? '2' : undefined}>
                 {supplierPick}
                 {datesPick}
@@ -336,7 +311,7 @@ export default function PurchaseOrdersPage() {
                 ) : null}
               </div>
             </>
-          )}
+          }
         </div>
       </div>
 
@@ -346,15 +321,19 @@ export default function PurchaseOrdersPage() {
         </p>
       ) : null}
 
-      {tab === 'requested' ? (
-        // Item requests from outlets are still to come.
-        <p className={styles.empty}>No items to select</p>
-      ) : orders.length === 0 ? (
+      {orders.length === 0 ? (
         <p className={styles.empty}>{loading ? 'Loading…' : 'No purchase orders here.'}</p>
       ) : (
         <ul className={styles.list} aria-label="Purchase orders">
           {orders.map((o) => (
-            <OrderCardView key={o.id} order={o} busy={busy === o.id} onAct={(what) => void act(o, what)} />
+            <OrderCardView
+              key={o.id}
+              ctx={ctx}
+              order={o}
+              busy={busy === o.id}
+              onAct={(what) => void act(o, what)}
+              onChanged={() => setReads((n) => n + 1)}
+            />
           ))}
           {data && orders.length < data.meta.total ? (
             <li className={styles.moreRow}>
@@ -400,16 +379,19 @@ export default function PurchaseOrdersPage() {
 }
 
 function OrderCardView({
+  ctx,
   order: o,
   busy,
   onAct,
+  onChanged,
 }: {
+  ctx: { companyId: string };
   order: OrderCard;
   busy: boolean;
   onAct: (what: 'send' | 'cancel') => void;
+  onChanged: () => void;
 }) {
   const href = `/inventory/purchase/${o.id}`;
-  const due = o.total_minor - o.paid_minor;
   const received = o.status === 'RECEIVED';
   const cancelled = o.status === 'CANCELLED';
 
@@ -444,10 +426,16 @@ function OrderCardView({
               <AppIcon name="xCircle" size={18} />
               Cancelled
             </span>
-          ) : (
+          ) : o.whatsapp_sent_at ? (
             <span className={styles.badge} data-tone="amber">
               <AppIcon name="clock" size={18} />
               Awaiting
+            </span>
+          ) : (
+            // Saved, not yet sent to the supplier.
+            <span className={styles.badge} data-tone="blue">
+              <AppIcon name="pencil" size={16} />
+              Draft
             </span>
           )}
           {received ? <span className={styles.amount}>{formatMoney(o.total_minor, o.currency)}</span> : null}
@@ -455,11 +443,17 @@ function OrderCardView({
       </div>
       <p className={styles.meta}>{meta.filter(Boolean).join(' · ')}</p>
       {received ? (
-        due > 0 ? (
-          <p className={styles.due}>Due {formatMoney(due, o.currency)}</p>
-        ) : (
-          <p className={styles.paid}>Paid</p>
-        )
+        <PaymentControl
+          ctx={ctx}
+          orderId={o.id}
+          supplier={o.vendor.name}
+          total={o.total_minor}
+          paid={o.paid_minor}
+          mode={o.payment_mode}
+          currency={o.currency}
+          editable={o.may_edit}
+          onChanged={onChanged}
+        />
       ) : null}
 
       <div className={styles.actions}>

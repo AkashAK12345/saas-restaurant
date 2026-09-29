@@ -20,6 +20,7 @@ import { AppIcon } from '@/components/app/icons';
 import { printOrder } from '@/components/inventory/order-actions';
 import { EditSupplierSheet } from '@/components/inventory/edit-supplier-sheet';
 import { SendOrderSheet } from '@/components/inventory/send-order-sheet';
+import { PaymentControl } from '@/components/inventory/payment-control';
 import styles from '@/components/inventory/order.module.css';
 
 const ACCEPT = 'image/jpeg,image/png,image/webp,image/gif';
@@ -209,7 +210,14 @@ export default function PurchaseOrderPage() {
   const update = (key: string, patch: Partial<Draft>) =>
     setDrafts((prev) => prev.map((d) => (d.key === key ? { ...d, ...patch } : d)));
 
-  const status = order.status === 'RECEIVED' ? 'Received' : order.status === 'CANCELLED' ? 'Cancelled' : 'Awaiting';
+  const status =
+    order.status === 'RECEIVED'
+      ? 'Received'
+      : order.status === 'CANCELLED'
+        ? 'Cancelled'
+        : order.whatsapp_sent_at
+          ? 'Awaiting'
+          : 'Draft';
 
   return (
     <section className={styles.page}>
@@ -386,6 +394,23 @@ export default function PurchaseOrderPage() {
             }
             taken={new Set(drafts.flatMap((d) => (d.item_id ? [d.item_id] : [])))}
           />
+        ) : null}
+
+        {order.status === 'RECEIVED' ? (
+          <div className={styles.panel}>
+            <h2 className={styles.panelTitle}>Payment</h2>
+            <PaymentControl
+              ctx={ctx}
+              orderId={order.id}
+              supplier={order.vendor.name}
+              total={order.total_minor}
+              paid={order.paid_minor}
+              mode={order.payment_mode}
+              currency={order.currency}
+              editable={order.may_record_payment}
+              onChanged={adopt}
+            />
+          </div>
         ) : null}
 
         <p className={styles.sectionLabel}>Delivery photos{editing ? ' (required)' : ''}</p>

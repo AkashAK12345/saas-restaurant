@@ -15,6 +15,7 @@ import { orderPdf } from './purchase-order-pdf.js';
 import {
   MAX_ORDER_PHOTOS,
   MAX_ORDER_PHOTO_BYTES,
+  type MarkPaidDto,
   type OrderLineDto,
   type PurchaseOrderListQueryDto,
   type ReceivePurchaseOrderDto,
@@ -105,22 +106,34 @@ export class PurchaseOrderService {
       ...(q.vendor_id ? { vendor_id: q.vendor_id } : {}),
     };
     const raised = { ...base, ...within('ordered_at') };
-    const [all, sent, cancelled] = await Promise.all([
+    // Draft: raised, not yet sent to the supplier. Sent: it went — an order
+    // is sent only once its WhatsApp message or PDF was confirmed sent.
+    const draft = { whatsapp_sent_at: null };
+    const went = { whatsapp_sent_at: { not: null } };
+    const [all, drafts, sent, cancelled] = await Promise.all([
       this.prisma.purchaseOrder.count({ where: { ...raised, status: { not: 'CANCELLED' } } }),
-      this.prisma.purchaseOrder.count({ where: { ...raised, status: 'ORDERED' } }),
+      this.prisma.purchaseOrder.count({ where: { ...raised, status: 'ORDERED', ...draft } }),
+      this.prisma.purchaseOrder.count({ where: { ...raised, status: 'ORDERED', ...went } }),
       this.prisma.purchaseOrder.count({ where: { ...raised, status: 'CANCELLED' } }),
     ]);
 
-    const statuses =
+    // A cancelled order shows, when asked for, where it stood: a draft, or sent.
+    const awaited = (stage: typeof draft | typeof went): Prisma.PurchaseOrderWhereInput => ({
+      OR: [
+        { status: 'ORDERED', ...stage },
+        ...(q.include_cancelled ? [{ status: 'CANCELLED' as const, ...stage }] : []),
+      ],
+    });
+    const status: Prisma.PurchaseOrderWhereInput =
       tab === 'received'
-        ? (['RECEIVED'] as const)
-        : tab === 'sent'
-          ? (['ORDERED', ...(q.include_cancelled ? (['CANCELLED'] as const) : [])] as const)
-          : (['ORDERED', 'RECEIVED', ...(q.include_cancelled ? (['CANCELLED'] as const) : [])] as const);
+        ? { status: 'RECEIVED' }
+        : tab === 'draft'
+          ? awaited(draft)
+          : tab === 'sent'
+            ? awaited(went)
+            : { status: { in: ['ORDERED', 'RECEIVED', ...(q.include_cancelled ? (['CANCELLED'] as const) : [])] } };
     const where: Prisma.PurchaseOrderWhereInput = {
-      ...base,
-      ...within(tab === 'received' ? 'received_at' : 'ordered_at'),
-      status: { in: [...statuses] },
+      AND: [{ ...base, ...within(tab === 'received' ? 'received_at' : 'ordered_at') }, status],
     };
     const orderBy: Prisma.PurchaseOrderOrderByWithRelationInput[] = {
       newest: [{ ordered_at: 'desc' }],
@@ -150,6 +163,8 @@ export class PurchaseOrderService {
           ordered_at: true,
           received_at: true,
           whatsapp_sent_at: true,
+          paid_at: true,
+          payment_mode: true,
           created_by: true,
           vendor: { select: { id: true, name: true, phone: true } },
           branch: { select: { id: true, name: true } },
@@ -169,7 +184,7 @@ export class PurchaseOrderService {
     const creators = await this.names(rows.map((r) => r.created_by));
     const mayWrite = new Set((await this.writers(companyId, userId)).map((b) => b.id));
     return {
-      counts: { all, sent, cancelled },
+      counts: { all, draft: drafts, sent, cancelled },
       orders: rows.map((r) => {
         const awaiting = r.items.filter((i) => !i.receipt_id);
         const shown = r.status === 'RECEIVED' ? r.items : awaiting;
@@ -184,6 +199,8 @@ export class PurchaseOrderService {
           received_at: r.receipts[0]?.received_at ?? r.received_at,
           invoice_number: r.receipts[0]?.invoice_number ?? null,
           whatsapp_sent_at: r.whatsapp_sent_at,
+          paid_at: r.paid_at,
+          payment_mode: r.payment_mode,
           items_count: r.items.length,
           received_count: r.items.length - awaiting.length,
           chips: shown.slice(0, CARD_CHIPS).map((i) => ({ name: i.name, quantity: Number(i.quantity), unit: i.unit })),
@@ -251,6 +268,8 @@ export class PurchaseOrderService {
         received_at: true,
         cancelled_at: true,
         whatsapp_sent_at: true,
+        paid_at: true,
+        payment_mode: true,
         notes: true,
         created_by: true,
         vendor: { select: { id: true, name: true, phone: true, label: true } },
@@ -308,6 +327,8 @@ export class PurchaseOrderService {
       notes: order.notes,
       total_minor: order.total_minor,
       paid_minor: order.paid_minor,
+      paid_at: order.paid_at,
+      payment_mode: order.payment_mode,
       currency: order.currency,
       lines: order.items.map((i) => ({
         id: i.id,
@@ -327,6 +348,7 @@ export class PurchaseOrderService {
       photos: order.photos.map(({ receipt_id, ...p }) => ({ ...p, received: !!receipt_id })),
       may_edit: order.status === 'ORDERED' && writable.some((b) => b.id === order.branch.id),
       may_manage_suppliers: managers.length > 0,
+      may_record_payment: order.status === 'RECEIVED' && writable.some((b) => b.id === order.branch.id),
     };
   }
 
@@ -582,6 +604,44 @@ export class PurchaseOrderService {
     await this.prisma.$transaction(async (tx) => {
       const order = await this.lockOpen(tx, companyId, orderId, writable);
       await tx.purchaseOrder.update({ where: { id: order.id }, data: { whatsapp_sent_at: new Date() } });
+    });
+    return this.view(companyId, userId, orderId);
+  }
+
+  /**
+   * On the Received tab: paid in full (and how), or back to unpaid. Unpaid
+   * clears what was noted as paid on its deliveries too, so the order and
+   * its receipts never disagree.
+   */
+  async markPaid(companyId: string, userId: string, orderId: string, dto: MarkPaidDto) {
+    const writable = await this.writers(companyId, userId);
+    if (dto.paid && !dto.payment_mode) throw new BadRequestException('Choose how it was paid');
+    await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM purchase_orders WHERE id = ${orderId}::uuid FOR UPDATE`;
+      const order = await tx.purchaseOrder.findFirst({
+        where: { id: orderId, company_id: companyId },
+        select: { id: true, branch_id: true, status: true, total_minor: true },
+      });
+      if (!order) throw new NotFoundException('Purchase order not found');
+      if (!writable.some((b) => b.id === order.branch_id)) {
+        throw new ForbiddenException('You cannot change purchase orders at that branch');
+      }
+      if (order.status !== 'RECEIVED') throw new ConflictException('Only a received purchase is marked paid or unpaid');
+      if (dto.paid) {
+        await tx.purchaseOrder.update({
+          where: { id: order.id },
+          data: { paid_minor: order.total_minor, paid_at: new Date(), payment_mode: dto.payment_mode },
+        });
+      } else {
+        await tx.purchaseReceipt.updateMany({
+          where: { purchase_order_id: order.id },
+          data: { paid_minor: 0, payment_mode: null },
+        });
+        await tx.purchaseOrder.update({
+          where: { id: order.id },
+          data: { paid_minor: 0, paid_at: null, payment_mode: null },
+        });
+      }
     });
     return this.view(companyId, userId, orderId);
   }
