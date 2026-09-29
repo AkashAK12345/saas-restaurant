@@ -474,6 +474,216 @@
   color: var(--color-text-muted);
 }
 
+/* Stock transfers: dates and Export, two stat cards, a card per movement. */
+.bandInner {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 4px 16px 20px;
+}
+
+.headPick {
+  align-self: flex-end;
+  min-width: 0;
+  width: min(250px, 64vw);
+}
+
+.dateExport {
+  display: flex;
+  gap: 18px;
+}
+
+.datePill {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+  min-height: 56px;
+  padding: 0 20px;
+  border: 1px solid var(--color-border);
+  border-radius: 16px;
+  background: var(--color-surface-muted);
+  color: var(--color-text);
+  font: inherit;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+}
+
+.datePill svg {
+  flex: none;
+  color: var(--color-text-muted);
+}
+
+.export {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 12px;
+  min-height: 56px;
+  padding: 0 24px;
+  border: 0;
+  border-radius: 16px;
+  background: var(--color-primary);
+  color: var(--color-primary-contrast);
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.export:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+}
+
+.stat {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-width: 0;
+  padding: 18px 20px;
+  border: 1px solid var(--color-border);
+  border-radius: 20px;
+  background: var(--color-surface);
+}
+
+.statTop {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--color-text-muted);
+}
+
+.statIcon {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+}
+
+.statIcon[data-tone='red'] {
+  background: var(--color-danger-bg);
+  color: var(--color-primary);
+}
+
+.statIcon[data-tone='green'] {
+  background: var(--accent-green-bg);
+  color: var(--accent-green-fg);
+}
+
+.statValue {
+  margin: 0;
+  font-size: 1.75rem;
+  font-weight: 600;
+  color: var(--color-text);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.moves {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.move {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 18px 20px;
+  border: 1px solid var(--color-border);
+  border-radius: 18px;
+  background: var(--color-surface);
+}
+
+.moveIcon {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 52px;
+  border-radius: 14px;
+  background: var(--accent-blue-bg);
+  color: var(--accent-blue-fg);
+}
+
+.moveText {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.moveTitle {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-weight: 500;
+  color: var(--color-text);
+}
+
+.moveSub {
+  font-size: 0.9375rem;
+  color: var(--color-text-muted);
+}
+
+.moveValue {
+  flex: none;
+  font-weight: 500;
+  color: var(--color-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.datePill:focus-visible,
+.export:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+@media (max-width: 420px) {
+  .dateExport,
+  .stats {
+    gap: 12px;
+  }
+
+  .datePill {
+    padding: 0 14px;
+  }
+
+  .export {
+    padding: 0 18px;
+  }
+
+  .stat {
+    padding: 16px;
+  }
+
+  .statValue {
+    font-size: 1.5rem;
+  }
+}
+
 /* ── The table ─────────────────────────────────────────────────────────── */
 
 .tableLabel {

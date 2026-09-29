@@ -3585,17 +3585,22 @@ describe('Phase 10 Reports & Dashboard (e2e)', () => {
         expect((await report('closing-stock', { branch_id: branchA2.id }, tokenKeeperA)).status).toBe(403);
       });
 
-      it('IR-5. Stock Transfers: outlet to outlet, newest first, products counted in pcs', async () => {
+      it('IR-5. Stock Transfers: each line, newest first, with what it moved in value', async () => {
+        // Chicken moves at a transfer price of ₹200/Kg; 7 Up has no price; products carry none.
+        await prisma.inventoryItem.update({ where: { id: chicken }, data: { transfer_price_minor: 20_000 } });
         const res = await report('transfers', { from: today, to: today });
         expect(res.status).toBe(200);
-        expect(res.body.summary).toEqual({ transfers: 3, lines: 4 });
-        expect(res.body.rows[0]).toMatchObject({ from: 'Alpha Second', to: 'Alpha Main', item: '7 Up Can 300 Ml', quantity: 1, unit: 'case', kind: 'RAW' });
-        expect(res.body.rows.find((r: any) => r.item === 'Chicken Biriyani')).toMatchObject({ quantity: 3, unit: 'pcs', kind: 'PRODUCT' });
+        // 2.5 + 10 Kg of chicken at ₹200.
+        expect(res.body.summary).toEqual({ transfers: 3, lines: 4, value_minor: 250_000, currency: 'INR' });
+        expect(res.body.rows[0]).toMatchObject({ from: 'Alpha Second', to: 'Alpha Main', item: '7 Up Can 300 Ml', quantity: 1, unit: 'case', kind: 'RAW', value_minor: 0 });
+        expect(res.body.rows.find((r: any) => r.item === 'Chicken Biriyani')).toMatchObject({ quantity: 3, unit: 'pcs', kind: 'PRODUCT', value_minor: null });
+        expect(res.body.rows.filter((r: any) => r.item === 'Chicken').map((r: any) => r.value_minor).sort()).toEqual([200_000, 50_000]);
         expect(res.body.rows.every((r: any) => /^TR-\d{6}-\d+$/.test(r.number) && r.date === today)).toBe(true);
         const second = await report('transfers', { branch_id: branchA2.id });
         expect(second.body.summary.transfers).toBe(3);
         expect((await report('transfers', { from: '2020-01-01', to: '2020-01-02' })).body.rows).toEqual([]);
         expect((await report('transfers', { branch_id: branchA2.id }, tokenKeeperA)).status).toBe(403);
+        await prisma.inventoryItem.update({ where: { id: chicken }, data: { transfer_price_minor: null } });
       });
 
       it('IR-6. the filters: branches the caller may see, and the active items', async () => {

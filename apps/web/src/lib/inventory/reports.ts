@@ -95,7 +95,8 @@ export interface ClosingStock {
 }
 
 export interface TransfersReport {
-  summary: { transfers: number; lines: number };
+  /** value_minor: what the raw materials moved were worth, at their transfer price. */
+  summary: { transfers: number; lines: number; value_minor: number; currency: string };
   rows: Array<{
     id: string;
     date: string;
@@ -106,6 +107,9 @@ export interface TransfersReport {
     quantity: number;
     unit: string | null;
     kind: 'RAW' | 'PRODUCT';
+    created_at: string;
+    /** Null for a menu product, which carries no value. */
+    value_minor: number | null;
   }>;
   meta: { total: number; limit: number; offset: number };
 }
@@ -152,6 +156,18 @@ export function shortDay(date: string): string {
 /** "1 Sep → 30 Sep". */
 export function rangeLabel(from: string, to: string): string {
   return `${shortDay(from)} → ${shortDay(to)}`;
+}
+
+/** "23 Sep – 29 Sep 2026". */
+export function rangeDash(from: string, to: string): string {
+  return `${shortDay(from)} – ${shortDay(to)} ${to.slice(0, 4)}`;
+}
+
+/** The last `days` days up to `today`, both ends included. */
+export function lastDays(today: string, days: number): { from: string; to: string } {
+  const [y, m, d] = today.split('-').map(Number);
+  const start = new Date(Date.UTC(y, m - 1, d - (days - 1)));
+  return { from: `${start.getUTCFullYear()}-${pad(start.getUTCMonth() + 1)}-${pad(start.getUTCDate())}`, to: today };
 }
 
 /** "1 Sep → 30 Sep 2026". */

@@ -28,7 +28,7 @@ vi.mock('@/lib/reports/format', async (real) => ({
 
 const { default: ReportsList } = await import('@/app/(staff)/(app)/inventory/reports/page');
 const { default: ReportPage } = await import('@/app/(staff)/(app)/inventory/reports/[key]/page');
-const { monthOf, rangeLabel } = await import('@/lib/inventory/reports');
+const { lastDays, monthOf, rangeDash, rangeLabel } = await import('@/lib/inventory/reports');
 
 const OPTIONS = {
   branches: [
@@ -230,23 +230,37 @@ describe('The other reports', () => {
     await waitFor(() => expect(reports.closingStock).toHaveBeenLastCalledWith({ companyId: 'co-1' }, { branch_id: 'b1' }));
   });
 
-  it('IRW-7. Stock transfers: each movement, products in pcs', async () => {
+  it('IRW-7. Stock transfers: the last 7 days, the two totals, a card per movement, and export', async () => {
     route.key = 'transfers';
+    const at = '2026-09-29T07:01:00.000Z';
     reports.transfers.mockResolvedValue({
-      summary: { transfers: 1, lines: 2 },
+      summary: { transfers: 16, lines: 2, value_minor: 265_500, currency: 'INR' },
       rows: [
-        { id: 't1', date: '2026-09-29', number: 'TR-260929-1', from: 'Alwarpet', to: 'Anna Nagar', item: '7 Up Pet Bottle 2.25 Ltr', quantity: 3, unit: 'case', kind: 'RAW' },
-        { id: 't2', date: '2026-09-29', number: 'TR-260929-1', from: 'Alwarpet', to: 'Anna Nagar', item: 'Appam Batter', quantity: 2, unit: 'pcs', kind: 'PRODUCT' },
+        { id: 't1', date: '2026-09-29', created_at: at, number: 'TR-260929-2', from: 'Masala Central', to: 'Mogappair', item: 'American Garden Bbq Sauce', quantity: 9, unit: 'Piece', kind: 'RAW', value_minor: 265_500 },
+        { id: 't2', date: '2026-09-29', created_at: at, number: 'TR-260929-1', from: 'Alwarpet', to: 'Anna Nagar', item: 'Appam Batter', quantity: 2, unit: 'pcs', kind: 'PRODUCT', value_minor: null },
       ],
       meta: { total: 2, limit: 100, offset: 0 },
     });
     render(<ReportPage />);
-    const table = await screen.findByRole('table', { name: 'Movements' });
-    expect(within(table).getAllByRole('row').slice(1).map((r) => r.textContent)).toEqual([
-      '29 SepTR-260929-1AlwarpetAnna Nagar7 Up Pet Bottle 2.25 Ltr3 case',
-      '29 SepTR-260929-1AlwarpetAnna NagarAppam BatterProduct2 pcs',
-    ]);
-    expect(screen.queryByRole('button', { name: 'Show more' })).toBeNull();
+    expect(await screen.findByRole('heading', { name: 'Stock Transfers' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Dates: 23 Sep – 29 Sep 2026' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Branch: All Branches' })).toBeTruthy();
+    expect(reports.transfers).toHaveBeenLastCalledWith({ companyId: 'co-1' }, { from: '2026-09-23', to: '2026-09-29', limit: 100 });
+    expect(within(await screen.findByRole('region', { name: 'Transfers' })).getByText('16')).toBeTruthy();
+    expect(within(screen.getByRole('region', { name: 'Value moved' })).getByText('₹2,655.00')).toBeTruthy();
+
+    const cards = within(screen.getByRole('list', { name: 'Movements' })).getAllByRole('listitem');
+    expect(cards[0].textContent).toMatch(/^American Garden Bbq Sauce — 9 PieceMasala Central → Mogappair · 29 Sep, \d{1,2}:\d{2} [AP]M₹2,655\.00$/);
+    expect(cards[1].textContent).toMatch(/^Appam Batter — 2 pcsProductAlwarpet → Anna Nagar · 29 Sep, .*—$/);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Export' }));
+    await waitFor(() => expect(files.saveFile).toHaveBeenCalled());
+    const saved = files.saveFile.mock.calls[0][0];
+    expect(saved.filename).toBe('stock-transfers-2026-09-23-to-2026-09-29.csv');
+    const csv = (await saved.blob.text()).split('\n');
+    expect(csv[0]).toBe('Date,Time,Transfer,From,To,Item,Type,Qty,Unit,Value');
+    expect(csv[1]).toMatch(/^2026-09-29,.*,TR-260929-2,Masala Central,Mogappair,American Garden Bbq Sauce,Raw material,9,Piece,2655\.00$/);
+    expect(csv[2]).toMatch(/,Appam Batter,Product,2,pcs,$/);
   });
 });
 
@@ -256,5 +270,8 @@ describe('periods', () => {
     expect(monthOf('2026-03-10', 1)).toEqual({ from: '2026-02-01', to: '2026-02-28' });
     expect(monthOf('2026-01-15', 1)).toEqual({ from: '2025-12-01', to: '2025-12-31' });
     expect(rangeLabel('2026-09-01', '2026-09-30')).toBe('1 Sep → 30 Sep');
+    expect(lastDays('2026-09-29', 7)).toEqual({ from: '2026-09-23', to: '2026-09-29' });
+    expect(lastDays('2026-03-02', 7)).toEqual({ from: '2026-02-24', to: '2026-03-02' });
+    expect(rangeDash('2026-09-23', '2026-09-29')).toBe('23 Sep – 29 Sep 2026');
   });
 });

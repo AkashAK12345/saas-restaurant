@@ -414,13 +414,22 @@ export class InventoryReportsService {
       JOIN "stock_transfers" t ON t."id" = tl."transfer_id"
       JOIN "branches" fb ON fb."id" = t."from_branch_id"
       JOIN "branches" tb ON tb."id" = t."to_branch_id"
+      LEFT JOIN "inventory_items" i ON i."id" = tl."inventory_item_id"
       WHERE t."company_id" = ${companyId}::uuid ${side} ${period}
     `;
+    // What a raw-material line is worth: its quantity at the item's transfer
+    // price (else its purchase price), per stock unit; nothing without one.
+    // A menu product carries no value.
+    const value = Prisma.sql`
+      CASE WHEN tl."inventory_item_id" IS NULL THEN NULL
+           ELSE ROUND(tl."quantity" * COALESCE(i."transfer_price_minor", i."purchase_price_minor", 0)
+                / COALESCE(NULLIF(i."conversion_qty", 0), 1))
+      END`;
     const limit = q.limit ?? 100;
     const offset = q.offset ?? 0;
     const [[t], rows] = await Promise.all([
-      this.prisma.$queryRaw<Array<{ transfers: bigint; lines: bigint }>>(Prisma.sql`
-        SELECT COUNT(DISTINCT t."id") AS "transfers", COUNT(*) AS "lines" ${base}
+      this.prisma.$queryRaw<Array<{ transfers: bigint; lines: bigint; value: unknown }>>(Prisma.sql`
+        SELECT COUNT(DISTINCT t."id") AS "transfers", COUNT(*) AS "lines", SUM(${value}) AS "value" ${base}
       `),
       this.prisma.$queryRaw<
         Array<{
@@ -434,18 +443,20 @@ export class InventoryReportsService {
           quantity: unknown;
           unit: string | null;
           product: boolean;
+          value: unknown;
         }>
       >(Prisma.sql`
         SELECT tl."id", to_char((t."created_at" AT TIME ZONE fb."timezone")::date, 'YYYY-MM-DD') AS "local_date",
                t."created_at", t."number", fb."name" AS "from_branch", tb."name" AS "to_branch",
-               tl."name", tl."quantity", tl."unit", (tl."menu_product_id" IS NOT NULL) AS "product"
+               tl."name", tl."quantity", tl."unit", (tl."menu_product_id" IS NOT NULL) AS "product",
+               ${value} AS "value"
         ${base}
         ORDER BY t."created_at" DESC, t."number", tl."position"
         LIMIT ${limit} OFFSET ${offset}
       `),
     ]);
     return {
-      summary: { transfers: num(t?.transfers), lines: num(t?.lines) },
+      summary: { transfers: num(t?.transfers), lines: num(t?.lines), value_minor: num(t?.value), currency: CURRENCY },
       rows: rows.map((r) => ({
         id: r.id,
         date: r.local_date,
@@ -457,6 +468,7 @@ export class InventoryReportsService {
         quantity: round3(num(r.quantity)),
         unit: r.unit ?? (r.product ? 'pcs' : null),
         kind: r.product ? ('PRODUCT' as const) : ('RAW' as const),
+        value_minor: r.product ? null : num(r.value),
       })),
       meta: { total: num(t?.lines), limit, offset },
     };
