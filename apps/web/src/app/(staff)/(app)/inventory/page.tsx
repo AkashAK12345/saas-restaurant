@@ -202,10 +202,10 @@ export default function InventoryPage() {
         >
           <AppIcon name="download" size={22} />
         </button>
-        <button type="button" className={styles.action} {...soon}>
+        <Link href="/inventory/reports" className={styles.action}>
           <AppIcon name="barChart" size={20} />
           Reports
-        </button>
+        </Link>
       </div>
 
       {summary ? (

@@ -160,9 +160,11 @@ describe('Inventory screen', () => {
     expect(overview.mock.calls.map((c) => c[1].offset)).toEqual([0, 200, 400, 600]);
     expect(saveFile.mock.calls[0][0].filename).toMatch(/^inventory-\d{4}-\d{2}-\d{2}\.csv$/);
 
-    for (const name of ['Manual purchase', 'Transfer', 'Reports', 'Search every branch', 'Suppliers']) {
+    for (const name of ['Manual purchase', 'Transfer', 'Search every branch', 'Suppliers']) {
       expect(screen.getByRole(name === 'Suppliers' ? 'tab' : 'button', { name }).getAttribute('aria-disabled')).toBe('true');
     }
+    // Reports is built: anyone in the inventory area may open it.
+    expect(screen.getByRole('link', { name: 'Reports' }).getAttribute('href')).toBe('/inventory/reports');
   });
 
   it('INV-6. a refusal is shown, not an empty grid', async () => {

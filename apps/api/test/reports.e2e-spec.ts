@@ -3460,6 +3460,137 @@ describe('Phase 10 Reports & Dashboard (e2e)', () => {
         expect((await as(request(http).get(`/api/v1/inventory/purchase-orders/${ord1}/pdf`), tokenPlainA, companyA.id)).status).toBe(403);
       });
     });
+
+    describe('Purchase reports', () => {
+      // What has arrived at Alpha Main by now, all today: sugar 2 + 1 + 1 bags
+      // at ₹2,000 (Fresh Farms), chicken 1.5 Kg at ₹240 (Fresh Farms), and
+      // from Order Metro chicken 4 Kg at ₹250 and 7 Up 2 at ₹600.
+      const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata' }).format(new Date());
+      const report = (path: string, query: Record<string, string> = {}, token = tokenAnalystA) =>
+        inv(`reports/${path}`, query, token);
+      let sugarId: string;
+
+      beforeAll(async () => {
+        sugarId = (await prisma.inventoryItem.findFirstOrThrow({ where: { company_id: companyA.id, name: 'Sugar 50 Kg Bag' } })).id;
+      });
+
+      it('IR-1. Monthly Avg Purchase: orders, averages and the order history, line by line', async () => {
+        const res = await report('monthly-avg', { from: today, to: today });
+        expect(res.status).toBe(200);
+        // 6 lines, 11.5 units, ₹10,560 before GST.
+        expect(res.body.summary).toEqual({
+          orders: 6,
+          avg_qty: 1.917,
+          avg_price_minor: 91_826,
+          total_qty: 11.5,
+          total_spend_minor: 1_056_000,
+          currency: 'INR',
+        });
+        expect(res.body.rows[0]).toMatchObject({ date: today, branch: 'Alpha Main' });
+        expect(res.body.rows.map((r: any) => [r.item, r.quantity, r.price_minor, r.total_minor]).sort()).toEqual(
+          [
+            ['7 Up Can 300 Ml', 2, 60_000, 120_000],
+            ['Chicken', 1.5, 24_000, 36_000],
+            ['Chicken', 4, 25_000, 100_000],
+            ['Sugar 50 Kg Bag', 1, 200_000, 200_000],
+            ['Sugar 50 Kg Bag', 1, 200_000, 200_000],
+            ['Sugar 50 Kg Bag', 2, 200_000, 400_000],
+          ].sort(),
+        );
+
+        const sugar = await report('monthly-avg', { item_id: sugarId });
+        expect(sugar.body.summary).toMatchObject({ orders: 3, total_qty: 4, avg_qty: 1.333, avg_price_minor: 200_000, total_spend_minor: 800_000 });
+        expect((await report('monthly-avg', { branch_id: branchA2.id })).body.summary.orders).toBe(0);
+        expect((await report('monthly-avg', { from: '2020-01-01', to: '2020-01-31' })).body.summary.orders).toBe(0);
+        const paged = await report('monthly-avg', { limit: '2', offset: '2' });
+        expect(paged.body.rows).toHaveLength(2);
+        expect(paged.body.meta).toEqual({ total: 6, limit: 2, offset: 2 });
+
+        expect((await report('monthly-avg', { from: today })).status).toBe(400);
+        expect((await report('monthly-avg', { branch_id: branchA2.id }, tokenKeeperA)).status).toBe(403);
+        expect((await report('monthly-avg', {}, tokenPlainA)).status).toBe(403);
+      });
+
+      it('IR-2. Comparative Purchase: Period A measured against B, orders counted, per supplier by A spend', async () => {
+        // A: today; B: a month with nothing.
+        const res = await report('comparative', { a_from: today, a_to: today, b_from: '2020-01-01', b_to: '2020-01-31' });
+        expect(res.status).toBe(200);
+        // Four purchase orders arrived (six item lines): MP ×3 and ORD-1.
+        expect(res.body.a).toMatchObject({ orders: 4, spend_minor: 1_056_000 });
+        expect(res.body.b).toMatchObject({ orders: 0, spend_minor: 0 });
+        // Nothing in B to measure against: no percentage.
+        expect(res.body).toMatchObject({ delta_minor: 1_056_000, delta_pct: null });
+        expect(res.body.suppliers.map((s: any) => [s.name, s.a_spend_minor, s.b_spend_minor, s.delta_pct])).toEqual([
+          ['Fresh Farms', 836_000, 0, null],
+          ['Order Metro', 220_000, 0, null],
+        ]);
+        // B with the same spend: no change. B with double: -50%.
+        const same = await report('comparative', { a_from: today, a_to: today, b_from: today, b_to: today });
+        expect(same.body.suppliers.map((s: any) => [s.name, s.delta_minor, s.delta_pct])).toEqual([
+          ['Fresh Farms', 0, 0],
+          ['Order Metro', 0, 0],
+        ]);
+        const bOnly = await report('comparative', { a_from: '2020-01-01', a_to: '2020-01-31', b_from: today, b_to: today });
+        expect(bOnly.body).toMatchObject({ delta_minor: -1_056_000, delta_pct: -100 });
+        expect((await report('comparative', { a_from: today, a_to: today })).status).toBe(400);
+      });
+
+      it('IR-3. Head Outlet Consolidated: by item, supplier and branch, across all branches', async () => {
+        const items = await report('consolidated', { from: today, to: today });
+        expect(items.body.group).toBe('items');
+        expect(items.body.rows.map((r: any) => [r.name, r.quantity, r.orders, r.spend_minor])).toEqual([
+          ['Sugar 50 Kg Bag', 4, 3, 800_000],
+          ['Chicken', 5.5, 2, 136_000],
+          ['7 Up Can 300 Ml', 2, 1, 120_000],
+        ]);
+        expect(items.body.summary).toEqual({ rows: 3, orders: 6, spend_minor: 1_056_000, currency: 'INR' });
+
+        const suppliers = await report('consolidated', { group: 'suppliers' });
+        expect(suppliers.body.rows.map((r: any) => [r.name, r.quantity, r.orders, r.spend_minor])).toEqual([
+          ['Fresh Farms', null, 4, 836_000],
+          ['Order Metro', null, 2, 220_000],
+        ]);
+        const branches = await report('consolidated', { group: 'branches' });
+        expect(branches.body.rows.map((r: any) => [r.name, r.spend_minor])).toEqual([['Alpha Main', 1_056_000]]);
+        expect((await report('consolidated', { group: 'vendors' })).status).toBe(400);
+      });
+
+      it('IR-4. Closing Stock Valuation: stock now × the last price paid, per stock unit', async () => {
+        const res = await report('closing-stock', { branch_id: branchA.id });
+        expect(res.status).toBe(200);
+        // Sugar: 200 Kg at ₹2,000 a 50 Kg bag = ₹40/Kg. 7 Up: 3 at ₹600. Chicken: 4 Kg at ₹250, the later price.
+        expect(res.body.rows.map((r: any) => [r.name, r.quantity, r.unit, r.price_minor, r.price_source, r.value_minor])).toEqual([
+          ['Sugar 50 Kg Bag', 200, 'Kg', 4_000, 'last_purchase', 800_000],
+          ['7 Up Can 300 Ml', 3, 'case', 60_000, 'last_purchase', 180_000],
+          ['Chicken', 4, 'Kg', 25_000, 'last_purchase', 100_000],
+        ]);
+        expect(res.body.summary).toEqual({ items: 3, total_value_minor: 1_080_000, unpriced: 0, currency: 'INR' });
+        const search = await report('closing-stock', { branch_id: branchA.id, q: 'chick' });
+        expect(search.body.rows.map((r: any) => r.name)).toEqual(['Chicken']);
+        expect((await report('closing-stock', { branch_id: branchA2.id }, tokenKeeperA)).status).toBe(403);
+      });
+
+      it('IR-5. Stock Transfers: outlet to outlet, newest first, products counted in pcs', async () => {
+        const res = await report('transfers', { from: today, to: today });
+        expect(res.status).toBe(200);
+        expect(res.body.summary).toEqual({ transfers: 3, lines: 4 });
+        expect(res.body.rows[0]).toMatchObject({ from: 'Alpha Second', to: 'Alpha Main', item: '7 Up Can 300 Ml', quantity: 1, unit: 'case', kind: 'RAW' });
+        expect(res.body.rows.find((r: any) => r.item === 'Chicken Biriyani')).toMatchObject({ quantity: 3, unit: 'pcs', kind: 'PRODUCT' });
+        expect(res.body.rows.every((r: any) => /^TR-\d{6}-\d+$/.test(r.number) && r.date === today)).toBe(true);
+        const second = await report('transfers', { branch_id: branchA2.id });
+        expect(second.body.summary.transfers).toBe(3);
+        expect((await report('transfers', { from: '2020-01-01', to: '2020-01-02' })).body.rows).toEqual([]);
+        expect((await report('transfers', { branch_id: branchA2.id }, tokenKeeperA)).status).toBe(403);
+      });
+
+      it('IR-6. the filters: branches the caller may see, and the active items', async () => {
+        const res = await report('options');
+        expect(res.body.branches.map((b: any) => b.name)).toEqual(['Alpha Main', 'Alpha Second']);
+        expect(res.body.items.map((i: any) => i.name)).toEqual(expect.arrayContaining(['Chicken', 'Sugar 50 Kg Bag']));
+        expect(res.body.items.some((i: any) => i.name === 'Old Stock')).toBe(false);
+        expect((await report('options', {}, tokenKeeperA)).body.branches.map((b: any) => b.name)).toEqual(['Alpha Main']);
+      });
+    });
   });
 
   // ═══════════════════════════════════════════════════════════════════════════

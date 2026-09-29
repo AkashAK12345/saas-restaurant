@@ -14,9 +14,9 @@ import chrome from '@/components/app/screen-chrome.module.css';
  * it shows the API's refusal. The bar is a courtesy; the API enforces the
  * real check on every call.
  */
-const TASK_SCREENS = ['/inventory/manual-purchase', '/inventory/transfer'];
-/** Everything under these is a task screen too: an order, and its print view. */
-const TASK_PREFIXES = ['/inventory/purchase/'];
+const TASK_SCREENS = ['/inventory/manual-purchase', '/inventory/transfer', '/inventory/reports'];
+/** Everything under these is a task screen too: an order and its print view, a report. */
+const TASK_PREFIXES = ['/inventory/purchase/', '/inventory/reports/'];
 
 export default function InventoryLayout({ children }: { children: ReactNode }) {
   const { selectedCompanyId, companyPermissions, loading } = useAppContext();

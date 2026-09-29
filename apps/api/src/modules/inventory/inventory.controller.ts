@@ -26,6 +26,14 @@ import { CreateSupplierDto, RecordPurchaseDto, SearchQueryDto, UpdateSupplierDto
 import { TransferService } from './transfer.service.js';
 import { RecordTransferDto, TransferStockQueryDto } from './transfer.dto.js';
 import { PurchaseOrderService } from './purchase-order.service.js';
+import { InventoryReportsService } from './inventory-reports.service.js';
+import {
+  ClosingStockQueryDto,
+  ComparativeQueryDto,
+  ConsolidatedQueryDto,
+  MonthlyAvgQueryDto,
+  TransfersReportQueryDto,
+} from './inventory-reports.dto.js';
 import {
   MarkPaidDto,
   PurchaseOrderListQueryDto,
@@ -53,6 +61,7 @@ export class InventoryController {
     private readonly purchases: PurchaseService,
     private readonly transfers: TransferService,
     private readonly orders: PurchaseOrderService,
+    private readonly reports: InventoryReportsService,
   ) {}
 
   private company(companyId: string | undefined): string {
@@ -289,5 +298,58 @@ export class InventoryController {
     @Req() req: AuthenticatedRequest,
   ) {
     return this.orders.deletePhoto(this.company(companyId), req.user.id, id, photoId);
+  }
+
+  // ── Purchase reports ────────────────────────────────────────────────────
+  // Over every branch where the caller holds inventory.view.
+
+  @Get('reports/options')
+  reportOptions(@Headers('x-company-id') companyId: string | undefined, @Req() req: AuthenticatedRequest) {
+    return this.reports.options(this.company(companyId), req.user.id);
+  }
+
+  @Get('reports/monthly-avg')
+  monthlyAvg(
+    @Headers('x-company-id') companyId: string | undefined,
+    @Query() query: MonthlyAvgQueryDto,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.reports.monthlyAvg(this.company(companyId), req.user.id, query);
+  }
+
+  @Get('reports/comparative')
+  comparative(
+    @Headers('x-company-id') companyId: string | undefined,
+    @Query() query: ComparativeQueryDto,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.reports.comparative(this.company(companyId), req.user.id, query);
+  }
+
+  @Get('reports/consolidated')
+  consolidated(
+    @Headers('x-company-id') companyId: string | undefined,
+    @Query() query: ConsolidatedQueryDto,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.reports.consolidated(this.company(companyId), req.user.id, query);
+  }
+
+  @Get('reports/closing-stock')
+  closingStock(
+    @Headers('x-company-id') companyId: string | undefined,
+    @Query() query: ClosingStockQueryDto,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.reports.closingStock(this.company(companyId), req.user.id, query);
+  }
+
+  @Get('reports/transfers')
+  transfersReport(
+    @Headers('x-company-id') companyId: string | undefined,
+    @Query() query: TransfersReportQueryDto,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.reports.transfers(this.company(companyId), req.user.id, query);
   }
 }

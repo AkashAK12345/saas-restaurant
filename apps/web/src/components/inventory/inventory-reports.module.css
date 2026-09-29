@@ -1,0 +1,466 @@
+/* Inventory › Purchase Reports: the list and each report. Tokens only. */
+
+.page {
+  display: flex;
+  flex-direction: column;
+  min-height: 100dvh;
+  min-width: 0;
+  background: var(--color-bg);
+}
+
+.head {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface);
+}
+
+.back {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: var(--tap-min);
+  height: var(--tap-min);
+  border: 1px solid var(--color-border);
+  border-radius: 14px;
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.eyebrow {
+  margin: 0;
+  font-size: 0.8125rem;
+  color: var(--color-text-muted);
+}
+
+.title {
+  margin: 0;
+  font-size: var(--text-lg);
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 20px 16px 32px;
+}
+
+/* ── The list of reports ───────────────────────────────────────────────── */
+
+.cards {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.card {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 22px 20px;
+  border: 1px solid var(--color-border);
+  border-radius: 20px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  text-decoration: none;
+}
+
+.card:hover,
+.card:focus-visible {
+  text-decoration: none;
+  border-color: var(--color-primary);
+}
+
+.cardIcon {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 64px;
+  height: 64px;
+  border-radius: 16px;
+}
+
+.cardIcon[data-tone='red'] {
+  background: var(--color-danger-bg);
+  color: var(--color-primary);
+}
+
+.cardIcon[data-tone='green'] {
+  background: var(--accent-green-bg);
+  color: var(--accent-green-fg);
+}
+
+.cardIcon[data-tone='blue'] {
+  background: var(--accent-blue-bg);
+  color: var(--accent-blue-fg);
+}
+
+.cardIcon[data-tone='purple'] {
+  background: var(--accent-purple-bg);
+  color: var(--accent-purple-fg);
+}
+
+.cardText {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.cardTitle {
+  font-weight: 500;
+}
+
+.cardSub {
+  font-size: 0.9375rem;
+  color: var(--color-text-muted);
+}
+
+.cardChevron {
+  flex: none;
+  color: var(--color-text-muted);
+}
+
+/* ── Filters ───────────────────────────────────────────────────────────── */
+
+.filters {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 14px 24px;
+  padding: 22px 22px;
+  border: 1px solid var(--color-border);
+  border-radius: 20px;
+  background: var(--color-surface);
+}
+
+.filterLabel {
+  font-weight: 500;
+  color: var(--color-text-muted);
+}
+
+.dates {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  min-height: 56px;
+  padding: 0 14px;
+  border: 1px solid var(--color-border);
+  border-radius: 16px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.dates svg {
+  flex: none;
+  color: var(--color-primary);
+}
+
+.dates[data-tone='blue'] svg {
+  color: var(--accent-blue-fg);
+}
+
+.search {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 52px;
+  padding: 0 16px;
+  border: 1px solid var(--color-border);
+  border-radius: 16px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+}
+
+.segment {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+  padding: 5px;
+  border: 1px solid var(--color-border);
+  border-radius: 16px;
+  background: var(--color-surface-muted);
+}
+
+.segment button {
+  min-height: 44px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  background: none;
+  color: var(--color-text);
+  font: inherit;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.segment button[aria-selected='true'] {
+  border-color: var(--color-primary);
+  background: var(--color-danger-bg);
+  color: var(--color-primary);
+}
+
+/* ── Summary ───────────────────────────────────────────────────────────── */
+
+.summary {
+  margin: 0;
+  padding: 22px 26px;
+  border: 1px solid var(--color-border);
+  border-radius: 20px;
+  background: var(--color-surface);
+}
+
+.sectionTitle {
+  margin: 0 0 14px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.summary dl {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0;
+}
+
+.summary dl div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.summary dt {
+  color: var(--color-text-muted);
+}
+
+.summary dd {
+  margin: 0;
+  font-weight: 600;
+  color: var(--color-text);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.summary dd[data-tone='money'],
+.money {
+  color: var(--color-primary);
+}
+
+.up {
+  color: var(--color-danger);
+}
+
+.down {
+  color: var(--color-success);
+}
+
+/* Comparative: Period A in the brand's red, B in blue, the change below a rule. */
+.summary dd[data-tone='a'] {
+  color: var(--color-primary);
+}
+
+.summary dd[data-tone='b'] {
+  color: var(--accent-blue-fg);
+}
+
+.summary .rule {
+  margin-top: 4px;
+  padding-top: 18px;
+  border-top: 1px solid var(--color-border);
+}
+
+.supplierCards {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.supplierCard {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 20px 22px;
+  border: 1px solid var(--color-border);
+  border-radius: 18px;
+  background: var(--color-surface);
+}
+
+.supplierText {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.supplierName {
+  font-weight: 500;
+  color: var(--color-text);
+  overflow-wrap: anywhere;
+}
+
+.supplierFigures {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  font-size: 0.9375rem;
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.supplierDelta {
+  flex: none;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-muted);
+}
+
+.supplierDelta[data-tone='up'] {
+  color: var(--color-success);
+}
+
+.supplierDelta[data-tone='down'] {
+  color: var(--color-danger);
+}
+
+/* ── The table ─────────────────────────────────────────────────────────── */
+
+.tableLabel {
+  margin: 6px 0 -6px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.tableWrap {
+  overflow-x: auto;
+  border: 1px solid var(--color-border);
+  border-radius: 20px;
+  background: var(--color-surface);
+}
+
+.table {
+  width: 100%;
+  min-width: 640px;
+  border-collapse: collapse;
+}
+
+/* Many columns: scroll sideways, as the reference does, rather than squeeze. */
+.wide {
+  min-width: 960px;
+}
+
+.table th {
+  padding: 18px 20px;
+  background: var(--color-surface-muted);
+  color: var(--color-text-muted);
+  font-size: 0.875rem;
+  font-weight: 500;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.table td {
+  padding: 18px 20px;
+  border-top: 1px solid var(--color-border);
+  color: var(--color-text);
+  vertical-align: middle;
+}
+
+.table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.table .strong {
+  font-weight: 600;
+}
+
+.tag {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: var(--accent-amber-bg);
+  color: var(--accent-amber-fg);
+  font-size: 0.75rem;
+}
+
+.empty {
+  margin: 0;
+  padding: 36px 16px;
+  text-align: center;
+  color: var(--color-text-muted);
+}
+
+.more {
+  align-self: center;
+  min-height: var(--tap-min);
+  padding: 0 24px;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.note {
+  margin: -6px 0 0;
+  font-size: 0.875rem;
+  color: var(--color-text-muted);
+}
+
+.error {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--color-danger-bg);
+  color: var(--color-danger);
+}
+
+.back:focus-visible,
+.card:focus-visible,
+.dates:focus-visible,
+.segment button:focus-visible,
+.more:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+@media (max-width: 420px) {
+  .filters {
+    gap: 12px 14px;
+    padding: 18px 16px;
+  }
+
+  .summary {
+    padding: 18px 20px;
+  }
+}
