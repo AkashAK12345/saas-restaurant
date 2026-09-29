@@ -3559,16 +3559,27 @@ describe('Phase 10 Reports & Dashboard (e2e)', () => {
         expect((await report('consolidated', { group: 'vendors' })).status).toBe(400);
       });
 
-      it('IR-4. Closing Stock Valuation: stock now × the last price paid, per stock unit', async () => {
+      it('IR-4. Closing Stock Valuation: each item at each branch, stock now × the last price paid per stock unit', async () => {
         const res = await report('closing-stock', { branch_id: branchA.id });
         expect(res.status).toBe(200);
         // Sugar: 200 Kg at ₹2,000 a 50 Kg bag = ₹40/Kg. 7 Up: 3 at ₹600. Chicken: 4 Kg at ₹250, the later price.
-        expect(res.body.rows.map((r: any) => [r.name, r.quantity, r.unit, r.price_minor, r.price_source, r.value_minor])).toEqual([
-          ['Sugar 50 Kg Bag', 200, 'Kg', 4_000, 'last_purchase', 800_000],
-          ['7 Up Can 300 Ml', 3, 'case', 60_000, 'last_purchase', 180_000],
-          ['Chicken', 4, 'Kg', 25_000, 'last_purchase', 100_000],
+        expect(res.body.rows.map((r: any) => [r.name, r.branch, r.quantity, r.unit, r.price_minor, r.price_source, r.value_minor])).toEqual([
+          ['Sugar 50 Kg Bag', 'Alpha Main', 200, 'Kg', 4_000, 'last_purchase', 800_000],
+          ['7 Up Can 300 Ml', 'Alpha Main', 3, 'case', 60_000, 'last_purchase', 180_000],
+          ['Chicken', 'Alpha Main', 4, 'Kg', 25_000, 'last_purchase', 100_000],
         ]);
         expect(res.body.summary).toEqual({ items: 3, total_value_minor: 1_080_000, unpriced: 0, currency: 'INR' });
+
+        // Every branch: Alpha Second holds 14.5 Kg of chicken and 3.5 of 7 Up, each a row of its own.
+        const all = await report('closing-stock');
+        expect(all.body.rows.map((r: any) => [r.name, r.branch, r.quantity, r.value_minor])).toEqual([
+          ['Sugar 50 Kg Bag', 'Alpha Main', 200, 800_000],
+          ['Chicken', 'Alpha Second', 14.5, 362_500],
+          ['7 Up Can 300 Ml', 'Alpha Second', 3.5, 210_000],
+          ['7 Up Can 300 Ml', 'Alpha Main', 3, 180_000],
+          ['Chicken', 'Alpha Main', 4, 100_000],
+        ]);
+        expect(all.body.summary.total_value_minor).toBe(1_652_500);
         const search = await report('closing-stock', { branch_id: branchA.id, q: 'chick' });
         expect(search.body.rows.map((r: any) => r.name)).toEqual(['Chicken']);
         expect((await report('closing-stock', { branch_id: branchA2.id }, tokenKeeperA)).status).toBe(403);

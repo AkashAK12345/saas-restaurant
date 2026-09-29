@@ -204,22 +204,30 @@ describe('The other reports', () => {
     ]);
   });
 
-  it('IRW-6. Closing stock: quantity, price per unit and value; a list price is marked', async () => {
+  it('IRW-6. Closing stock: the total by last purchase price, and each item at each branch', async () => {
     route.key = 'closing-stock';
+    const row = { category: null, last_purchased_at: null };
     reports.closingStock.mockResolvedValue({
-      summary: { items: 2, total_value_minor: 1_100_000, unpriced: 0, currency: 'INR' },
+      summary: { items: 2, total_value_minor: 104_299_480, unpriced: 0, currency: 'INR' },
       rows: [
-        { item_id: 'i1', name: 'Sugar 50 Kg Bag', category: null, unit: 'Kg', quantity: 200, price_minor: 4_000, price_source: 'last_purchase', value_minor: 800_000 },
-        { item_id: 'i2', name: 'Cardamom', category: null, unit: 'Kg', quantity: 1, price_minor: 300_000, price_source: 'item_price', value_minor: 300_000 },
+        { ...row, item_id: 'i1', branch_id: 'b2', branch: 'Central Samco Kitchen - CSK', name: 'Mutton Biriyani Cut', unit: 'Kg', quantity: 891.56, price_minor: 83_000, price_source: 'last_purchase', value_minor: 73_999_480 },
+        { ...row, item_id: 'i2', branch_id: 'b1', branch: 'Alwarpet', name: 'Cardamom', unit: 'Kg', quantity: 100, price_minor: 303_000, price_source: 'item_price', value_minor: 30_300_000 },
       ],
     });
     render(<ReportPage />);
-    const table = await screen.findByRole('table', { name: 'Stock on hand' });
+    const total = await screen.findByRole('region', { name: 'Total stock value' });
+    expect(within(total).getByText('₹10,42,994.80')).toBeTruthy();
+    expect(within(total).getByText('Method: last purchase price · 2 items · 1 at list price')).toBeTruthy();
+    const table = screen.getByRole('table', { name: 'Stock on hand' });
+    expect(within(table).getAllByRole('columnheader').map((h) => h.textContent)).toEqual(['Item', 'Branch', 'Qty', 'Last Price', 'Value']);
     expect(within(table).getAllByRole('row').slice(1).map((r) => r.textContent)).toEqual([
-      'Sugar 50 Kg Bag200 Kg₹40.00₹8,000.00',
-      'Cardamom1 Kg₹3,000.00list₹3,000.00',
+      'Mutton Biriyani CutCentral Samco Kitchen - CSK891.56 Kg₹830.00₹7,39,994.80',
+      'CardamomAlwarpet100 Kg₹3,030.00list₹3,03,000.00',
     ]);
-    expect(within(screen.getByRole('region', { name: 'Summary' })).getByText('₹11,000.00')).toBeTruthy();
+    expect(screen.queryByPlaceholderText('Search items')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Branch: All branches' }));
+    fireEvent.click(within(screen.getByRole('dialog', { name: 'Branch' })).getByText('Alwarpet'));
+    await waitFor(() => expect(reports.closingStock).toHaveBeenLastCalledWith({ companyId: 'co-1' }, { branch_id: 'b1' }));
   });
 
   it('IRW-7. Stock transfers: each movement, products in pcs', async () => {

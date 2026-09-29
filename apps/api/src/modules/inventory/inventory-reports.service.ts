@@ -312,17 +312,18 @@ export class InventoryReportsService {
     const branches = q.branch_id ? visible.filter((b) => b.id === q.branch_id) : visible;
     if (!branches.length) throw new ForbiddenException('You do not have inventory access at that branch');
     const ids = branches.map((b) => b.id);
-    const stock = await this.prisma.$queryRaw<Array<{ item_id: string; qty: unknown }>>(Prisma.sql`
-      SELECT m."item_id", SUM(m."quantity") AS "qty"
+    const branchName = new Map(branches.map((b) => [b.id, b.name]));
+    // One row per item at each branch, as the reference lists it.
+    const stock = await this.prisma.$queryRaw<Array<{ item_id: string; branch_id: string; qty: unknown }>>(Prisma.sql`
+      SELECT m."item_id", m."branch_id", SUM(m."quantity") AS "qty"
       FROM "stock_movements" m
       WHERE m."company_id" = ${companyId}::uuid AND m."branch_id" = ANY(${ids}::uuid[])
-      GROUP BY m."item_id"
+      GROUP BY m."item_id", m."branch_id"
       HAVING SUM(m."quantity") <> 0
     `);
-    if (!stock.length) {
-      return { summary: { items: 0, total_value_minor: 0, unpriced: 0, currency: CURRENCY }, rows: [] };
-    }
-    const itemIds = stock.map((s) => s.item_id);
+    const empty = { summary: { items: 0, total_value_minor: 0, unpriced: 0, currency: CURRENCY }, rows: [] };
+    if (!stock.length) return empty;
+    const itemIds = [...new Set(stock.map((s) => s.item_id))];
     const needle = q.q?.trim();
     const [items, last] = await Promise.all([
       this.prisma.inventoryItem.findMany({
@@ -350,32 +351,37 @@ export class InventoryReportsService {
         ORDER BY l."inventory_item_id", l."received_at" DESC
       `),
     ]);
-    const qty = new Map(stock.map((s) => [s.item_id, num(s.qty)]));
+    const itemById = new Map(items.map((i) => [i.id, i]));
     const lastPrice = new Map(last.map((l) => [l.item_id, l]));
-    const rows = items
-      .map((i) => {
+    const rows = stock
+      .filter((s) => itemById.has(s.item_id))
+      .map((s) => {
+        const i = itemById.get(s.item_id)!;
         const conversion = i.conversion_qty === null ? null : Number(i.conversion_qty);
         const paid = lastPrice.get(i.id);
+        // Per stock unit: the last price paid, else the item's list price.
         const price =
           paid !== undefined
             ? perStockUnit(paid.unit_price_minor, conversion)
             : i.purchase_price_minor !== null
               ? perStockUnit(i.purchase_price_minor, conversion)
               : null;
-        const q = round3(qty.get(i.id)!);
+        const qty = round3(num(s.qty));
         return {
           item_id: i.id,
+          branch_id: s.branch_id,
+          branch: branchName.get(s.branch_id) ?? '',
           name: i.name,
           category: i.category?.name ?? null,
           unit: i.unit,
-          quantity: q,
+          quantity: qty,
           price_minor: price === null ? null : Math.round(price),
           price_source: paid !== undefined ? ('last_purchase' as const) : price !== null ? ('item_price' as const) : null,
           last_purchased_at: paid?.received_at ?? null,
-          value_minor: price === null ? 0 : Math.round(q * price),
+          value_minor: price === null ? 0 : Math.round(qty * price),
         };
       })
-      .sort((a, b) => b.value_minor - a.value_minor || a.name.localeCompare(b.name));
+      .sort((a, b) => b.value_minor - a.value_minor || a.name.localeCompare(b.name) || a.branch.localeCompare(b.branch));
     return {
       summary: {
         items: rows.length,

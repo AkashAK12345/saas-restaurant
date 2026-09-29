@@ -79,8 +79,11 @@ export interface Consolidated {
 
 export interface ClosingStock {
   summary: { items: number; total_value_minor: number; unpriced: number; currency: string };
+  /** One row per item at each branch. */
   rows: Array<{
     item_id: string;
+    branch_id: string;
+    branch: string;
     name: string;
     category: string | null;
     unit: string;

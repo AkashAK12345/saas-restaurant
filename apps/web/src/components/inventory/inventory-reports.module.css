@@ -446,6 +446,34 @@
   color: var(--color-danger);
 }
 
+/* Closing stock: one big figure, in the valuation's purple. */
+.totalCard {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 22px 26px;
+  border: 1px solid var(--color-border);
+  border-radius: 20px;
+  background: var(--color-surface);
+}
+
+.totalCard .sectionTitle {
+  margin: 0;
+}
+
+.totalValue {
+  margin: 0;
+  font-size: 1.75rem;
+  font-weight: 600;
+  color: var(--accent-purple-fg);
+  font-variant-numeric: tabular-nums;
+}
+
+.totalMethod {
+  margin: 0;
+  color: var(--color-text-muted);
+}
+
 /* ── The table ─────────────────────────────────────────────────────────── */
 
 .tableLabel {
@@ -473,6 +501,12 @@
 /* Many columns: scroll sideways, as the reference does, rather than squeeze. */
 .wide {
   min-width: 960px;
+}
+
+/* The name column no wider than a phone's half, so the next one shows too. */
+.wide th:first-child,
+.wide td:first-child {
+  width: 180px;
 }
 
 .table th {
