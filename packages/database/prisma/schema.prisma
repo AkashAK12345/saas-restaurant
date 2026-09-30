@@ -150,6 +150,8 @@ enum QueueTokenEventType {
   CANCELLED
   TABLE_ASSIGNED
   TABLE_RELEASED
+  // A seated party finished and left (its table cleared, or it never had one).
+  FINISHED
   // A called party did not respond and went back to the waiting list.
   SKIPPED
   // A scheduled party arrived and was checked in by staff.
@@ -472,6 +474,8 @@ model QueueToken {
   assigned_table_id String?          @db.Uuid
   called_at         DateTime?        @db.Timestamptz(3)
   seated_at         DateTime?        @db.Timestamptz(3)
+  /// When a seated party finished and left: its table cleared, or marked left.
+  finished_at       DateTime?        @db.Timestamptz(3)
   cancelled_at      DateTime?        @db.Timestamptz(3)
   no_show_at        DateTime?        @db.Timestamptz(3)
   /// The last time a called party was skipped back to the waiting list. A

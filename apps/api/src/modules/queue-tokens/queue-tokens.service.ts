@@ -100,6 +100,7 @@ export const QUEUE_EVENT_TYPES = {
   CANCELLED: 'queue.token.cancelled',
   TABLE_ASSIGNED: 'queue.token.table_assigned',
   TABLE_RELEASED: 'queue.token.table_released',
+  FINISHED: 'queue.token.finished',
   SKIPPED: 'queue.token.skipped',
   CHECKED_IN: 'queue.token.checked_in',
   ACTIVATED: 'queue.token.activated',
@@ -801,6 +802,9 @@ export class QueueTokensService {
       if (current.assigned_table_id !== null) {
         throw new ConflictException('Party already has a table; release it first');
       }
+      if (current.finished_at !== null) {
+        throw new ConflictException('This party has already left');
+      }
       const resolvedTableId = await this.resolveAssignableTable(tx, ctx, tableId);
 
       const { count } = await tx.queueToken.updateMany({
@@ -826,7 +830,11 @@ export class QueueTokensService {
     return this.emit(ctx, QUEUE_EVENT_TYPES.TABLE_ASSIGNED, token);
   }
 
-  /** Free the table held by a SEATED party. Status does not change; the assignment stays in history. */
+  /**
+   * "Table cleared": the party has finished and left. Their table is free
+   * again and they are marked left (finished_at), so no screen offers them a
+   * table again. Status stays SEATED; the table they held stays in history.
+   */
   async releaseTable(ctx: QueueActorContext, tokenId: string): Promise<QueueTokenView> {
     const token = await this.mutate(async (tx) => {
       const current = await this.loadForMutation(tx, ctx, tokenId);
@@ -837,7 +845,7 @@ export class QueueTokensService {
 
       const { count } = await tx.queueToken.updateMany({
         where: { id: current.id, status: QueueTokenStatus.SEATED, assigned_table_id: releasedTableId },
-        data: { assigned_table_id: null },
+        data: { assigned_table_id: null, finished_at: new Date() },
       });
       if (count !== 1) throw new ConflictException('Queue token was modified concurrently');
       const updated = await this.reload(tx, current.id);
@@ -848,14 +856,58 @@ export class QueueTokensService {
         newStatus: updated.status,
         metadata: { table_id: releasedTableId },
       });
+      await this.recordEvent(tx, ctx, updated.id, {
+        eventType: QueueTokenEventType.FINISHED,
+        previousStatus: updated.status,
+        newStatus: updated.status,
+        metadata: { table_id: releasedTableId },
+      });
       await this.audit(tx, ctx, AuditEventType.UPDATE, updated.id, {
         action: 'release_table',
         token_number: updated.token_number,
         table_id: releasedTableId,
+        finished: true,
       });
       return updated;
     });
     return this.emit(ctx, QUEUE_EVENT_TYPES.TABLE_RELEASED, token);
+  }
+
+  /**
+   * "Guests left" for a party seated without ever getting a table: it is
+   * marked left, and no screen offers it a table again.
+   */
+  async finish(ctx: QueueActorContext, tokenId: string): Promise<QueueTokenView> {
+    const token = await this.mutate(async (tx) => {
+      const current = await this.loadForMutation(tx, ctx, tokenId);
+      if (current.status !== QueueTokenStatus.SEATED) {
+        throw new ConflictException('Only a seated party can leave');
+      }
+      if (current.assigned_table_id !== null) {
+        throw new ConflictException('Clear the party’s table instead');
+      }
+      if (current.finished_at !== null) {
+        throw new ConflictException('This party has already left');
+      }
+      const { count } = await tx.queueToken.updateMany({
+        where: { id: current.id, status: QueueTokenStatus.SEATED, assigned_table_id: null, finished_at: null },
+        data: { finished_at: new Date() },
+      });
+      if (count !== 1) throw new ConflictException('Queue token was modified concurrently');
+      const updated = await this.reload(tx, current.id);
+
+      await this.recordEvent(tx, ctx, updated.id, {
+        eventType: QueueTokenEventType.FINISHED,
+        previousStatus: updated.status,
+        newStatus: updated.status,
+      });
+      await this.audit(tx, ctx, AuditEventType.UPDATE, updated.id, {
+        action: 'finish',
+        token_number: updated.token_number,
+      });
+      return updated;
+    });
+    return this.emit(ctx, QUEUE_EVENT_TYPES.FINISHED, token);
   }
 
   // ───────────────────────────────────────────────────────────────────────────
@@ -1059,6 +1111,7 @@ export class QueueTokensService {
         : null,
       called_at: token.called_at,
       seated_at: token.seated_at,
+      finished_at: token.finished_at,
       cancelled_at: token.cancelled_at,
       no_show_at: token.no_show_at,
       skipped_at: token.skipped_at,

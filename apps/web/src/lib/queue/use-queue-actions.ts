@@ -31,6 +31,7 @@ export interface QueueActionsState {
   cancel: (t: QueueToken) => Promise<void>;
   assignTable: (t: QueueToken, tableId: string) => Promise<void>;
   releaseTable: (t: QueueToken) => Promise<void>;
+  finish: (t: QueueToken) => Promise<void>;
   skip: (t: QueueToken) => Promise<void>;
   checkIn: (t: QueueToken) => Promise<void>;
 }
@@ -106,7 +107,16 @@ export function useQueueActions(
       [run],
     ),
     releaseTable: useCallback(
-      (t) => run((c) => queueApi.releaseTable(c, t.id), (r) => `Table released for token ${r.token_number}.`),
+      (t) =>
+        run(
+          (c) => queueApi.releaseTable(c, t.id),
+          (r) =>
+            `${t.assigned_table ? `Table ${t.assigned_table.label}` : 'The table'} is free — token ${r.token_number} has left.`,
+        ),
+      [run],
+    ),
+    finish: useCallback(
+      (t) => run((c) => queueApi.finish(c, t.id), (r) => `Token ${r.token_number} has left.`),
       [run],
     ),
     skip: useCallback(

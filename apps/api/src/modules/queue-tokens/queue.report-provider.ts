@@ -67,6 +67,8 @@ const TOKEN_COLUMNS = [
   { key: 'status', label: 'Status', type: 'badge' },
   { key: 'outcome_at', label: 'Outcome', type: 'datetime' },
   { key: 'wait_seconds', label: 'Wait/Reason', type: 'duration' },
+  { key: 'left_at', label: 'Left', type: 'datetime' },
+  { key: 'dining_seconds', label: 'Dining time', type: 'duration' },
   { key: 'operator_email', label: 'Operator', type: 'string' },
   { key: 'table_label', label: 'Table', type: 'string' },
   { key: 'floor', label: 'Floor', type: 'string' },
@@ -100,6 +102,8 @@ interface TokenRow {
   registered_at: Date;
   outcome_at: Date | null;
   wait_seconds: number | null;
+  left_at: Date | null;
+  dining_seconds: number | null;
   operator_email: string | null;
   table_label: string | null;
   floor: string | null;
@@ -266,6 +270,8 @@ export class QueueTokensReport implements ReportProvider {
           t."created_at"    AS "registered_at",
           COALESCE(t."seated_at", t."no_show_at", t."cancelled_at") AS "outcome_at",
           EXTRACT(EPOCH FROM (t."seated_at" - t."created_at")) AS "wait_seconds",
+          t."finished_at"   AS "left_at",
+          EXTRACT(EPOCH FROM (t."finished_at" - t."seated_at")) AS "dining_seconds",
           u."email"         AS "operator_email",
           tbl."label"       AS "table_label",
           tbl."zone"        AS "floor",
@@ -274,7 +280,16 @@ export class QueueTokensReport implements ReportProvider {
           -- every visible sample row in the reference design also shows.
           CASE WHEN t."advance_booking_at" IS NOT NULL THEN 'Advance booking' ELSE 'Podium' END AS "source"
         FROM "queue_tokens" t
-        LEFT JOIN "tables" tbl ON tbl."id" = t."assigned_table_id"
+        -- A party that has left no longer holds its table; the last release
+        -- event still names the table it sat at.
+        LEFT JOIN LATERAL (
+          SELECT (r."metadata"->>'table_id')::uuid AS "table_id"
+          FROM "queue_token_events" r
+          WHERE r."queue_token_id" = t."id" AND r."event_type" = 'TABLE_RELEASED'
+          ORDER BY r."created_at" DESC
+          LIMIT 1
+        ) released ON t."assigned_table_id" IS NULL
+        LEFT JOIN "tables" tbl ON tbl."id" = COALESCE(t."assigned_table_id", released."table_id")
         LEFT JOIN "queue_token_events" e
           ON e."queue_token_id" = t."id" AND e."event_type" = 'REGISTERED'
         LEFT JOIN "users" u ON u."id" = e."actor_user_id"
@@ -302,6 +317,7 @@ export class QueueTokensReport implements ReportProvider {
       rows: rows.map((row) => ({
         ...row,
         wait_seconds: toDurationSeconds(row.wait_seconds),
+        dining_seconds: toDurationSeconds(row.dining_seconds),
       })),
       total,
       metrics: [

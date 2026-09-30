@@ -86,8 +86,13 @@ export const queueApi = {
   assignTable: (ctx: QueueContext, id: string, tableId: string) =>
     api.post<QueueToken>(`/queue-tokens/${id}/assign-table`, { table_id: tableId }, ctxOpts(ctx)),
 
+  /** "Table cleared": the party has finished and left; the table is free. */
   releaseTable: (ctx: QueueContext, id: string) =>
     api.post<QueueToken>(`/queue-tokens/${id}/release-table`, undefined, ctxOpts(ctx)),
+
+  /** A party seated without a table has finished and left. */
+  finish: (ctx: QueueContext, id: string) =>
+    api.post<QueueToken>(`/queue-tokens/${id}/finish`, undefined, ctxOpts(ctx)),
 
   /** CALLED → WAITING: the party did not respond. */
   skip: (ctx: QueueContext, id: string) =>

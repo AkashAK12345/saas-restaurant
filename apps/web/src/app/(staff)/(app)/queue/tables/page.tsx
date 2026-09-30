@@ -133,10 +133,11 @@ export default function QueueTablesPage() {
    *            waiter move. A party that is merely waiting cannot be seated
    *            at all: the lifecycle is WAITING -> CALLED -> SEATED, so the
    *            podium has to call them first and the API refuses otherwise.
-   *   noTable  already seated, but holding no table; they need one assigned.
+   *   noTable  already seated, holding no table, and still here; they need
+   *            one assigned. A party whose table was cleared has left.
    */
   const ready = board.called;
-  const noTable = board.seated.filter((t) => !t.assigned_table_id);
+  const noTable = board.seated.filter((t) => !t.assigned_table_id && !t.finished_at);
   const active = tables.filter((t) => t.status === 'ACTIVE');
   const free = active.filter((t) => !t.occupied_by && !seatedHere.has(t.id));
   const occupied = active.filter((t) => t.occupied_by || seatedHere.has(t.id));
@@ -248,6 +249,16 @@ export default function QueueTablesPage() {
                     <AppIcon name="seat" size={20} />
                     {action === 'seat' ? 'Seat' : 'Assign table'}
                   </button>
+                  {action === 'assign' ? (
+                    <button
+                      type="button"
+                      className={screens.button}
+                      disabled={actions.busy}
+                      onClick={() => void actions.finish(token)}
+                    >
+                      Guests left
+                    </button>
+                  ) : null}
                   {table && token.party_size > table.capacity ? (
                     <p className={screens.warn}>
                       A party of {token.party_size} is more than table {table.label}’s {table.capacity} seats.

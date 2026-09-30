@@ -30,7 +30,11 @@ function clock(iso: string | null): string {
 /** The most useful timestamp for the token's current state. */
 function stamp(token: QueueToken, now: number): string {
   if (token.status === 'SCHEDULED') return `Booked for ${clock(token.advance_booking_at)}`;
-  if (token.status === 'SEATED') return `Seated ${clock(token.seated_at)}`;
+  if (token.status === 'SEATED') {
+    return token.finished_at
+      ? `Seated ${clock(token.seated_at)} · left ${clock(token.finished_at)}`
+      : `Seated ${clock(token.seated_at)}`;
+  }
   if (token.status === 'CALLED') {
     const since = minutesSince(token.called_at, now);
     return `Called ${clock(token.called_at)}${since !== null ? ` · ${since} min ago` : ''}`;
@@ -53,6 +57,8 @@ export interface QueueActionsProps {
   onCancel?: (token: QueueToken) => void;
   onAssignTable?: (token: QueueToken, tableId: string) => void;
   onReleaseTable?: (token: QueueToken) => void;
+  /** A party seated without a table has left. */
+  onFinish?: (token: QueueToken) => void;
   onSkip?: (token: QueueToken) => void;
   onCheckIn?: (token: QueueToken) => void;
   /** Loads the party's phone on demand (queue.call + customers.view). */
@@ -79,6 +85,7 @@ export function QueueTokenCard({
   onCancel,
   onAssignTable,
   onReleaseTable,
+  onFinish,
   onSkip,
   onCheckIn,
   loadContact,
@@ -92,7 +99,8 @@ export function QueueTokenCard({
 
   const free = tables.filter((t) => t.status === 'ACTIVE');
   const canSeatWithTable = token.status === 'CALLED' && onSeat;
-  const canAssign = token.status === 'SEATED' && !token.assigned_table_id && onAssignTable;
+  const left = token.status === 'SEATED' && !!token.finished_at;
+  const canAssign = token.status === 'SEATED' && !token.assigned_table_id && !left && onAssignTable;
   const live = token.status === 'SCHEDULED' || token.status === 'WAITING' || token.status === 'CALLED';
 
   const revealContact = async () => {
@@ -128,7 +136,7 @@ export function QueueTokenCard({
             ) : null}
           </span>
         </span>
-        <span className={`${styles.badge} ${BADGE[token.status]}`}>{STATUS_LABEL[token.status]}</span>
+        <span className={`${styles.badge} ${BADGE[token.status]}`}>{left ? 'Left' : STATUS_LABEL[token.status]}</span>
       </div>
 
       {(canSeatWithTable || canAssign) && free.length > 0 ? (
@@ -241,7 +249,13 @@ export function QueueTokenCard({
             disabled={busy}
             onClick={() => onReleaseTable(token)}
           >
-            Release table
+            Table cleared
+          </button>
+        ) : null}
+
+        {token.status === 'SEATED' && !token.assigned_table_id && !left && onFinish ? (
+          <button type="button" className={styles.action} disabled={busy} onClick={() => onFinish(token)}>
+            Guests left
           </button>
         ) : null}
 

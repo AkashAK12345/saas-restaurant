@@ -26,6 +26,7 @@ const queueMock = vi.hoisted(() => ({
   seat: vi.fn(),
   assignTable: vi.fn(),
   releaseTable: vi.fn(),
+  finish: vi.fn(),
   tableAvailability: vi.fn(),
 }));
 vi.mock('@/lib/queue/api', () => ({
@@ -80,6 +81,7 @@ const token = (over: Partial<QueueToken> = {}): QueueToken => ({
   assigned_table: null,
   called_at: '2026-09-07T10:05:00.000Z',
   seated_at: null,
+  finished_at: null,
   cancelled_at: null,
   no_show_at: null,
   skipped_at: null,
@@ -128,7 +130,18 @@ describe('Waiter — table management', () => {
       called: [token({ id: 'c-1', token_number: 7, party_size: 6 })],
       // Seated in a hurry, with no table yet: a different job from seating a
       // called party, and shown in its own section.
-      seated: [seated, token({ id: 's-2', token_number: 9, status: 'SEATED', party_size: 2, seated_at: '2026-09-07T10:30:00.000Z' })],
+      seated: [
+        seated,
+        token({ id: 's-2', token_number: 9, status: 'SEATED', party_size: 2, seated_at: '2026-09-07T10:30:00.000Z' }),
+        // Cleared or marked left: they have gone home and need nothing.
+        token({
+          id: 's-3',
+          token_number: 2,
+          status: 'SEATED',
+          seated_at: '2026-09-07T09:30:00.000Z',
+          finished_at: '2026-09-07T10:15:00.000Z',
+        }),
+      ],
     };
     queueMock.tableAvailability.mockResolvedValue([
       table('tbl-1', 'T1', 4, { occupied_by: { token_id: 's-1', token_number: 3, service_date: '2026-09-07' } }),
@@ -211,6 +224,15 @@ describe('Waiter — table management', () => {
     fireEvent.change(within(noTable).getByLabelText('Table for token 9'), { target: { value: 'tbl-2' } });
     fireEvent.click(within(noTable).getByRole('button', { name: 'Assign table' }));
     await waitFor(() => expect(queueMock.assignTable).toHaveBeenCalledWith(CTX, 's-2', 'tbl-2'));
+  });
+
+  it('marks a party seated without a table as left', async () => {
+    queueMock.finish.mockResolvedValue(token({ id: 's-2', token_number: 9, status: 'SEATED' }));
+    render(<QueueTablesPage />);
+    const noTable = await screen.findByRole('list', { name: 'Seated Without a Table' });
+    fireEvent.click(within(noTable).getByRole('button', { name: 'Guests left' }));
+    await waitFor(() => expect(queueMock.finish).toHaveBeenCalledWith(CTX, 's-2'));
+    await waitFor(() => expect(refresh).toHaveBeenCalled());
   });
 
   it('only offers tables that are free', async () => {

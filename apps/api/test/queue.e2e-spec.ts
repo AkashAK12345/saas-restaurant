@@ -591,6 +591,33 @@ describe('Phase 7 Queue Management (e2e)', () => {
       const events = await prisma.queueTokenEvent.findMany({ where: { queue_token_id: seated.id } });
       const released = events.find((e) => e.event_type === 'TABLE_RELEASED');
       expect(released!.metadata).toEqual({ table_id: tableA2.id });
+
+      // Clearing the table means the party has left: never offered a table again.
+      expect(release.body.finished_at).not.toBeNull();
+      expect(events.some((e) => e.event_type === 'FINISHED')).toBe(true);
+      const again = await asPodium(request(http).post(`/api/v1/queue-tokens/${seated.id}/assign-table`)).send({
+        table_id: tableA2.id,
+      });
+      expect(again.status).toBe(409);
+      expect(again.body.message).toMatch(/already left/);
+    });
+
+    it('QT-2b. a party seated without a table is marked left, once', async () => {
+      const seated = await registerSeated();
+      const left = await asPodium(request(http).post(`/api/v1/queue-tokens/${seated.id}/finish`)).send();
+      expect(left.status).toBe(200);
+      expect(left.body).toMatchObject({ status: 'SEATED', assigned_table_id: null });
+      expect(left.body.finished_at).not.toBeNull();
+      expect((await asPodium(request(http).post(`/api/v1/queue-tokens/${seated.id}/finish`)).send()).status).toBe(409);
+
+      // One still at a table is cleared instead.
+      const atTable = await registerSeated();
+      await asPodium(request(http).post(`/api/v1/queue-tokens/${atTable.id}/assign-table`)).send({ table_id: tableA2.id });
+      expect((await asPodium(request(http).post(`/api/v1/queue-tokens/${atTable.id}/finish`)).send()).status).toBe(409);
+      await asPodium(request(http).post(`/api/v1/queue-tokens/${atTable.id}/release-table`)).send();
+      // Only a seated party can leave.
+      const waiting = await register();
+      expect((await asPodium(request(http).post(`/api/v1/queue-tokens/${waiting.body.id}/finish`)).send()).status).toBe(409);
     });
 
     it('QT-3. rejects a table from another branch as 404', async () => {

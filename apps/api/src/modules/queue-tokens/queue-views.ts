@@ -34,6 +34,8 @@ export interface QueueTokenPublicView {
   assigned_table: { id: string; label: string } | null;
   called_at: Date | null;
   seated_at: Date | null;
+  /** When the seated party finished and left; null while still at the table. */
+  finished_at: Date | null;
   cancelled_at: Date | null;
   no_show_at: Date | null;
   /** When a called party was last skipped back to the list; null if never. */

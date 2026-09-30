@@ -296,6 +296,7 @@ export default function PodiumPage() {
                   busy={actions.busy}
                   onAssignTable={maySeat ? actions.assignTable : undefined}
                   onReleaseTable={maySeat ? actions.releaseTable : undefined}
+                  onFinish={maySeat ? actions.finish : undefined}
                 />
               ))}
 

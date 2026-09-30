@@ -44,6 +44,8 @@ export interface QueueTokenPublic {
   assigned_table: { id: string; label: string } | null;
   called_at: string | null;
   seated_at: string | null;
+  /** When the seated party finished and left (table cleared, or marked left). */
+  finished_at: string | null;
   cancelled_at: string | null;
   no_show_at: string | null;
   /** When a called party was last skipped back to the list. */
@@ -189,6 +191,7 @@ export const QUEUE_EVENTS = [
   'queue.token.cancelled',
   'queue.token.table_assigned',
   'queue.token.table_released',
+  'queue.token.finished',
   'queue.token.skipped',
   'queue.token.checked_in',
   'queue.token.activated',

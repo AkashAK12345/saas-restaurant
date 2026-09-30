@@ -243,4 +243,18 @@ export class QueueTokensController {
   ) {
     return this.queueTokens.releaseTable(this.ctx(companyId, branchId, req), id);
   }
+
+  /** A party seated without a table has finished and left. */
+  @Post(':id/finish')
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(PermissionGuard)
+  @RequireBranchPermission(PERMISSION_KEYS.QUEUE_SEAT)
+  finish(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Headers('x-company-id') companyId: string,
+    @Headers('x-branch-id') branchId: string,
+    @Req() req: AuthenticatedRequest,
+  ) {
+    return this.queueTokens.finish(this.ctx(companyId, branchId, req), id);
+  }
 }

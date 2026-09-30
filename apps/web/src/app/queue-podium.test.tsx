@@ -23,6 +23,7 @@ const noShow = vi.fn();
 const cancel = vi.fn();
 const assignTable = vi.fn();
 const releaseTable = vi.fn();
+const finish = vi.fn();
 const skip = vi.fn();
 const checkIn = vi.fn();
 const contact = vi.fn();
@@ -37,6 +38,7 @@ vi.mock('@/lib/queue/api', () => ({
     cancel: (...a: unknown[]) => cancel(...a),
     assignTable: (...a: unknown[]) => assignTable(...a),
     releaseTable: (...a: unknown[]) => releaseTable(...a),
+    finish: (...a: unknown[]) => finish(...a),
     skip: (...a: unknown[]) => skip(...a),
     checkIn: (...a: unknown[]) => checkIn(...a),
     contact: (...a: unknown[]) => contact(...a),
@@ -81,6 +83,7 @@ const token = (over: Partial<QueueToken> = {}): QueueToken => ({
   assigned_table: null,
   called_at: null,
   seated_at: null,
+  finished_at: null,
   cancelled_at: null,
   no_show_at: null,
   skipped_at: null,
@@ -173,13 +176,14 @@ describe('Podium operator — tabs and registering', () => {
 
 describe('Podium operator — calling', () => {
   beforeEach(() => {
-    for (const m of [call, seat, noShow, cancel, assignTable, releaseTable, skip, checkIn, contact, refresh]) m.mockReset();
+    for (const m of [call, seat, noShow, cancel, assignTable, releaseTable, finish, skip, checkIn, contact, refresh]) m.mockReset();
     refresh.mockResolvedValue(undefined);
     call.mockResolvedValue(token({ status: 'CALLED', token_number: 5 }));
     seat.mockResolvedValue(token({ status: 'SEATED', token_number: 4 }));
     noShow.mockResolvedValue(token({ status: 'NO_SHOW', token_number: 4 }));
     cancel.mockResolvedValue(token({ status: 'CANCELLED', token_number: 5 }));
     releaseTable.mockResolvedValue(token({ status: 'SEATED', token_number: 4 }));
+    finish.mockResolvedValue(token({ status: 'SEATED', token_number: 8 }));
     skip.mockResolvedValue(token({ status: 'WAITING', token_number: 4, skip_count: 1 }));
     checkIn.mockResolvedValue(token({ status: 'WAITING', token_number: 9 }));
     contact.mockResolvedValue({
@@ -246,7 +250,7 @@ describe('Podium operator — calling', () => {
     await waitFor(() => expect(cancel).toHaveBeenCalled());
   });
 
-  it('offers table release only for a seated party that holds one', async () => {
+  it('offers "Table cleared" only for a seated party that holds one', async () => {
     board = makeBoard({
       called: [],
       seated: [
@@ -263,8 +267,35 @@ describe('Podium operator — calling', () => {
     });
     renderCall();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Release table' }));
+    expect(screen.queryByRole('button', { name: 'Guests left' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Table cleared' }));
     await waitFor(() => expect(releaseTable).toHaveBeenCalledWith(CTX, 's-1'));
+    expect(await screen.findByText(/Table T1 is free — token 4 has left/)).toBeTruthy();
+  });
+
+  it('marks a party seated without a table as left, and a party that left is only shown', async () => {
+    board = makeBoard({
+      called: [],
+      seated: [
+        token({ id: 's-8', token_number: 8, status: 'SEATED', seated_at: '2026-09-07T10:10:00.000Z' }),
+        token({
+          id: 's-9',
+          token_number: 9,
+          status: 'SEATED',
+          seated_at: '2026-09-07T10:10:00.000Z',
+          finished_at: '2026-09-07T11:00:00.000Z',
+        }),
+      ],
+      counts: { scheduled: 0, waiting: 1, called: 0, seated: 2, no_show: 0, cancelled: 0 },
+    });
+    renderCall();
+
+    // Only the party still here can leave; the one that left reads "Left".
+    expect(screen.getAllByRole('button', { name: 'Guests left' })).toHaveLength(1);
+    expect(screen.getByText('Left')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Guests left' }));
+    await waitFor(() => expect(finish).toHaveBeenCalledWith(CTX, 's-8'));
+    expect(await screen.findByText(/Token 8 has left/)).toBeTruthy();
   });
 
   it('does not offer a table already held by a seated party', async () => {

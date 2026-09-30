@@ -34,6 +34,7 @@ function makeToken(overrides: Record<string, unknown> = {}) {
     assigned_table: null,
     called_at: null,
     seated_at: null,
+    finished_at: null,
     cancelled_at: null,
     no_show_at: null,
     skipped_at: null,
@@ -405,16 +406,41 @@ describe('QueueTokensService', () => {
       await expect(service.assignTable(ctx, TOKEN, TABLE)).rejects.toBeInstanceOf(ConflictException);
     });
 
-    it('release frees the table and keeps the seating status', async () => {
+    it('clearing the table frees it and marks the party left; the seating status stays', async () => {
       withToken(makeToken({ status: QueueTokenStatus.SEATED, assigned_table_id: TABLE }));
       tx.queueToken.findUniqueOrThrow.mockResolvedValue(
-        makeToken({ status: QueueTokenStatus.SEATED, assigned_table_id: null }),
+        makeToken({ status: QueueTokenStatus.SEATED, assigned_table_id: null, finished_at: new Date() }),
       );
       await service.releaseTable(ctx, TOKEN);
-      expect(tx.queueToken.updateMany.mock.calls[0][0].data).toEqual({ assigned_table_id: null });
-      const ev = tx.queueTokenEvent.create.mock.calls[0][0].data;
-      expect(ev.event_type).toBe(QueueTokenEventType.TABLE_RELEASED);
-      expect(ev.metadata).toEqual({ table_id: TABLE });
+      expect(tx.queueToken.updateMany.mock.calls[0][0].data).toEqual({ assigned_table_id: null, finished_at: expect.any(Date) });
+      const [released, finished] = tx.queueTokenEvent.create.mock.calls.map((c: any) => c[0].data);
+      expect(released.event_type).toBe(QueueTokenEventType.TABLE_RELEASED);
+      expect(released.metadata).toEqual({ table_id: TABLE });
+      expect(finished.event_type).toBe(QueueTokenEventType.FINISHED);
+    });
+
+    it('a party seated without a table can be marked left, once', async () => {
+      withToken(makeToken({ status: QueueTokenStatus.SEATED, assigned_table_id: null }));
+      tx.queueToken.findUniqueOrThrow.mockResolvedValue(
+        makeToken({ status: QueueTokenStatus.SEATED, assigned_table_id: null, finished_at: new Date() }),
+      );
+      await service.finish(ctx, TOKEN);
+      expect(tx.queueToken.updateMany.mock.calls[0][0].data).toEqual({ finished_at: expect.any(Date) });
+      expect(tx.queueTokenEvent.create.mock.calls[0][0].data.event_type).toBe(QueueTokenEventType.FINISHED);
+    });
+
+    it('refuses to mark left a party still at a table, one that already left, or one not seated', async () => {
+      withToken(makeToken({ status: QueueTokenStatus.SEATED, assigned_table_id: TABLE }));
+      await expect(service.finish(ctx, TOKEN)).rejects.toBeInstanceOf(ConflictException);
+      withToken(makeToken({ status: QueueTokenStatus.SEATED, assigned_table_id: null, finished_at: new Date() }));
+      await expect(service.finish(ctx, TOKEN)).rejects.toBeInstanceOf(ConflictException);
+      withToken(makeToken({ status: QueueTokenStatus.CALLED }));
+      await expect(service.finish(ctx, TOKEN)).rejects.toBeInstanceOf(ConflictException);
+    });
+
+    it('never offers a table to a party that has left', async () => {
+      withToken(makeToken({ status: QueueTokenStatus.SEATED, assigned_table_id: null, finished_at: new Date() }));
+      await expect(service.assignTable(ctx, TOKEN, TABLE)).rejects.toBeInstanceOf(ConflictException);
     });
 
     it('refuses to release when no table is held', async () => {
@@ -512,6 +538,7 @@ describe('QueueTokensService', () => {
           'party_size',
           'advance_booking_at',
           'seated_at',
+          'finished_at',
           'service_date',
           'status',
           'token_number',

@@ -46,6 +46,7 @@ const token = (over: Partial<QueueToken> = {}): QueueToken => ({
   assigned_table: null,
   called_at: null,
   seated_at: null,
+  finished_at: null,
   cancelled_at: null,
   no_show_at: null,
   skipped_at: null,
