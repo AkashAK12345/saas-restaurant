@@ -8,6 +8,7 @@ import { userAccessApi, type AccessCatalogue, type UserListEntry } from '@/lib/u
 import { AppIcon } from '@/components/app/icons';
 import { ScreenHeader } from '@/components/users/controls';
 import { UserList } from '@/components/users/user-list';
+import { GroupList } from '@/components/users/group-list';
 import { UserAccessForm, type AccessFormValues } from '@/components/users/user-access-form';
 import styles from '@/components/users/users.module.css';
 
@@ -23,7 +24,7 @@ const TABS: { key: Tab; label: string }[] = [
  * User Management — who works here and what each person may do.
  *
  * Existing Users lists every member; Create New makes an account and sets
- * its access in one go. Access is chosen as toggles; the API turns them into
+ * its access in one go; Groups keeps named lists of members. Access is chosen as toggles; the API turns them into
  * the permission keys every endpoint checks, and refuses to hand out any key
  * the person saving does not hold.
  */
@@ -31,6 +32,7 @@ export default function UserManagementPage() {
   const { selectedCompanyId, companyPermissions } = useAppContext();
   const mayView = hasPermission(companyPermissions, 'users.view');
   const mayCreate = hasPermission(companyPermissions, 'users.create');
+  const mayUpdate = hasPermission(companyPermissions, 'users.update');
 
   const [tab, setTab] = useState<Tab>('existing');
   const [catalogue, setCatalogue] = useState<AccessCatalogue | null>(null);
@@ -153,7 +155,11 @@ export default function UserManagementPage() {
             ) : null}
 
             {tab === 'groups' ? (
-              <p className={styles.empty}>Groups are not available in this version of SAMCO yet.</p>
+              users && selectedCompanyId ? (
+                <GroupList companyId={selectedCompanyId} users={users} mayEdit={mayUpdate} />
+              ) : !error ? (
+                <p className={styles.empty}>Loading…</p>
+              ) : null
             ) : null}
           </div>
         </>

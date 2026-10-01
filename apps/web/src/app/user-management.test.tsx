@@ -10,9 +10,10 @@ const apiMock = vi.hoisted(() => ({
   create: vi.fn(),
   save: vi.fn(),
 }));
+const groupsMock = vi.hoisted(() => ({ list: vi.fn(), create: vi.fn(), save: vi.fn(), remove: vi.fn() }));
 vi.mock('@/lib/users/access', async () => {
   const actual = await vi.importActual<typeof import('@/lib/users/access')>('@/lib/users/access');
-  return { ...actual, userAccessApi: apiMock };
+  return { ...actual, userAccessApi: apiMock, userGroupsApi: groupsMock };
 });
 
 let companyPermissions: string[] = [];
@@ -133,10 +134,104 @@ describe('User Management — Existing Users', () => {
     expect(apiMock.list).not.toHaveBeenCalled();
   });
 
-  it('shows Groups as not available yet', async () => {
+});
+
+describe('User Management — Groups', () => {
+  const GROUPS = [
+    {
+      id: 'g-1',
+      name: 'Branch Heads',
+      members: [
+        { id: 'u-2', name: 'alwarpetba', email: 'alwarpetba@gmail.com' },
+        { id: 'u-3', name: 'annawaiter', email: 'annawaiter@gmail.com' },
+        { id: 'x-1', name: 'mogappairba', email: 'm@gmail.com' },
+        { id: 'x-2', name: 'pallavaramba', email: 'p@gmail.com' },
+      ],
+    },
+    { id: 'g-2', name: 'Deep Clean', members: [] },
+  ];
+
+  const openGroups = async () => {
+    groupsMock.list.mockResolvedValue(GROUPS);
     render(<UserManagementPage />);
+    await screen.findByRole('list', { name: 'Users' });
     fireEvent.click(screen.getByRole('tab', { name: 'Groups' }));
-    expect(screen.getByText(/Groups are not available/)).toBeTruthy();
+    return screen.findByRole('list', { name: 'Groups' });
+  };
+
+  beforeEach(() => {
+    for (const fn of Object.values(groupsMock)) fn.mockReset();
+  });
+
+  it('lists groups with their size and first members, and searches them', async () => {
+    const list = await openGroups();
+    const heads = within(list).getByRole('button', { name: 'Branch Heads, 4 members' });
+    expect(within(heads).getByText('alwarpetba, annawaiter, mogappairba +1 more')).toBeTruthy();
+    expect(within(list).getByText('0 members')).toBeTruthy();
+
+    fireEvent.change(screen.getByLabelText('Search groups'), { target: { value: 'deep' } });
+    expect(within(screen.getByRole('list', { name: 'Groups' })).getAllByRole('button')).toHaveLength(1);
+  });
+
+  it('creates a group once it has a name and a member', async () => {
+    groupsMock.create.mockResolvedValue({ id: 'g-3', name: 'Kitchen', members: [] });
+    await openGroups();
+    fireEvent.click(screen.getByRole('button', { name: 'Create group' }));
+    const dialog = screen.getByRole('dialog', { name: 'Create group' });
+    const create = within(dialog).getByRole('button', { name: 'Create group' }) as HTMLButtonElement;
+    expect(create.disabled).toBe(true);
+    expect(within(dialog).getByText('0 selected')).toBeTruthy();
+    // No MEMBERS heading while the group is empty.
+    expect(within(dialog).queryByText('Members')).toBeNull();
+
+    fireEvent.change(within(dialog).getByLabelText('Group name'), { target: { value: ' Kitchen ' } });
+    fireEvent.click(within(dialog).getByRole('checkbox', { name: /annawaiter/ }));
+    expect(within(dialog).getByText('1 selected')).toBeTruthy();
+    fireEvent.click(create);
+    await waitFor(() => expect(groupsMock.create).toHaveBeenCalledWith('co-1', { name: 'Kitchen', member_ids: ['u-3'] }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(await screen.findByText('Kitchen created.')).toBeTruthy();
+    expect(groupsMock.list).toHaveBeenCalledTimes(2);
+  });
+
+  it('edits a group: members first, then everyone else; saves and deletes', async () => {
+    groupsMock.save.mockResolvedValue(GROUPS[0]);
+    groupsMock.remove.mockResolvedValue(undefined);
+    const list = await openGroups();
+    fireEvent.click(within(list).getByRole('button', { name: /Branch Heads/ }));
+    const dialog = screen.getByRole('dialog', { name: 'Edit group' });
+    expect((within(dialog).getByLabelText('Group name') as HTMLInputElement).value).toBe('Branch Heads');
+    expect(within(dialog).getByText('4 selected')).toBeTruthy();
+    const members = within(dialog).getByRole('list', { name: 'Members' });
+    expect(within(members).getAllByRole('checkbox').map((c) => c.getAttribute('aria-checked'))).toEqual(['true', 'true']);
+    const all = within(dialog).getByRole('list', { name: 'All users' });
+    expect(within(all).getAllByRole('checkbox')).toHaveLength(1);
+
+    // Unticking keeps the row where it is.
+    fireEvent.click(within(members).getByRole('checkbox', { name: /annawaiter/ }));
+    expect(within(members).getAllByRole('checkbox')).toHaveLength(2);
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Save changes' }));
+    await waitFor(() =>
+      expect(groupsMock.save).toHaveBeenCalledWith('co-1', 'g-1', {
+        name: 'Branch Heads',
+        // Members not shown here (left the company list) are kept as they were.
+        member_ids: ['u-2', 'x-1', 'x-2'],
+      }),
+    );
+
+    fireEvent.click(within(await screen.findByRole('list', { name: 'Groups' })).getByRole('button', { name: /Branch Heads/ }));
+    const again = screen.getByRole('dialog', { name: 'Edit group' });
+    fireEvent.click(within(again).getByRole('button', { name: 'Delete' }));
+    expect(groupsMock.remove).not.toHaveBeenCalled();
+    fireEvent.click(within(again).getByRole('button', { name: 'Confirm delete' }));
+    await waitFor(() => expect(groupsMock.remove).toHaveBeenCalledWith('co-1', 'g-1'));
+  });
+
+  it('is read-only without users.update', async () => {
+    companyPermissions = ['users.view'];
+    const list = await openGroups();
+    expect(screen.queryByRole('button', { name: 'Create group' })).toBeNull();
+    expect(within(list).queryAllByRole('button')).toHaveLength(0);
   });
 });
 

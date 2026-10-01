@@ -124,9 +124,20 @@ export type AppIconName =
   | 'eye'
   | 'eyeOff'
   | 'minusCircle'
-  | 'checkSquare';
+  | 'checkSquare'
+  | 'group';
 
 const FILLED: Partial<Record<AppIconName, ReactNode>> = {
+  // Three people, the middle one in front: a group.
+  group: (
+    <>
+      <circle cx="12" cy="7.6" r="2.9" />
+      <circle cx="5.3" cy="9.4" r="2.2" />
+      <circle cx="18.7" cy="9.4" r="2.2" />
+      <path d="M7 18.5c0-3 2.2-5.4 5-5.4s5 2.4 5 5.4z" />
+      <path d="M1.5 18c0-2.5 1.7-4.4 3.8-4.4 1 0 1.8.3 2.5.9A6.7 6.7 0 0 0 6 18zM22.5 18c0-2.5-1.7-4.4-3.8-4.4-1 0-1.8.3-2.5.9A6.7 6.7 0 0 1 18 18z" />
+    </>
+  ),
   bag: (
     <path d="M8 7V6a4 4 0 0 1 8 0v1h2.6a1 1 0 0 1 1 .9l1 12A1.6 1.6 0 0 1 19 21.6H5a1.6 1.6 0 0 1-1.6-1.7l1-12a1 1 0 0 1 1-.9zm2 0h4V6a2 2 0 0 0-4 0zm-1 4.2a1 1 0 1 0 0-2 1 1 0 0 0 0 2zm6 0a1 1 0 1 0 0-2 1 1 0 0 0 0 2z" fillRule="evenodd" />
   ),
@@ -804,6 +815,7 @@ const STROKED: Record<AppIconName, ReactNode> = {
   ),
   bag: null,
   gear: null,
+  group: null,
 };
 
 export function AppIcon({ name, size = 24 }: { name: AppIconName; size?: number }) {

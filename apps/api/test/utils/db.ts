@@ -143,6 +143,8 @@ export async function resetDatabase(prisma: PrismaService): Promise<void> {
   await purgePos(prisma);
   await purgePurchasing(prisma);
   await purgeInventory(prisma);
+  await prisma.userGroupMember.deleteMany();
+  await prisma.userGroup.deleteMany();
   await prisma.userBranchRole.deleteMany();
   await prisma.rolePermission.deleteMany();
   await prisma.userSession.deleteMany();
@@ -179,7 +181,11 @@ export async function deleteUserCascade(
   await purgeQueueHistory(prisma);
   await purgeBanquet(prisma);
   await purgeTasks(prisma);
+  await prisma.userGroupMember.deleteMany({ where: { user_id: userId } });
   await prisma.userBranchRole.deleteMany({ where: { user_id: userId } });
+  // Their personal role (User Management) belongs to no one else.
+  await prisma.rolePermission.deleteMany({ where: { role: { personal_user_id: userId } } });
+  await prisma.role.deleteMany({ where: { personal_user_id: userId } });
   await prisma.userSession.deleteMany({ where: { user_id: userId } });
   await prisma.companyMembership.deleteMany({ where: { user_id: userId } });
   await prisma.user.delete({ where: { id: userId } });

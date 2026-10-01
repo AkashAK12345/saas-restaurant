@@ -248,6 +248,7 @@ model User {
   // The role holding the access set for this user on User Management, one
   // per company.
   personal_roles Role[]
+  user_groups    UserGroupMember[]
   audit_logs   AuditLog[]
   queue_token_events QueueTokenEvent[]
   banquet_payments   BanquetPayment[]
@@ -303,6 +304,8 @@ model Company {
   checklist_templates ChecklistTemplate[]
   task_routines       TaskRoutine[]
   tasks               Task[]
+
+  user_groups UserGroup[]
 
   @@map("companies")
 }
@@ -1227,6 +1230,36 @@ model RolePermission {
   @@index([role_id])
   @@index([permission_id])
   @@map("role_permissions")
+}
+
+// A named list of a company's members (e.g. "Branch Heads", "Kitchen"),
+// kept on User Management. Membership only: a group grants no access.
+model UserGroup {
+  id         String   @id @default(uuid()) @db.Uuid
+  company_id String   @db.Uuid
+  name       String   @db.VarChar(60)
+  created_at DateTime @default(now()) @db.Timestamptz(3)
+  updated_at DateTime @updatedAt @db.Timestamptz(3)
+
+  company Company           @relation(fields: [company_id], references: [id], onDelete: Restrict)
+  members UserGroupMember[]
+
+  @@unique([company_id, name])
+  @@index([company_id])
+  @@map("user_groups")
+}
+
+model UserGroupMember {
+  group_id   String   @db.Uuid
+  user_id    String   @db.Uuid
+  created_at DateTime @default(now()) @db.Timestamptz(3)
+
+  group UserGroup @relation(fields: [group_id], references: [id], onDelete: Cascade)
+  user  User      @relation(fields: [user_id], references: [id], onDelete: Restrict)
+
+  @@id([group_id, user_id])
+  @@index([user_id])
+  @@map("user_group_members")
 }
 
 model UserBranchRole {

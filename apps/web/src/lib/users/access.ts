@@ -92,3 +92,25 @@ export function avatarTone(id: string): (typeof AVATAR_TONES)[number] {
   for (const c of id) h = (h * 31 + c.charCodeAt(0)) >>> 0;
   return AVATAR_TONES[h % AVATAR_TONES.length];
 }
+
+/** A named list of members (Groups tab). Grants no access. */
+export interface UserGroup {
+  id: string;
+  name: string;
+  members: { id: string; name: string; email: string }[];
+}
+
+export const userGroupsApi = {
+  list: (companyId: string) => api.get<UserGroup[]>('/user-groups', opts(companyId)),
+  create: (companyId: string, body: { name: string; member_ids: string[] }) =>
+    api.post<UserGroup>('/user-groups', body, opts(companyId)),
+  save: (companyId: string, id: string, body: { name: string; member_ids: string[] }) =>
+    api.put<UserGroup>(`/user-groups/${id}`, body, opts(companyId)),
+  remove: (companyId: string, id: string) => api.delete<void>(`/user-groups/${id}`, opts(companyId)),
+};
+
+/** "alwarpetba, annanagarba, mogappairba +3 more" */
+export function memberSummary(names: readonly string[], shown = 3): string {
+  if (names.length <= shown) return names.join(', ');
+  return `${names.slice(0, shown).join(', ')} +${names.length - shown} more`;
+}
