@@ -1,8 +1,11 @@
 'use client';
 
 import Link from 'next/link';
+import { useCallback, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { hasAnyPermission } from '@/lib/auth/permissions';
+import { settingsMenuFor } from '@/lib/settings/settings-menu';
+import { SettingsSheet } from '@/components/settings/settings-sheet';
 import { NAV_ITEMS, SETTINGS_ITEM, type NavItem } from './nav-items';
 import { NavIcon } from './nav-icons';
 import styles from './nav.module.css';
@@ -34,8 +37,11 @@ export function visibleNavItems(
  * the workspace grid and the Settings hub — both reachable in one tap — rather
  * than in a bar that scrolls sideways.
  */
-/** The bar reads left to right in the order the product design sets out. */
-const BAR_ORDER = ['/', '/queue', '/tasks', '/banquet', '/reports'];
+/**
+ * The bar reads left to right in the order the product design sets out.
+ * Reports is reached from the Settings sheet and the dashboard instead.
+ */
+const BAR_ORDER = ['/', '/queue', '/tasks', '/banquet', '/inventory'];
 
 export function bottomNavItems(permissions: readonly string[], hasBranch: boolean): NavItem[] {
   const primary = visibleNavItems(permissions, hasBranch).filter((i) => i.primary);
@@ -50,6 +56,8 @@ export function bottomNavItems(permissions: readonly string[], hasBranch: boolea
  */
 export function Nav({ permissions, hasBranch, variant, onNavigate }: NavProps) {
   const pathname = usePathname();
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const closeSettings = useCallback(() => setSettingsOpen(false), []);
   const items =
     variant === 'bottom'
       ? bottomNavItems(permissions, hasBranch)
@@ -60,6 +68,26 @@ export function Nav({ permissions, hasBranch, variant, onNavigate }: NavProps) {
       <ul className={styles.list}>
         {items.map((item) => {
           const active = item.href === '/' ? pathname === '/' : pathname.startsWith(item.href);
+          // On the phone, Settings opens its sheet over the page in hand.
+          if (variant === 'bottom' && item === SETTINGS_ITEM) {
+            return (
+              <li key={item.href}>
+                <button
+                  type="button"
+                  data-accent={item.accent}
+                  className={`${styles.link} ${styles.navButton} ${active || settingsOpen ? styles.active : ''}`}
+                  aria-haspopup="dialog"
+                  aria-expanded={settingsOpen}
+                  onClick={() => setSettingsOpen((open) => !open)}
+                >
+                  <span className={styles.tile}>
+                    <NavIcon name={item.icon} />
+                  </span>
+                  <span className={styles.label}>{item.label}</span>
+                </button>
+              </li>
+            );
+          }
           return (
             <li key={item.href}>
               <Link
@@ -81,6 +109,9 @@ export function Nav({ permissions, hasBranch, variant, onNavigate }: NavProps) {
           );
         })}
       </ul>
+      {settingsOpen ? (
+        <SettingsSheet entries={settingsMenuFor(permissions, hasBranch)} onClose={closeSettings} />
+      ) : null}
     </nav>
   );
 }

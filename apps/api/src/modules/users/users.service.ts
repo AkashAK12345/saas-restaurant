@@ -429,7 +429,8 @@ export class UsersService {
       where: { id: dto.role_id },
       include: { permissions: { include: { permission: true } } },
     });
-    if (!role || role.company_id !== companyId) {
+    // A personal role carries one member's access; it is never handed to another.
+    if (!role || role.company_id !== companyId || role.personal_user_id !== null) {
       throw new UnprocessableEntityException(
         'Role does not belong to this company',
       );

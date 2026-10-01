@@ -166,3 +166,12 @@
   max-width: 100%;
   white-space: nowrap;
 }
+
+/* The bottom bar's Settings is a button (it opens a sheet), drawn as a link. */
+.navButton {
+  width: 100%;
+  border: 0;
+  background: none;
+  font: inherit;
+  cursor: pointer;
+}

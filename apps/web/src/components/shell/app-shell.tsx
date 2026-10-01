@@ -8,17 +8,25 @@ import { useAppContext } from '@/lib/context/app-context-provider';
 import { hasQueueAccess, isQueuePath } from '@/lib/queue/surfaces';
 import { hasBanquetAccess, isBanquetPath } from '@/lib/banquet/sections';
 import { hasInventoryAccess, isInventoryPath } from '@/lib/inventory/sections';
+import { hasPermission, PERMISSION_KEYS } from '@/lib/auth/permissions';
 import { Nav } from './nav';
 import { NAV_ITEMS, SETTINGS_ITEM } from './nav-items';
+import { comingSoonEntry } from '@/lib/settings/settings-menu';
 import { BranchChip } from './branch-chip';
 import { Logo } from '@/components/brand/logo';
 import { AppIcon } from '@/components/app/icons';
 import styles from './app-shell.module.css';
 
 /** The top bar's page name: the deepest navigation entry the path is under. */
+/** User Management and the screens under it, which bring their own header. */
+const isUsersPath = (pathname: string | null) =>
+  !!pathname && (pathname === '/settings/users' || pathname.startsWith('/settings/users/'));
+
 export function pageTitleFor(pathname: string | null): string {
   if (!pathname || pathname === '/') return 'Dashboard';
   if (pathname === '/settings/devices') return 'Devices';
+  const placeholder = comingSoonEntry(pathname);
+  if (placeholder) return placeholder.title;
   const match = [...NAV_ITEMS, SETTINGS_ITEM].filter((i) => i.href !== '/' && (pathname === i.href || pathname.startsWith(`${i.href}/`)))
     .sort((a, b) => b.href.length - a.href.length)[0];
   return match?.label ?? 'SAMCO';
@@ -76,7 +84,8 @@ export function AppShell({ children }: { children: ReactNode }) {
     ((hasBranch &&
       ((isQueuePath(pathname) && hasQueueAccess(ctx.branchPermissions)) ||
         (isBanquetPath(pathname) && hasBanquetAccess(ctx.branchPermissions)))) ||
-      (isInventoryPath(pathname) && hasInventoryAccess(ctx.companyPermissions)));
+      (isInventoryPath(pathname) && hasInventoryAccess(ctx.companyPermissions)) ||
+      (isUsersPath(pathname) && hasPermission(ctx.companyPermissions, PERMISSION_KEYS.USERS_VIEW)));
   if (focused) {
     return (
       <main className={styles.focused}>

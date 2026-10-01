@@ -39,7 +39,7 @@ describe('AppShell', () => {
     expect(pageTitleFor('/')).toBe('Dashboard');
     expect(screen.getByRole('link', { name: 'SAMCO home' }).getAttribute('href')).toBe('/');
     expect(pageTitleFor('/tables')).toBe('Tables');
-    expect(pageTitleFor('/settings/users/u-1')).toBe('Users');
+    expect(pageTitleFor('/settings/users/u-1')).toBe('User Management');
     expect(pageTitleFor('/settings/devices')).toBe('Devices');
   });
 
@@ -68,7 +68,9 @@ describe('AppShell', () => {
     expect(screen.getAllByRole('link', { name: 'Tables' })).toHaveLength(1);
     // The phone bar carries only the destinations a shift runs on, and ends with Settings.
     expect(screen.getAllByRole('link', { name: 'Dashboard' })).toHaveLength(2);
-    expect(screen.getAllByRole('link', { name: 'Settings' })).toHaveLength(2);
+    // On the phone Settings opens a sheet, so it is a button there.
+    expect(screen.getAllByRole('link', { name: 'Settings' })).toHaveLength(1);
+    expect(screen.getByRole('button', { name: 'Settings' }).getAttribute('aria-haspopup')).toBe('dialog');
     expect(screen.queryByRole('link', { name: 'Users' })).toBeNull();
     expect(screen.getByText('content')).toBeDefined();
   });
@@ -125,5 +127,7 @@ describe('AppShell', () => {
     expect(screen.getAllByRole('link', { name: 'Settings' })[0].getAttribute('href')).toBe('/settings');
     expect(screen.queryByRole('link', { name: 'Devices' })).toBeNull();
     expect(pageTitleFor('/settings')).toBe('Settings');
+    expect(pageTitleFor('/settings/menu')).toBe('Menu Management');
+    expect(pageTitleFor('/settings/font-size')).toBe('Font Size');
   });
 });

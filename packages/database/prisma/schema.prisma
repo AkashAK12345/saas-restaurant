@@ -25,6 +25,15 @@ enum MembershipStatus {
   INACTIVE
 }
 
+// What kind of user a member is, set on User Management. It decides the
+// administration they hold beyond their toggles, and is the "role" the user
+// list filters on.
+enum UserType {
+  ADMIN
+  MANAGER
+  STAFF
+}
+
 // GLOBAL identity lifecycle — distinct from MembershipStatus.
 //
 // UserStatus governs whether the account may authenticate at all, anywhere on
@@ -236,6 +245,9 @@ model User {
   sessions     UserSession[]
   memberships  CompanyMembership[]
   branch_roles UserBranchRole[]
+  // The role holding the access set for this user on User Management, one
+  // per company.
+  personal_roles Role[]
   audit_logs   AuditLog[]
   queue_token_events QueueTokenEvent[]
   banquet_payments   BanquetPayment[]
@@ -300,12 +312,24 @@ model CompanyMembership {
   user_id    String           @db.Uuid
   company_id String           @db.Uuid
   status     MembershipStatus @default(ACTIVE)
+  // ── Access set on User Management ──────────────────────────────────────
+  // Null on all four until the member is first saved there; until then their
+  // access is whatever shared roles they hold.
+  user_type      UserType?
+  // The one branch the member works at; null with is_corporate for access at
+  // every branch (CHECK: never both).
+  home_branch_id String?   @db.Uuid
+  is_corporate   Boolean   @default(false)
+  // The toggles chosen ({ toggles, routines, tasks }). Enforcement is the
+  // member's personal role; this is what the form shows.
+  access         Json?
   created_at DateTime         @default(now()) @db.Timestamptz(3)
   updated_at DateTime         @updatedAt @db.Timestamptz(3)
 
   // Relationships
-  user    User    @relation(fields: [user_id], references: [id], onDelete: Restrict)
-  company Company @relation(fields: [company_id], references: [id], onDelete: Restrict)
+  user        User    @relation(fields: [user_id], references: [id], onDelete: Restrict)
+  company     Company @relation(fields: [company_id], references: [id], onDelete: Restrict)
+  home_branch Branch? @relation(fields: [home_branch_id], references: [id], onDelete: Restrict)
 
   @@unique([user_id, company_id])
   @@index([user_id])
@@ -335,6 +359,7 @@ model Branch {
   // Relationships
   company         Company          @relation(fields: [company_id], references: [id], onDelete: Restrict)
   user_roles      UserBranchRole[]
+  home_members    CompanyMembership[]
   audit_logs      AuditLog[]
   tables          Table[]
   display_devices DisplayDevice[]
@@ -1157,15 +1182,21 @@ model Role {
   company_id  String   @db.Uuid
   name        String
   description String?
+  // Set on a member's personal role: the access User Management saved for
+  // them. Such a role is theirs alone — never listed or assignable as a
+  // shared role.
+  personal_user_id String? @db.Uuid
   created_at  DateTime @default(now()) @db.Timestamptz(3)
   updated_at  DateTime @updatedAt @db.Timestamptz(3)
 
   // Relationships
-  company     Company          @relation(fields: [company_id], references: [id], onDelete: Restrict)
-  permissions RolePermission[]
-  user_roles  UserBranchRole[]
+  company       Company          @relation(fields: [company_id], references: [id], onDelete: Restrict)
+  personal_user User?            @relation(fields: [personal_user_id], references: [id], onDelete: Restrict)
+  permissions   RolePermission[]
+  user_roles    UserBranchRole[]
 
   @@unique([company_id, name])
+  @@unique([company_id, personal_user_id])
   @@index([company_id])
   @@map("roles")
 }

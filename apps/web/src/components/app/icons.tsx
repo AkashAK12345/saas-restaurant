@@ -114,9 +114,28 @@ export type AppIconName =
   | 'transfer'
   | 'download'
   | 'globeSearch'
-  | 'bank';
+  | 'bank'
+  | 'utensils'
+  | 'bag'
+  | 'history'
+  | 'gear'
+  | 'textSize'
+  | 'mail'
+  | 'eye'
+  | 'eyeOff'
+  | 'minusCircle'
+  | 'checkSquare';
 
 const FILLED: Partial<Record<AppIconName, ReactNode>> = {
+  bag: (
+    <path d="M8 7V6a4 4 0 0 1 8 0v1h2.6a1 1 0 0 1 1 .9l1 12A1.6 1.6 0 0 1 19 21.6H5a1.6 1.6 0 0 1-1.6-1.7l1-12a1 1 0 0 1 1-.9zm2 0h4V6a2 2 0 0 0-4 0zm-1 4.2a1 1 0 1 0 0-2 1 1 0 0 0 0 2zm6 0a1 1 0 1 0 0-2 1 1 0 0 0 0 2z" fillRule="evenodd" />
+  ),
+  gear: (
+    <path
+      d="M10.3 2.5h3.4l.5 2.6a7.6 7.6 0 0 1 1.9 1.1l2.5-.9 1.7 3-2 1.7a7.7 7.7 0 0 1 0 2.2l2 1.7-1.7 3-2.5-.9a7.6 7.6 0 0 1-1.9 1.1l-.5 2.6h-3.4l-.5-2.6a7.6 7.6 0 0 1-1.9-1.1l-2.5.9-1.7-3 2-1.7a7.7 7.7 0 0 1 0-2.2l-2-1.7 1.7-3 2.5.9a7.6 7.6 0 0 1 1.9-1.1zM12 15.2a3.2 3.2 0 1 0 0-6.4 3.2 3.2 0 0 0 0 6.4z"
+      fillRule="evenodd"
+    />
+  ),
   truck: (
     <>
       <path d="M2.5 6.5A1.5 1.5 0 0 1 4 5h9.5A1.5 1.5 0 0 1 15 6.5V16H2.5z" />
@@ -735,6 +754,56 @@ const STROKED: Record<AppIconName, ReactNode> = {
       <path d="M15.5 8.5V5.5a2 2 0 0 0-2-2h-7a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h2" />
     </>
   ),
+  // A fork and knife crossed.
+  utensils: (
+    <>
+      <path d="M5 4.5 19.5 19M6.5 3v3.8a2.3 2.3 0 0 0 4.6 0V3M8.8 9.2 4.5 19.5" />
+      <path d="M19 3.5c-2.4 1.2-4 3.8-4 6.5l1.6 1.6-2.2 2.2" />
+    </>
+  ),
+  // A clock with the arrow turning back: history.
+  history: (
+    <>
+      <path d="M3.8 12a8.2 8.2 0 1 0 2.4-5.8L3.8 8.6" />
+      <path d="M3.8 4.3v4.3h4.3M12 7.8V12l3 2" />
+    </>
+  ),
+  // A large and a small T.
+  textSize: <path d="M3.5 6.5V5h10v1.5M8.5 5v14M7 19h3M13.5 11.5V10.5h7v1M17 10.5V19M15.8 19h2.4" />,
+  mail: (
+    <>
+      <rect x="3" y="5.5" width="18" height="13" rx="2" />
+      <path d="m3.5 7 8.5 6 8.5-6" />
+    </>
+  ),
+  eye: (
+    <>
+      <path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z" />
+      <circle cx="12" cy="12" r="3" />
+    </>
+  ),
+  // The eye, struck through: the password is hidden.
+  eyeOff: (
+    <>
+      <path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z" />
+      <circle cx="12" cy="12" r="3" />
+      <path d="M4 4l16 16" />
+    </>
+  ),
+  minusCircle: (
+    <>
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M8 12h8" />
+    </>
+  ),
+  checkSquare: (
+    <>
+      <rect x="4" y="4" width="16" height="16" rx="2.5" />
+      <path d="m8.5 12.2 2.5 2.5 4.6-5" />
+    </>
+  ),
+  bag: null,
+  gear: null,
 };
 
 export function AppIcon({ name, size = 24 }: { name: AppIconName; size?: number }) {

@@ -85,6 +85,7 @@ export const NAV_ITEMS: readonly NavItem[] = [
     icon: 'inventory',
     accent: 'green',
     permissions: [PERMISSION_KEYS.INVENTORY_VIEW],
+    primary: true,
   },
   {
     href: '/reports',
@@ -93,7 +94,6 @@ export const NAV_ITEMS: readonly NavItem[] = [
     accent: 'purple',
     permissions: [PERMISSION_KEYS.REPORTS_VIEW],
     requiresBranch: true,
-    primary: true,
   },
   {
     href: '/displays',
@@ -105,18 +105,10 @@ export const NAV_ITEMS: readonly NavItem[] = [
   },
   {
     href: '/settings/users',
-    label: 'Users',
+    label: 'User Management',
     icon: 'users',
     accent: 'blue',
     permissions: [PERMISSION_KEYS.USERS_VIEW],
-    settings: true,
-  },
-  {
-    href: '/settings/roles',
-    label: 'Roles',
-    icon: 'roles',
-    accent: 'green',
-    permissions: [PERMISSION_KEYS.ROLES_VIEW],
     settings: true,
   },
   {
@@ -147,12 +139,15 @@ export const NAV_ITEMS: readonly NavItem[] = [
   },
 ];
 
-/** The Settings hub itself — in the bottom bar and the side navigation. */
+/**
+ * The Settings hub itself — in the side navigation as a page, and at the end
+ * of the phone's bottom bar, where it opens the Settings sheet instead.
+ */
 export const SETTINGS_ITEM: NavItem = {
   href: '/settings',
   label: 'Settings',
   icon: 'settings',
-  accent: 'slate',
+  accent: 'amber',
   permissions: [],
   primary: true,
 };

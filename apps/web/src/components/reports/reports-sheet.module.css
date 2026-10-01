@@ -97,6 +97,17 @@
   color: var(--accent-purple-fg);
 }
 
+/* The Settings sheet's header tile. */
+.tileAmber {
+  background: var(--accent-amber-bg);
+  color: var(--accent-amber-fg);
+}
+
+/* Rows that are links (the Settings menu) look exactly like row buttons. */
+a.item:hover {
+  text-decoration: none;
+}
+
 .text {
   display: grid;
   gap: 2px;
@@ -118,6 +129,18 @@
   flex: none;
   color: var(--color-text-muted);
   opacity: 0.6;
+}
+
+/* The Settings sheet: a card floating just above the bottom bar, which stays
+   in view (the backdrop stops where the bar begins). */
+.floating {
+  padding: 0 10px 8px;
+}
+
+.floating .sheet {
+  max-height: calc(100% - 24px);
+  padding-bottom: 6px;
+  border-radius: 28px;
 }
 
 @media (min-width: 640px) {

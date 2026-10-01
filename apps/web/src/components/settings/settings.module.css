@@ -57,3 +57,12 @@
 .table th,
 .table td { text-align: left; padding: 8px; border-bottom: 1px solid var(--color-border); vertical-align: top; }
 .pagination { display: flex; flex-wrap: wrap; gap: var(--gap); align-items: center; }
+
+/* The Settings page: the sheet's list, framed as a card. */
+.menuPanel {
+  max-width: 560px;
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  background: var(--color-surface);
+}

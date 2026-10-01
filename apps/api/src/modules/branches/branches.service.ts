@@ -66,6 +66,20 @@ export class BranchesService {
         },
       });
 
+      // Corporate members work at every branch, so a new branch is theirs too.
+      const corporate = await tx.role.findMany({
+        where: {
+          company_id: companyId,
+          personal_user: { memberships: { some: { company_id: companyId, is_corporate: true } } },
+        },
+        select: { id: true, personal_user_id: true },
+      });
+      if (corporate.length > 0) {
+        await tx.userBranchRole.createMany({
+          data: corporate.map((r) => ({ user_id: r.personal_user_id!, branch_id: branch.id, role_id: r.id })),
+        });
+      }
+
       await this.auditLogService.create(
         {
           actorUserId,

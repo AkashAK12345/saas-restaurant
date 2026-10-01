@@ -31,7 +31,8 @@ export class RolesService {
    */
   async listRoles(companyId: string) {
     return this.prisma.role.findMany({
-      where: { company_id: companyId },
+      // Personal roles hold one member's User Management access; not shared.
+      where: { company_id: companyId, personal_user_id: null },
       include: {
         permissions: {
           include: { permission: true },
@@ -63,7 +64,9 @@ export class RolesService {
       },
     });
 
-    if (!role || role.company_id !== companyId) throw new NotFoundException();
+    // A member's personal role (User Management) is theirs alone: never read
+    // or edited as a shared role.
+    if (!role || role.company_id !== companyId || role.personal_user_id !== null) throw new NotFoundException();
     return role;
   }
 
@@ -122,7 +125,9 @@ export class RolesService {
    */
   async updateRole(roleId: string, companyId: string, dto: UpdateRoleDto, actorUserId: string) {
     const role = await this.prisma.role.findUnique({ where: { id: roleId } });
-    if (!role || role.company_id !== companyId) throw new NotFoundException();
+    // A member's personal role (User Management) is theirs alone: never read
+    // or edited as a shared role.
+    if (!role || role.company_id !== companyId || role.personal_user_id !== null) throw new NotFoundException();
 
     if (dto.name && dto.name !== role.name) {
       const existing = await this.prisma.role.findUnique({
@@ -187,7 +192,9 @@ export class RolesService {
       where: { id: roleId },
       include: { permissions: { include: { permission: true } } },
     });
-    if (!role || role.company_id !== companyId) throw new NotFoundException();
+    // A member's personal role (User Management) is theirs alone: never read
+    // or edited as a shared role.
+    if (!role || role.company_id !== companyId || role.personal_user_id !== null) throw new NotFoundException();
 
     // Validate every supplied permission name exists in the Permission table
     const permissionNames = [...new Set(dto.permissions)]; // deduplicate
