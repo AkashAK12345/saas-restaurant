@@ -236,6 +236,10 @@ model User {
   first_name    String?
   last_name     String?
   is_superadmin Boolean    @default(false)
+  // The single owner account: admin at every branch of every company, which
+  // nobody else can change, disable or remove, and the only account that may
+  // reset its password by an emailed code. Set by packages/database/owner.ts.
+  is_owner      Boolean    @default(false)
   // Global sign-in capability. See UserStatus.
   status        UserStatus @default(ACTIVE)
   created_at    DateTime   @default(now()) @db.Timestamptz(3)
@@ -249,6 +253,7 @@ model User {
   // per company.
   personal_roles Role[]
   user_groups    UserGroupMember[]
+  password_reset_codes PasswordResetCode[]
   audit_logs   AuditLog[]
   queue_token_events QueueTokenEvent[]
   banquet_payments   BanquetPayment[]
@@ -1230,6 +1235,24 @@ model RolePermission {
   @@index([role_id])
   @@index([permission_id])
   @@map("role_permissions")
+}
+
+// A one-time code emailed for "Forgot password". Only a hash is kept; a code
+// lives 10 minutes, allows 5 tries, and is spent by a successful reset or by
+// a newer code.
+model PasswordResetCode {
+  id          String    @id @default(uuid()) @db.Uuid
+  user_id     String    @db.Uuid
+  code_hash   String    @db.VarChar(64)
+  expires_at  DateTime  @db.Timestamptz(3)
+  attempts    Int       @default(0)
+  consumed_at DateTime? @db.Timestamptz(3)
+  created_at  DateTime  @default(now()) @db.Timestamptz(3)
+
+  user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id, created_at])
+  @@map("password_reset_codes")
 }
 
 // A named list of a company's members (e.g. "Branch Heads", "Kitchen"),

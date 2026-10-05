@@ -30,6 +30,8 @@ import { PERMISSION_META_KEY } from '../src/common/authorization/require-permiss
 const PUBLIC_ROUTES: Record<string, string> = {
   'GET /health': 'liveness only; returns no data',
   'POST /auth/login': 'credentials are the proof; throttled per ip+email',
+  'POST /auth/password-recovery/request': 'same reply for every email; mails a code to the owner only; throttled per ip and email',
+  'POST /auth/password-recovery/reset': 'the emailed one-time code is the proof; 5 tries per code, throttled per ip',
   'POST /auth/refresh': 'the refresh token is the proof',
   'POST /auth/logout': 'the refresh token is the proof; revokes only that session',
 };

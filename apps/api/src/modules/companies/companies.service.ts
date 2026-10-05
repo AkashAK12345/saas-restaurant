@@ -7,6 +7,7 @@ import {
 import { MembershipStatus, CompanyStatus, AuditEventType } from '@samco/database';
 import { PrismaService } from '../../core/database/prisma.service.js';
 import { AuditLogService } from '../audit-logs/audit-logs.service.js';
+import { findOwnerId, syncOwnerAccess } from '../users/owner-access.js';
 import type {
   CreateCompanyDto,
   UpdateCompanyDto,
@@ -82,6 +83,10 @@ export class CompaniesService {
           status: MembershipStatus.ACTIVE,
         },
       });
+
+      // The owner has central control: every new company is theirs too.
+      const ownerId = await findOwnerId(tx);
+      if (ownerId) await syncOwnerAccess(tx, ownerId, company.id);
 
       await this.auditLogService.create(
         {
@@ -316,6 +321,8 @@ export class CompaniesService {
     if (!membership || membership.company_id !== companyId) {
       throw new NotFoundException();
     }
+    const owner = await this.prisma.user.findUnique({ where: { id: membership.user_id }, select: { is_owner: true } });
+    if (owner?.is_owner) throw new ForbiddenException('The owner account cannot be changed');
 
     return this.prisma.$transaction(async (tx) => {
       const updated = await tx.companyMembership.update({

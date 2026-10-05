@@ -58,13 +58,23 @@ describe('AppContextProvider', () => {
     window.sessionStorage.clear();
   });
 
-  it('loads selectable companies with no selection', async () => {
-    apiGet.mockResolvedValue(base);
+  it('loads selectable companies and, for someone in several, opens the first active one', async () => {
+    apiGet.mockImplementation(async (_p: string, o: { companyId: string | null }) =>
+      o.companyId === 'co-A' ? { ...base, company: { ...base.companies[0], permissions: [], branches: [] } } : base,
+    );
     render(<AppContextProvider><Probe /></AppContextProvider>);
     await waitFor(() => expect(screen.getByTestId('loading').textContent).toBe('false'));
     expect(screen.getByTestId('companies').textContent).toBe('co-A,co-B');
+    expect(apiGet).toHaveBeenCalledWith('/auth/context', { companyId: null, branchId: null });
+    await waitFor(() => expect(screen.getByTestId('company').textContent).toBe('co-A'));
+    expect(apiGet).toHaveBeenLastCalledWith('/auth/context', { companyId: 'co-A', branchId: null });
+  });
+
+  it('never opens a suspended company by itself', async () => {
+    apiGet.mockResolvedValue({ ...base, companies: [{ id: 'co-B', name: 'Beta', status: 'SUSPENDED' }, { id: 'co-C', name: 'Gamma', status: 'INACTIVE' }] });
+    render(<AppContextProvider><Probe /></AppContextProvider>);
+    await waitFor(() => expect(screen.getByTestId('loading').textContent).toBe('false'));
     expect(screen.getByTestId('company').textContent).toBe('-');
-    expect(apiGet).toHaveBeenLastCalledWith('/auth/context', { companyId: null, branchId: null });
   });
 
   it('selecting a company re-requests context WITH the header and exposes its branches + permissions', async () => {

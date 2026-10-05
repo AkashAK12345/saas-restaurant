@@ -22,6 +22,8 @@ function makePrisma() {
     companyMembership: { findUnique: vi.fn() },
     branch: { findUnique: vi.fn() },
     userBranchRole: { findMany: vi.fn() },
+    // A member's personal role: none unless a test sets one.
+    role: { findUnique: vi.fn().mockResolvedValue(null) },
   };
 }
 
@@ -144,6 +146,16 @@ describe('AuthorizationService', () => {
         VALID_COMPANY,
       );
       expect(perms.size).toBe(0);
+    });
+
+    it('counts the member’s personal role even before it sits at any branch', async () => {
+      prisma.userBranchRole.findMany.mockResolvedValue([]);
+      prisma.role.findUnique.mockResolvedValue({ permissions: [{ permission: { name: 'branches.create' } }] });
+      const perms = await service.getEffectiveCompanyPermissions(VALID_USER, VALID_COMPANY);
+      expect([...perms]).toEqual(['branches.create']);
+      expect(prisma.role.findUnique).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { company_id_personal_user_id: { company_id: VALID_COMPANY, personal_user_id: VALID_USER } } }),
+      );
     });
   });
 

@@ -28,6 +28,8 @@ export interface UserListEntry {
   email: string;
   name: string;
   status: string;
+  /** The owner account: central control, never changed by anyone else. */
+  owner: boolean;
   user_type: UserTypeKey;
   corporate: boolean;
   branch: { id: string; name: string } | null;
@@ -140,8 +142,10 @@ export class UserAccessService {
     if (userId === actorUserId) throw new ForbiddenException('You cannot change your own access');
     const membership = await this.prisma.companyMembership.findUnique({
       where: { user_id_company_id: { user_id: userId, company_id: companyId } },
+      include: { user: { select: { is_owner: true } } },
     });
     if (!membership || membership.status !== MembershipStatus.ACTIVE) throw new NotFoundException();
+    if (membership.user.is_owner) throw new ForbiddenException('The owner account cannot be changed');
     const plan = await this.plan(companyId, actorUserId, dto);
 
     await this.prisma.$transaction(async (tx) => {
@@ -293,14 +297,14 @@ export class UserAccessService {
       user_type: UserType | null;
       is_corporate: boolean;
       home_branch: { id: string; name: string } | null;
-      user: { email: string; first_name: string | null; last_name: string | null; status: string };
+      user: { email: string; first_name: string | null; last_name: string | null; status: string; is_owner: boolean };
     },
     legacy: { branches: Map<string, string>; permissions: Set<string> } | undefined,
     activeBranches: { id: string; name: string }[],
   ): UserListEntry {
     const name =
       [m.user.first_name, m.user.last_name].filter(Boolean).join(' ').trim() || m.user.email.split('@')[0];
-    const base = { id: m.user_id, email: m.user.email, name, status: m.user.status };
+    const base = { id: m.user_id, email: m.user.email, name, status: m.user.status, owner: m.user.is_owner };
     if (m.user_type) {
       return { ...base, user_type: m.user_type, corporate: m.is_corporate, branch: m.home_branch };
     }

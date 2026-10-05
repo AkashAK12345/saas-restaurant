@@ -235,6 +235,11 @@
   color: #3f4bb8;
 }
 
+.badgeOwner {
+  background: var(--accent-amber-bg);
+  color: var(--accent-amber-fg);
+}
+
 .badgeMuted {
   background: var(--color-surface-muted);
   color: var(--color-text-muted);

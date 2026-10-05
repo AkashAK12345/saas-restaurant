@@ -103,6 +103,7 @@ export function UserList({
                     ) : (
                       <span className={`${styles.badge} ${styles.badgeMuted}`}>No branch</span>
                     )}
+                    {u.owner ? <span className={`${styles.badge} ${styles.badgeOwner}`}>Owner</span> : null}
                     {u.status === 'INACTIVE' ? (
                       <span className={`${styles.badge} ${styles.badgeMuted}`}>Disabled</span>
                     ) : null}

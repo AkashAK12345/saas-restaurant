@@ -23,6 +23,7 @@
  */
 import { PrismaClient } from '@prisma/client';
 import { SYSTEM_PERMISSIONS } from '../../apps/api/src/common/authorization/permission-keys.js';
+import { findOwnerId, syncOwnerAccess } from '../../apps/api/src/modules/users/owner-access.js';
 
 const prisma = new PrismaClient();
 
@@ -47,6 +48,13 @@ async function main() {
   }
 
   console.log(`Done: ${created} created, ${updated} updated.`);
+
+  // The owner holds every permission, including any just added.
+  const ownerId = await findOwnerId(prisma);
+  if (ownerId) {
+    await prisma.$transaction((tx) => syncOwnerAccess(tx, ownerId), { timeout: 60_000 });
+    console.log('Owner access brought up to date.');
+  }
 }
 
 main()

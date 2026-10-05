@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, type FormEvent } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth/auth-provider';
 import { ApiError } from '@/lib/api/client';
@@ -78,6 +79,10 @@ export default function LoginPage() {
           disabled={busy}
         />
       </label>
+
+      <Link href="/forgot-password" className={styles.forgot}>
+        Forgot password?
+      </Link>
 
       {error ? (
         <p role="alert" className={styles.error}>

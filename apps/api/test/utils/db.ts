@@ -145,6 +145,7 @@ export async function resetDatabase(prisma: PrismaService): Promise<void> {
   await purgeInventory(prisma);
   await prisma.userGroupMember.deleteMany();
   await prisma.userGroup.deleteMany();
+  await prisma.passwordResetCode.deleteMany();
   await prisma.userBranchRole.deleteMany();
   await prisma.rolePermission.deleteMany();
   await prisma.userSession.deleteMany();

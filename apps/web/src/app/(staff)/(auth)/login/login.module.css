@@ -41,3 +41,59 @@
   justify-content: center;
   margin-bottom: var(--gap-lg);
 }
+
+/* "Forgot password?" — right under the password, out of the way. */
+.forgot {
+  align-self: flex-end;
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--tap-min);
+  margin-top: -6px;
+  color: var(--color-primary);
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.notice {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--accent-green-bg);
+  color: var(--accent-green-fg);
+}
+
+.hint {
+  margin: -4px 0 0;
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+}
+
+.secondary {
+  min-height: var(--tap-min);
+  border: 0;
+  background: none;
+  color: var(--color-primary);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.secondary:disabled {
+  color: var(--color-text-muted);
+  cursor: default;
+}
+
+.back {
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  min-height: var(--tap-min);
+  color: var(--color-text-muted);
+  font-weight: 600;
+}
+
+.code {
+  letter-spacing: 0.4em;
+  font-size: 1.3rem;
+  text-align: center;
+}

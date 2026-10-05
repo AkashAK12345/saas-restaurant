@@ -2,6 +2,7 @@ import {
   IsEmail,
   IsNotEmpty,
   IsString,
+  Matches,
   MinLength,
   MaxLength,
 } from 'class-validator';
@@ -46,6 +47,29 @@ export class ChangePasswordDto {
   @IsString()
   @IsNotEmpty()
   current_password!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @MinLength(PASSWORD_POLICY.MIN_LENGTH)
+  @MaxLength(PASSWORD_POLICY.MAX_LENGTH)
+  new_password!: string;
+}
+
+/** POST /auth/password-recovery/request — the same reply for every email. */
+export class PasswordRecoveryRequestDto {
+  @IsEmail()
+  @IsNotEmpty()
+  email!: string;
+}
+
+/** POST /auth/password-recovery/reset — the emailed code and the new password. */
+export class PasswordRecoveryResetDto {
+  @IsEmail()
+  @IsNotEmpty()
+  email!: string;
+
+  @Matches(/^\d{6}$/, { message: 'The code is 6 digits' })
+  code!: string;
 
   @IsString()
   @IsNotEmpty()

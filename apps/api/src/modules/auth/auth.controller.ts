@@ -21,7 +21,10 @@ import {
   RefreshDto,
   LogoutDto,
   ChangePasswordDto,
+  PasswordRecoveryRequestDto,
+  PasswordRecoveryResetDto,
 } from './auth.dto.js';
+import { PasswordRecoveryService } from './password-recovery.service.js';
 import { JwtAuthGuard } from './jwt-auth.guard.js';
 
 interface AuthenticatedRequest {
@@ -33,7 +36,25 @@ export class AuthController {
   constructor(
     private readonly authService: AuthService,
     private readonly authContext: AuthContextService,
+    private readonly recovery: PasswordRecoveryService,
   ) {}
+
+  /**
+   * "Forgot password": emails a one-time code to the owner account. Every
+   * other email gets the same reply and nothing is sent.
+   */
+  @Post('password-recovery/request')
+  @HttpCode(HttpStatus.ACCEPTED)
+  requestRecovery(@Body() dto: PasswordRecoveryRequestDto, @Ip() ip: string) {
+    return this.recovery.request(dto.email, ip ?? 'unknown');
+  }
+
+  /** Sets a new password with the emailed code; signs out every device. */
+  @Post('password-recovery/reset')
+  @HttpCode(HttpStatus.OK)
+  resetWithCode(@Body() dto: PasswordRecoveryResetDto, @Ip() ip: string) {
+    return this.recovery.reset(dto.email, dto.code, dto.new_password, ip ?? 'unknown');
+  }
 
   @Post('login')
   @HttpCode(HttpStatus.OK)

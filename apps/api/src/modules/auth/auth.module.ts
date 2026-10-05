@@ -11,6 +11,8 @@ import {
   LOGIN_ATTEMPT_STORE,
 } from './login-throttle.service.js';
 import { AuthContextService } from './auth-context.service.js';
+import { PasswordRecoveryService } from './password-recovery.service.js';
+import { MailService } from '../../common/mail/mail.service.js';
 import { AuthorizationModule } from '../../common/authorization/authorization.module.js';
 
 @Module({
@@ -34,6 +36,8 @@ import { AuthorizationModule } from '../../common/authorization/authorization.mo
   providers: [
     AuthService,
     AuthContextService,
+    PasswordRecoveryService,
+    MailService,
     JwtStrategy,
     JwtAuthGuard,
     // Swap this useClass for a shared-store implementation to make throttling

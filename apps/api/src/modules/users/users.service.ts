@@ -57,6 +57,12 @@ export class UsersService {
     return safe;
   }
 
+  /** The owner's access is fixed (every permission, every branch); nobody changes it. */
+  private async refuseOwner(userId: string): Promise<void> {
+    const user = await this.prisma.user.findUnique({ where: { id: userId }, select: { is_owner: true } });
+    if (user?.is_owner) throw new ForbiddenException('The owner account cannot be changed');
+  }
+
   private normalizeEmail(email: string): string {
     return email.trim().toLowerCase();
   }
@@ -413,6 +419,7 @@ export class UsersService {
     if (targetUserId === actorUserId) {
       throw new ForbiddenException('You cannot assign a role to yourself');
     }
+    await this.refuseOwner(targetUserId);
 
     // Invariant 1: branch belongs to company
     const branch = await this.prisma.branch.findUnique({
@@ -546,6 +553,7 @@ export class UsersService {
     ) {
       throw new NotFoundException();
     }
+    await this.refuseOwner(targetUserId);
 
     await this.prisma.$transaction(async (tx) => {
       await tx.userBranchRole.delete({ where: { id: assignmentId } });

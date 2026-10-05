@@ -79,6 +79,16 @@ export class AuthorizationService {
         effectivePerms.add(rp.permission.name);
       }
     }
+
+    // The member's personal role (User Management) counts company-wide even
+    // before it sits at any branch — otherwise a company with no branches yet
+    // would give nobody the right to create its first one. Wherever the role
+    // is assigned at a branch it adds nothing new here.
+    const personal = await this.prisma.role.findUnique({
+      where: { company_id_personal_user_id: { company_id: companyId, personal_user_id: userId } },
+      select: { permissions: { select: { permission: { select: { name: true } } } } },
+    });
+    for (const rp of personal?.permissions ?? []) effectivePerms.add(rp.permission.name);
     return effectivePerms;
   }
 

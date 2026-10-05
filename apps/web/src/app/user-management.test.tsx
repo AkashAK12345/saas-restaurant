@@ -72,6 +72,7 @@ const user = (over: Partial<UserListEntry>): UserListEntry => ({
   email: 'admin@yourapp.com',
   name: 'admin',
   status: 'ACTIVE',
+  owner: false,
   user_type: 'ADMIN',
   corporate: true,
   branch: null,
@@ -374,6 +375,13 @@ describe('User Management — editing a user', () => {
       }),
     );
     expect(await screen.findByText('Access saved.')).toBeTruthy();
+  });
+
+  it('shows the owner as such, and the owner account cannot be changed', async () => {
+    apiMock.detail.mockResolvedValue(detail({ owner: true, managed: true }));
+    await renderEdit();
+    expect(screen.getByRole('alert').textContent).toMatch('This is the owner account');
+    expect((screen.getByRole('button', { name: 'Save Changes' }) as HTMLButtonElement).disabled).toBe(true);
   });
 
   it('never lets someone change their own access', async () => {

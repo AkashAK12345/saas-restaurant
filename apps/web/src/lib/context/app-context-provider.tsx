@@ -154,15 +154,18 @@ export function AppContextProvider({ children }: { children: ReactNode }) {
           setSelectedBranchId(null);
           writeStored(userId, BRANCH_KEY, null);
         }
-        // SINGLE-COMPANY PRODUCT: one company is not a choice to make, so it is
-        // selected automatically and the pill is purely a branch picker. Once
-        // per user: the branch check above also DROPS a selection the server
-        // does not grant, and re-selecting on every response would spin.
-        if (!selectedCompanyId && ctx.companies?.length === 1 && autoSelected.current !== userId) {
+        // Nobody should land on an empty app for want of a company: with none
+        // chosen, the only one is selected — or, for someone in several, the
+        // first active one. Someone in several companies — the owner — switches in the
+        // branch pill. Once per user: the branch check above also DROPS a
+        // selection the server does not grant, and re-selecting on every
+        // response would spin.
+        const first =
+          ctx.companies?.length === 1 ? ctx.companies[0] : ctx.companies?.find((c) => c.status === 'ACTIVE');
+        if (!selectedCompanyId && first && autoSelected.current !== userId) {
           autoSelected.current = userId;
-          const only = ctx.companies[0].id;
-          setSelectedCompanyId(only);
-          writeStored(userId, COMPANY_KEY, only);
+          setSelectedCompanyId(first.id);
+          writeStored(userId, COMPANY_KEY, first.id);
         }
         setResult({ key, data: ctx, error: null });
       } catch (err) {

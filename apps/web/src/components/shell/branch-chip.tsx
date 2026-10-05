@@ -12,9 +12,9 @@ import styles from './branch-chip.module.css';
  * this user can actually reach: "All Branches" first, then the branches, with
  * a tick on the current one and a search box once the list grows.
  *
- * SINGLE-COMPANY PRODUCT: there is no company switcher. The context provider
- * selects the company the server returns, and this pill only chooses among
- * its branches.
+ * The context provider selects the user's company, and this pill chooses among
+ * its branches. Only someone in several companies (the owner) also sees a
+ * company picker here.
  *
  * THE LIST IS THE SERVER'S — `branches` comes from /auth/context, which
  * returns only the branches this user holds a role at, so the pill can never
@@ -118,10 +118,9 @@ export function BranchChip({ align = 'end' }: { align?: 'start' | 'end' }) {
           aria-label="Choose branch"
         >
 
-          {/* SINGLE-COMPANY PRODUCT: no company switcher. This shows only for
-              data where a user belongs to several companies and none is chosen,
-              so the pill can never become a dead end. */}
-          {ctx.companies.length > 1 && !ctx.selectedCompanyId ? (
+          {/* Almost everyone belongs to one company and never sees this. Someone
+              in several (the owner, with central control) switches here. */}
+          {ctx.companies.length > 1 ? (
             <div className={styles.group}>
               <label className={styles.groupLabel} htmlFor="chip-company">
                 Company

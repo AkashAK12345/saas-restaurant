@@ -36,6 +36,8 @@ export interface UserListEntry {
   email: string;
   name: string;
   status: 'ACTIVE' | 'INACTIVE';
+  /** The owner account: central control; nobody else can change it. */
+  owner: boolean;
   user_type: UserType;
   corporate: boolean;
   branch: { id: string; name: string } | null;
