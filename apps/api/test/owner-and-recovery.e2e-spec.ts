@@ -115,6 +115,10 @@ describe('Owner account and password recovery (e2e)', () => {
       });
       expect(role!._count.permissions).toBe(await prisma.permission.count());
 
+      // The original company comes first, so it is the one that opens.
+      const context = await request(http).get('/api/v1/auth/context').set('Authorization', `Bearer ${ownerToken}`);
+      expect(context.body.companies.slice(0, 2).map((c: any) => c.name)).toEqual(['Owner Alpha', 'Owner Beta']);
+
       // Shows as the owner on User Management.
       const list = await as(request(http).get('/api/v1/user-access/users'), ownerToken);
       expect(list.body.find((u: any) => u.email === OWNER_EMAIL)).toMatchObject({ owner: true, user_type: 'ADMIN', corporate: true });

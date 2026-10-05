@@ -43,7 +43,9 @@ export class AuthContextService {
     const memberships = await this.prisma.companyMembership.findMany({
       where: { user_id: userId, status: MembershipStatus.ACTIVE },
       include: { company: { select: { id: true, name: true, status: true } } },
-      orderBy: { company: { name: 'asc' } },
+      // Oldest company first: for someone in several (the owner), the original
+      // business opens by default rather than whichever sorts first by name.
+      orderBy: [{ company: { created_at: 'asc' } }, { company: { name: 'asc' } }],
     });
     const companies = memberships.map((m) => m.company);
 
